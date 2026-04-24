@@ -1,5 +1,5 @@
-import { cookies } from 'next/headers';
 import { type NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import { db } from '@/lib/db';
@@ -7,22 +7,46 @@ import { mockStreamGenerator } from '@/lib/mock-stream';
 
 export const runtime = 'nodejs';
 
+const chatRequestBodySchema = z.object({
+  message: z.string().min(1),
+  conversationId: z.string().nullable().optional(),
+});
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error';
+}
+
+function ensureDemoUsersExist() {
+  const insertUser = db.prepare(
+    'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+  );
+  const now = Math.floor(Date.now() / 1000);
+
+  for (const user of DEMO_USERS) {
+    insertUser.run(user.id, user.email, user.role, user.display_name, now);
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
-    let body;
+    let rawBody: unknown;
     try {
-      body = await req.json();
-    } catch (e) {
-      return NextResponse.json({ error: 'Invalid or missing JSON body' }, { status: 400 });
+      rawBody = await req.json();
+    } catch (_e) {
+      return NextResponse.json(
+        { error: 'Invalid or missing JSON body' },
+        { status: 400 },
+      );
     }
-    const { message, conversationId } = body;
 
-    if (!message || typeof message !== 'string') {
+    const parsedBody = chatRequestBodySchema.safeParse(rawBody);
+    if (!parsedBody.success) {
       return NextResponse.json(
         { error: 'Message is required' },
         { status: 400 },
       );
     }
+    const { message, conversationId } = parsedBody.data;
 
     const sessionCookie = req.cookies.get('contentops_session');
     let userId = DEMO_USERS.find((u) => u.role === 'Creator')?.id;
@@ -38,14 +62,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // On a fresh local DB, missing seeded users would trigger FK errors.
+    // Ensure the known demo identities exist before writing conversations/messages.
+    const selectedUserExists = db
+      .prepare('SELECT 1 FROM users WHERE id = ?')
+      .get(userId);
+    if (!selectedUserExists) {
+      ensureDemoUsersExist();
+    }
+
     const now = Math.floor(Date.now() / 1000);
 
     // Run DB ops inside a transaction
     let activeConversationId = conversationId;
     db.transaction(() => {
       // Ensure conversation exists and belongs to the user
-      const existingConv = activeConversationId 
-        ? db.prepare('SELECT id FROM conversations WHERE id = ? AND user_id = ?').get(activeConversationId, userId)
+      const existingConv = activeConversationId
+        ? db
+            .prepare(
+              'SELECT id FROM conversations WHERE id = ? AND user_id = ?',
+            )
+            .get(activeConversationId, userId)
         : null;
 
       if (!activeConversationId || !existingConv) {
@@ -67,7 +104,7 @@ export async function POST(req: NextRequest) {
         // We yield the conversation ID first so the client can update its state
         controller.enqueue(
           encoder.encode(
-            JSON.stringify({ conversationId: activeConversationId }) + '\n',
+            `${JSON.stringify({ conversationId: activeConversationId })}\n`,
           ),
         );
 
@@ -79,7 +116,7 @@ export async function POST(req: NextRequest) {
             // Send chunk data as JSON lines or Server-Sent Events.
             // We'll use simple JSON lines.
             controller.enqueue(
-              encoder.encode(JSON.stringify({ chunk }) + '\n'),
+              encoder.encode(`${JSON.stringify({ chunk })}\n`),
             );
           }
 
@@ -94,9 +131,11 @@ export async function POST(req: NextRequest) {
             fullResponse,
             Math.floor(Date.now() / 1000),
           );
-        } catch (error: any) {
+        } catch (error) {
           controller.enqueue(
-            encoder.encode(JSON.stringify({ error: error.message }) + '\n'),
+            encoder.encode(
+              `${JSON.stringify({ error: getErrorMessage(error) })}\n`,
+            ),
           );
         } finally {
           controller.close();
@@ -111,7 +150,7 @@ export async function POST(req: NextRequest) {
         Connection: 'keep-alive',
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Chat API Error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

@@ -1,5 +1,5 @@
 import { jwtVerify, SignJWT } from 'jose';
-import type { SessionPayload } from './types';
+import type { SessionClaims, SessionPayload } from './types';
 
 /**
  * Read the session secret directly from process.env — NOT from the
@@ -27,12 +27,12 @@ export async function encrypt(payload: SessionPayload): Promise<string> {
     .sign(getSecret());
 }
 
-export async function decrypt(token: string): Promise<SessionPayload | null> {
+export async function decrypt(token: string): Promise<SessionClaims | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret(), {
       algorithms: ['HS256'],
     });
-    return payload as unknown as SessionPayload;
+    return payload as unknown as SessionClaims;
   } catch {
     return null;
   }

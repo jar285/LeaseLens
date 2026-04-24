@@ -1,11 +1,52 @@
 'use client';
 
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2, SquarePen } from 'lucide-react';
 import { useState } from 'react';
-import { mockStreamGenerator } from '@/lib/mock-stream';
 import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps } from './ChatMessage';
 import { ChatTranscript } from './ChatTranscript';
+
+type StreamLineMessage =
+  | { conversationId: string }
+  | { chunk: string }
+  | { error: string };
+
+function parseStreamLine(line: string): StreamLineMessage | null {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'conversationId' in parsed &&
+      typeof parsed.conversationId === 'string'
+    ) {
+      return { conversationId: parsed.conversationId };
+    }
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'chunk' in parsed &&
+      typeof parsed.chunk === 'string'
+    ) {
+      return { chunk: parsed.chunk };
+    }
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'error' in parsed &&
+      typeof parsed.error === 'string'
+    ) {
+      return { error: parsed.error };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Failed to generate response';
+}
 
 export interface ChatUIProps {
   initialMessages?: ChatMessageProps[];
@@ -23,6 +64,13 @@ export function ChatUI({
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
   >(conversationId);
+
+  const handleNewConversation = () => {
+    setMessages([]);
+    setActiveConversationId(null);
+    setStatus('idle');
+    setErrorMsg('');
+  };
 
   const handleSubmit = async (text: string) => {
     const trimmed = text.trim();
@@ -74,50 +122,66 @@ export function ChatUI({
 
         for (const line of lines) {
           if (!line.trim()) continue;
-          let data;
-          try {
-            data = JSON.parse(line);
-          } catch (e) {
-            console.error('Error parsing stream line:', e);
+          const data = parseStreamLine(line);
+          if (!data) {
             continue;
           }
-            
-          if (data.conversationId) {
+
+          if ('conversationId' in data) {
             setActiveConversationId(data.conversationId);
-          } else if (data.error) {
+          } else if ('error' in data) {
             throw new Error(data.error);
-          } else if (data.chunk) {
+          } else if ('chunk' in data) {
             currentContent += data.chunk;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantMessageId
                   ? { ...m, content: currentContent }
-                  : m
-              )
+                  : m,
+              ),
             );
           }
         }
       }
 
       if (buffer.trim()) {
-        try {
-          const data = JSON.parse(buffer);
-          if (data.error) throw new Error(data.error);
-        } catch (e) {
-          // ignore
+        const trailingData = parseStreamLine(buffer);
+        if (trailingData && 'error' in trailingData) {
+          throw new Error(trailingData.error);
         }
       }
 
       setStatus('idle');
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      setErrorMsg(error.message);
+      setErrorMsg(getErrorMessage(error));
       setStatus('error');
     }
   };
 
+  const hasMessages = messages.length > 0;
+
   return (
-    <div className="grid h-full min-h-0 w-full grid-rows-[minmax(0,1fr)_auto]">
+    <div className="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto]">
+      {/* Conversation toolbar — only visible when a conversation is active */}
+      <div
+        data-testid="conversation-toolbar"
+        className={`flex shrink-0 items-center justify-end border-b border-gray-100 px-4 py-1.5 ${
+          hasMessages ? '' : 'invisible'
+        }`}
+      >
+        <button
+          type="button"
+          data-testid="new-conversation-btn"
+          onClick={handleNewConversation}
+          disabled={status === 'streaming'}
+          className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 disabled:pointer-events-none disabled:opacity-40"
+        >
+          <SquarePen className="h-3.5 w-3.5" aria-hidden="true" />
+          New conversation
+        </button>
+      </div>
+
       <div role="status" aria-live="polite" className="sr-only">
         {status === 'streaming' && 'Assistant is typing...'}
         {status === 'error' && `Error: ${errorMsg}`}

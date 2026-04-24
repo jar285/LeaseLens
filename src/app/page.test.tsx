@@ -1,5 +1,4 @@
 import {
-  act,
   cleanup,
   fireEvent,
   render,
@@ -12,32 +11,67 @@ import { ChatUI } from '@/components/chat/ChatUI';
 describe('Homepage Chat UI', () => {
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn();
-    
+
     // Mock fetch for the chat submission
     window.fetch = vi.fn().mockImplementation(async (url, options) => {
       if (url === '/api/chat') {
         const body = JSON.parse(options.body);
         const message = body?.message || '';
-        
+
         if (message.includes('throw error')) {
-          return new Response(null, { status: 500, statusText: 'Internal Server Error' });
+          return new Response(null, {
+            status: 500,
+            statusText: 'Internal Server Error',
+          });
         }
 
-        const chunks = ['I ', 'can ', 'help ', 'onboard ', 'Side ', 'Quest ', 'Syndicate ', 'by ', 'clarifying ', 'the ', 'brand ', 'voice, ', 'identifying ', 'content ', 'pillars, ', 'drafting ', 'first-week ', 'post ', 'ideas, ', 'and ', 'preparing ', 'items ', 'for ', 'editorial ', 'approval.'];
-        
+        const chunks = [
+          'I ',
+          'can ',
+          'help ',
+          'onboard ',
+          'Side ',
+          'Quest ',
+          'Syndicate ',
+          'by ',
+          'clarifying ',
+          'the ',
+          'brand ',
+          'voice, ',
+          'identifying ',
+          'content ',
+          'pillars, ',
+          'drafting ',
+          'first-week ',
+          'post ',
+          'ideas, ',
+          'and ',
+          'preparing ',
+          'items ',
+          'for ',
+          'editorial ',
+          'approval.',
+        ];
+
         const stream = new ReadableStream({
           async start(controller) {
-            controller.enqueue(new TextEncoder().encode(JSON.stringify({ conversationId: 'test-id' }) + '\n'));
+            controller.enqueue(
+              new TextEncoder().encode(
+                `${JSON.stringify({ conversationId: 'test-id' })}\n`,
+              ),
+            );
             for (const chunk of chunks) {
-              controller.enqueue(new TextEncoder().encode(JSON.stringify({ chunk }) + '\n'));
+              controller.enqueue(
+                new TextEncoder().encode(`${JSON.stringify({ chunk })}\n`),
+              );
             }
             controller.close();
-          }
+          },
         });
 
         return new Response(stream, {
           status: 200,
-          headers: { 'Content-Type': 'application/x-ndjson' }
+          headers: { 'Content-Type': 'application/x-ndjson' },
         });
       }
       return new Response(null, { status: 404 });
@@ -139,14 +173,42 @@ describe('Homepage Chat UI', () => {
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Failed to generate response/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { name: /Failed to generate response/i }),
+      ).toBeInTheDocument();
     });
-    
+
     const statusRegion = screen.getByRole('status');
     expect(statusRegion).toHaveTextContent(
       'Error: Failed to generate response',
     );
 
     expect(input).not.toBeDisabled();
+  });
+
+  it('does not show the new conversation button on empty state', () => {
+    render(<ChatUI />);
+    const toolbar = screen.getByTestId('conversation-toolbar');
+    // The toolbar is kept in the DOM (to reserve layout space) but hidden via
+    // the `invisible` class when there are no messages.
+    expect(toolbar).toHaveClass('invisible');
+  });
+
+  it('resets to empty state when new conversation is clicked', async () => {
+    render(<ChatUI initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]} conversationId="conv-1" />);
+
+    // Conversation is visible and button is present
+    expect(screen.getByText('Hello')).toBeInTheDocument();
+    const btn = screen.getByTestId('new-conversation-btn');
+    expect(screen.getByTestId('conversation-toolbar')).not.toHaveClass('invisible');
+
+    fireEvent.click(btn);
+
+    // Empty state should be restored
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Hello')).not.toBeInTheDocument();
+    expect(screen.getByTestId('conversation-toolbar')).toHaveClass('invisible');
   });
 });

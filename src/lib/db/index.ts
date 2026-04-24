@@ -1,6 +1,12 @@
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 import { env } from '@/lib/env';
 import { SCHEMA } from './schema';
+
+if (!env.CONTENTOPS_DEMO_MODE) {
+  mkdirSync(dirname(env.CONTENTOPS_DB_PATH), { recursive: true });
+}
 
 const db = new Database(env.CONTENTOPS_DB_PATH, {
   readonly: env.CONTENTOPS_DEMO_MODE,
@@ -15,7 +21,7 @@ if (!env.CONTENTOPS_DEMO_MODE) {
 }
 
 // Initialize schema only if we are in write mode (non-demo)
-// CREATE TABLE IF NOT EXISTS is already idempotent, but executing it on 
+// CREATE TABLE IF NOT EXISTS is already idempotent, but executing it on
 // every import during a read-only demo mode could fail.
 if (!env.CONTENTOPS_DEMO_MODE) {
   db.exec(SCHEMA);

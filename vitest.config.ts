@@ -1,8 +1,7 @@
-import { defineConfig } from 'vitest/config';
 import path from 'node:path';
-import { loadEnv } from 'vite';
-
 import react from '@vitejs/plugin-react';
+import { loadEnv } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig(({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ''));
@@ -15,8 +14,8 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src')
-      }
-    }
+        '@': path.resolve(__dirname, './src'),
+      },
+    },
   };
 });

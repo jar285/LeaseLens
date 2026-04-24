@@ -3,7 +3,8 @@ import { cookies } from 'next/headers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { switchRole } from './actions';
 import { DEMO_USERS } from './constants';
-import { decrypt, encrypt } from './session';
+import { decrypt } from './session';
+import type { Role } from './types';
 
 vi.mock('next/headers', () => {
   const setMock = vi.fn();
@@ -58,7 +59,7 @@ describe('switchRole Server Action', () => {
 
   it('should throw an error for an invalid role', async () => {
     // Need to cast to any to bypass TS for the test
-    await expect(switchRole('InvalidRole' as any)).rejects.toThrow(
+    await expect(switchRole('InvalidRole' as unknown as Role)).rejects.toThrow(
       'Invalid role: InvalidRole',
     );
 

@@ -7,7 +7,7 @@ export interface ChatTranscriptProps {
   isStreaming?: boolean;
 }
 
-export function ChatTranscript({ messages, isStreaming }: ChatTranscriptProps) {
+export function ChatTranscript({ messages }: ChatTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 

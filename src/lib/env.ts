@@ -8,7 +8,8 @@ const envSchema = z.object({
     .default(false),
   CONTENTOPS_ANTHROPIC_MODEL: z.string().default('claude-haiku-4-5'),
   CONTENTOPS_DAILY_SPEND_CEILING_USD: z.coerce.number().default(2),
-  ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
+  // Sprint 2 does not use live Anthropic calls; tighten this in Sprint 3.
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
   CONTENTOPS_SESSION_SECRET: z
     .string()
     .min(32, 'CONTENTOPS_SESSION_SECRET must be at least 32 characters'),
@@ -17,8 +18,8 @@ const envSchema = z.object({
 const parsedEnv = envSchema.safeParse(process.env);
 
 if (!parsedEnv.success) {
-  console.error('❌ Invalid environment variables:', parsedEnv.error.format());
-  process.exit(1);
+  const formatted = JSON.stringify(parsedEnv.error.format(), null, 2);
+  throw new Error(`Invalid environment variables:\n${formatted}`);
 }
 
 export const env = parsedEnv.data;

@@ -5,3 +5,8 @@ export interface SessionPayload {
   role: Role;
   displayName: string;
 }
+
+export interface SessionClaims extends SessionPayload {
+  iat?: number;
+  exp?: number;
+}

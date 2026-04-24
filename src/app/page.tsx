@@ -7,7 +7,6 @@ import { ChatUI } from '@/components/chat/ChatUI';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { env } from '@/lib/env';
 
 export const runtime = 'nodejs';
 
@@ -27,8 +26,8 @@ export default async function Home() {
         .get(payload.userId);
 
       if (userExists) {
-        currentRole = payload.role as any;
-        currentUserId = payload.userId as string;
+        currentRole = payload.role;
+        currentUserId = payload.userId;
       }
     }
   }
@@ -62,8 +61,8 @@ export default async function Home() {
   return (
     <main className="grid h-screen max-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-[#f8f9fa] font-sans text-gray-900">
       <header className="z-10 flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-8 py-3.5">
-        <Link 
-          href="/" 
+        <Link
+          href="/"
           className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-gray-800 transition-opacity hover:opacity-75"
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white">

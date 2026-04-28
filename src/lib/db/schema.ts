@@ -35,4 +35,25 @@ export const SCHEMA = `
     window_start INTEGER NOT NULL,
     count INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS documents (
+    id           TEXT PRIMARY KEY,
+    slug         TEXT UNIQUE NOT NULL,
+    title        TEXT NOT NULL,
+    content      TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    created_at   INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS chunks (
+    id              TEXT PRIMARY KEY,
+    document_id     TEXT NOT NULL REFERENCES documents(id),
+    chunk_index     INTEGER NOT NULL,
+    chunk_level     TEXT NOT NULL CHECK(chunk_level IN ('document', 'section', 'passage')),
+    heading         TEXT,
+    content         TEXT NOT NULL,
+    embedding       BLOB,
+    embedding_model TEXT,
+    created_at      INTEGER NOT NULL
+  );
 `;

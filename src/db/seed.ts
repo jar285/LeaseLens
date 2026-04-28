@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { SCHEMA } from '@/lib/db/schema';
 import { env } from '@/lib/env';
+import { ingestCorpus } from '@/lib/rag/ingest';
 
 export { DEMO_USERS };
 
@@ -23,15 +24,18 @@ export function runSeed(db: Database.Database) {
 
 // Execute if run directly
 if (require.main === module) {
-  const seedDb = new Database(env.CONTENTOPS_DB_PATH);
-  console.log('Seeding database...');
-  try {
-    runSeed(seedDb);
-    console.log('Database seeding complete.');
-  } catch (error) {
-    console.error('Seeding failed:', error);
-    process.exit(1);
-  } finally {
-    seedDb.close();
-  }
+  (async () => {
+    const seedDb = new Database(env.CONTENTOPS_DB_PATH);
+    console.log('Seeding database...');
+    try {
+      runSeed(seedDb);
+      await ingestCorpus(seedDb);
+      console.log('Database seeding complete.');
+    } catch (error) {
+      console.error('Seeding failed:', error);
+      process.exit(1);
+    } finally {
+      seedDb.close();
+    }
+  })();
 }

@@ -1,4 +1,5 @@
 import { PenTool, User } from 'lucide-react';
+import { renderMarkdown } from '@/lib/chat/render-markdown';
 
 export interface ChatMessageProps {
   id: string;
@@ -30,8 +31,8 @@ export function ChatMessage({ role, content }: ChatMessageProps) {
         <div className="mb-0.5 text-[13px] font-semibold text-gray-800">
           {isUser ? 'You' : 'Editorial Assistant'}
         </div>
-        <div className="whitespace-pre-wrap break-words text-[14.5px] leading-[1.7] text-gray-600">
-          {content}
+        <div className="wrap-break-word text-[14.5px] leading-[1.7] text-gray-600">
+          {isUser ? content : renderMarkdown(content)}
         </div>
       </div>
     </li>

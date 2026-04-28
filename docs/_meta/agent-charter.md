@@ -573,8 +573,8 @@ ContentOps is delivered in 11 sprints (Sprint 0 through Sprint 10).
 
 1.  **Sprint 0 — Foundation (complete):** Next.js 16, React 19, TS Strict, Tailwind 4, SQLite, Vitest, Zod, and placeholder page.
 2.  **Sprint 1 — Homepage Chat UI + Streaming Shell (complete):** Polished light editorial UI, deterministic mock streaming, and scroll architecture.
-3.  **Sprint 2 — Sessions, SQLite Message History, and Role Overlay:** Conversations/messages tables, signed cookies, and role switcher (Creator/Editor/Admin).
-4.  **Sprint 3 — Anthropic Streaming Chat + Demo Cost Guardrails:** Real LLM integration with token-counting and daily spend limits.
+3.  **Sprint 2 — Sessions, SQLite Message History, and Role Overlay (complete):** Conversations/messages tables, signed cookies, and role switcher (Creator/Editor/Admin).
+4.  **Sprint 3 — Anthropic Streaming Chat + Demo Cost Guardrails (complete):** Real LLM integration with token-counting and daily spend limits. Markdown rendering and chat scroll architecture also fixed post-sprint.
 5.  **Sprint 4 — Seed Corpus + RAG Ingestion Foundation:** Document ingestion, chunking, and embedding storage in SQLite.
 6.  **Sprint 5 — Hybrid RAG Retrieval + Grounded Chat:** Vector + BM25 retrieval and grounded assistant responses.
 7.  **Sprint 6 — AI Eval Harness:** Automated groundedness and retrieval quality metrics.

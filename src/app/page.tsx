@@ -75,7 +75,7 @@ export default async function Home() {
           ContentOps Studio
         </Link>
         <span className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 font-mono text-[10px] text-gray-400">
-          sprint-2
+          sprint-3
         </span>
       </header>
       <div className="flex min-h-0 w-full justify-center overflow-hidden">

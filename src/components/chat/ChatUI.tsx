@@ -2,47 +2,10 @@
 
 import { AlertCircle, Loader2, SquarePen } from 'lucide-react';
 import { useState } from 'react';
+import { parseStreamLine } from '@/lib/chat/parse-stream-line';
 import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps } from './ChatMessage';
 import { ChatTranscript } from './ChatTranscript';
-
-type StreamLineMessage =
-  | { conversationId: string }
-  | { chunk: string }
-  | { error: string };
-
-function parseStreamLine(line: string): StreamLineMessage | null {
-  try {
-    const parsed: unknown = JSON.parse(line);
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      'conversationId' in parsed &&
-      typeof parsed.conversationId === 'string'
-    ) {
-      return { conversationId: parsed.conversationId };
-    }
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      'chunk' in parsed &&
-      typeof parsed.chunk === 'string'
-    ) {
-      return { chunk: parsed.chunk };
-    }
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      'error' in parsed &&
-      typeof parsed.error === 'string'
-    ) {
-      return { error: parsed.error };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to generate response';
@@ -60,6 +23,7 @@ export function ChatUI({
   const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
 
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
@@ -70,6 +34,7 @@ export function ChatUI({
     setActiveConversationId(null);
     setStatus('idle');
     setErrorMsg('');
+    setQuotaRemaining(null);
   };
 
   const handleSubmit = async (text: string) => {
@@ -129,6 +94,8 @@ export function ChatUI({
 
           if ('conversationId' in data) {
             setActiveConversationId(data.conversationId);
+          } else if ('quota' in data) {
+            setQuotaRemaining(data.quota.remaining);
           } else if ('error' in data) {
             throw new Error(data.error);
           } else if ('chunk' in data) {
@@ -187,7 +154,7 @@ export function ChatUI({
         {status === 'error' && `Error: ${errorMsg}`}
       </div>
 
-      <div className="relative flex min-h-0 w-full flex-col overflow-hidden">
+      <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
         <ChatTranscript
           messages={messages}
           isStreaming={status === 'streaming'}
@@ -204,6 +171,13 @@ export function ChatUI({
       </div>
 
       <div className="flex flex-col">
+        {quotaRemaining !== null && quotaRemaining <= 2 && (
+          <div className="mx-6 mb-1 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            Demo quota: {quotaRemaining} message
+            {quotaRemaining !== 1 ? 's' : ''} remaining this hour.
+          </div>
+        )}
+
         {status === 'error' && (
           <div className="mx-6 mb-2 mt-2 flex shrink-0 items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3.5 text-red-700">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />

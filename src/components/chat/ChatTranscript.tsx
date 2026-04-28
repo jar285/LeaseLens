@@ -47,7 +47,7 @@ export function ChatTranscript({ messages }: ChatTranscriptProps) {
       onScroll={handleScroll}
       className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-6 md:px-8"
     >
-      <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end">
+      <div className="mx-auto w-full max-w-3xl shrink-0">
         <ul className="m-0 list-none space-y-1 p-0 pb-4">
           {messages.map((msg) => (
             <ChatMessage key={msg.id} {...msg} />

@@ -195,12 +195,19 @@ describe('Homepage Chat UI', () => {
   });
 
   it('resets to empty state when new conversation is clicked', async () => {
-    render(<ChatUI initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]} conversationId="conv-1" />);
+    render(
+      <ChatUI
+        initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]}
+        conversationId="conv-1"
+      />,
+    );
 
     // Conversation is visible and button is present
     expect(screen.getByText('Hello')).toBeInTheDocument();
     const btn = screen.getByTestId('new-conversation-btn');
-    expect(screen.getByTestId('conversation-toolbar')).not.toHaveClass('invisible');
+    expect(screen.getByTestId('conversation-toolbar')).not.toHaveClass(
+      'invisible',
+    );
 
     fireEvent.click(btn);
 

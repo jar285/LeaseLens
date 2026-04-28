@@ -1,9 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getAnthropicClient } from '@/lib/anthropic/client';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
+import type { Role } from '@/lib/auth/types';
+import { buildContextWindow } from '@/lib/chat/context-window';
+import { buildSystemPrompt } from '@/lib/chat/system-prompt';
 import { db } from '@/lib/db';
-import { mockStreamGenerator } from '@/lib/mock-stream';
+import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
+import { isSpendCeilingExceeded, recordSpend } from '@/lib/db/spend';
+import { env } from '@/lib/env';
 
 export const runtime = 'nodejs';
 
@@ -12,16 +18,18 @@ const chatRequestBodySchema = z.object({
   conversationId: z.string().nullable().optional(),
 });
 
+const SPEND_CEILING_MESSAGE =
+  'Daily demo quota reached. Clone the repo for unlimited local use: github.com/your-org/contentop';
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
-function ensureDemoUsersExist() {
+function ensureDemoUsersExist(): void {
   const insertUser = db.prepare(
     'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
   );
   const now = Math.floor(Date.now() / 1000);
-
   for (const user of DEMO_USERS) {
     insertUser.run(user.id, user.email, user.role, user.display_name, now);
   }
@@ -48,13 +56,16 @@ export async function POST(req: NextRequest) {
     }
     const { message, conversationId } = parsedBody.data;
 
+    // Resolve userId and role from session cookie; fall back to default Creator
     const sessionCookie = req.cookies.get('contentops_session');
     let userId = DEMO_USERS.find((u) => u.role === 'Creator')?.id;
+    let role: Role = 'Creator';
 
     if (sessionCookie) {
       const payload = await decrypt(sessionCookie.value);
       if (payload?.userId) {
         userId = payload.userId;
+        role = payload.role;
       }
     }
 
@@ -62,21 +73,55 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // On a fresh local DB, missing seeded users would trigger FK errors.
-    // Ensure the known demo identities exist before writing conversations/messages.
-    const selectedUserExists = db
+    // Ensure known demo identities exist before writing (fresh-DB guard)
+    const userExists = db
       .prepare('SELECT 1 FROM users WHERE id = ?')
       .get(userId);
-    if (!selectedUserExists) {
+    if (!userExists) {
       ensureDemoUsersExist();
+    }
+
+    // Demo-only guardrails
+    let quotaRemaining: number | null = null;
+
+    if (env.CONTENTOPS_DEMO_MODE) {
+      const rateLimit = checkAndIncrementRateLimit(userId);
+      if (!rateLimit.allowed) {
+        return NextResponse.json(
+          { error: 'Rate limit exceeded. Try again in the next hour.' },
+          { status: 429 },
+        );
+      }
+      if (rateLimit.remaining <= 2) {
+        quotaRemaining = rateLimit.remaining;
+      }
+
+      if (isSpendCeilingExceeded()) {
+        const encoder = new TextEncoder();
+        const ceilingStream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                `${JSON.stringify({ chunk: SPEND_CEILING_MESSAGE })}\n`,
+              ),
+            );
+            controller.close();
+          },
+        });
+        return new Response(ceilingStream, {
+          headers: {
+            'Content-Type': 'application/x-ndjson',
+            'Cache-Control': 'no-cache',
+          },
+        });
+      }
     }
 
     const now = Math.floor(Date.now() / 1000);
 
-    // Run DB ops inside a transaction
-    let activeConversationId = conversationId;
+    // Persist user message and resolve/create conversation atomically
+    let activeConversationId = conversationId ?? null;
     db.transaction(() => {
-      // Ensure conversation exists and belongs to the user
       const existingConv = activeConversationId
         ? db
             .prepare(
@@ -92,16 +137,36 @@ export async function POST(req: NextRequest) {
         ).run(activeConversationId, userId, 'New Conversation', now);
       }
 
-      const userMessageId = crypto.randomUUID();
       db.prepare(
         'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
-      ).run(userMessageId, activeConversationId, 'user', message, now);
+      ).run(crypto.randomUUID(), activeConversationId, 'user', message, now);
     })();
 
+    // Load full history (includes the just-persisted user message at the end)
+    const history = db
+      .prepare(
+        'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
+      )
+      .all(activeConversationId) as {
+      role: 'user' | 'assistant';
+      content: string;
+    }[];
+
+    const { contextMessages } = buildContextWindow(history);
+    const systemPrompt = buildSystemPrompt(role);
     const encoder = new TextEncoder();
-    const stream = new ReadableStream({
+
+    const responseStream = new ReadableStream({
       async start(controller) {
-        // We yield the conversation ID first so the client can update its state
+        // Emit quota notice before conversationId when demo quota is low
+        if (quotaRemaining !== null) {
+          controller.enqueue(
+            encoder.encode(
+              `${JSON.stringify({ quota: { remaining: quotaRemaining } })}\n`,
+            ),
+          );
+        }
+
         controller.enqueue(
           encoder.encode(
             `${JSON.stringify({ conversationId: activeConversationId })}\n`,
@@ -110,27 +175,42 @@ export async function POST(req: NextRequest) {
 
         let fullResponse = '';
         try {
-          const generator = mockStreamGenerator(message);
-          for await (const chunk of generator) {
-            fullResponse += chunk;
-            // Send chunk data as JSON lines or Server-Sent Events.
-            // We'll use simple JSON lines.
-            controller.enqueue(
-              encoder.encode(`${JSON.stringify({ chunk })}\n`),
-            );
-          }
+          const anthropic = getAnthropicClient();
+          const stream = anthropic.messages.stream({
+            model: env.CONTENTOPS_ANTHROPIC_MODEL,
+            system: systemPrompt,
+            messages: contextMessages,
+            max_tokens: 1024,
+          });
 
-          // Save assistant message after stream completes
-          const assistantMessageId = crypto.randomUUID();
+          stream.on('text', (text: string) => {
+            fullResponse += text;
+            controller.enqueue(
+              encoder.encode(`${JSON.stringify({ chunk: text })}\n`),
+            );
+          });
+
+          const finalMessage = await stream.finalMessage();
+          const tokensIn = finalMessage.usage.input_tokens;
+          const tokensOut = finalMessage.usage.output_tokens;
+
+          // Persist assistant message with token counts
           db.prepare(
-            'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO messages (id, conversation_id, role, content, tokens_in, tokens_out, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
           ).run(
-            assistantMessageId,
+            crypto.randomUUID(),
             activeConversationId,
             'assistant',
             fullResponse,
+            tokensIn,
+            tokensOut,
             Math.floor(Date.now() / 1000),
           );
+
+          // Record spend for ceiling tracking (demo mode only)
+          if (env.CONTENTOPS_DEMO_MODE) {
+            recordSpend(tokensIn, tokensOut);
+          }
         } catch (error) {
           controller.enqueue(
             encoder.encode(
@@ -143,7 +223,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return new Response(stream, {
+    return new Response(responseStream, {
       headers: {
         'Content-Type': 'application/x-ndjson',
         'Cache-Control': 'no-cache',

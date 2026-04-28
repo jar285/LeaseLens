@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { db } from './index';
 
 describe('Database Schema and Configuration', () => {
-  it('should have all three tables with expected columns', () => {
+  it('should have all five tables with expected columns', () => {
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all() as { name: string }[];
@@ -11,6 +11,8 @@ describe('Database Schema and Configuration', () => {
     expect(tableNames).toContain('users');
     expect(tableNames).toContain('conversations');
     expect(tableNames).toContain('messages');
+    expect(tableNames).toContain('spend_log');
+    expect(tableNames).toContain('rate_limit');
 
     // Check users columns
     const userCols = db.prepare('PRAGMA table_info(users)').all() as {

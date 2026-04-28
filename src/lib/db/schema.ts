@@ -23,4 +23,16 @@ export const SCHEMA = `
     tokens_out INTEGER,
     created_at INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS spend_log (
+    date TEXT PRIMARY KEY,
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS rate_limit (
+    session_id TEXT PRIMARY KEY,
+    window_start INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0
+  );
 `;

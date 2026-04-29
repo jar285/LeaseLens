@@ -576,7 +576,7 @@ ContentOps is delivered in 11 sprints (Sprint 0 through Sprint 10).
 3.  **Sprint 2 — Sessions, SQLite Message History, and Role Overlay (complete):** Conversations/messages tables, signed cookies, and role switcher (Creator/Editor/Admin).
 4.  **Sprint 3 — Anthropic Streaming Chat + Demo Cost Guardrails (complete):** Real LLM integration with token-counting and daily spend limits. Markdown rendering and chat scroll architecture also fixed post-sprint.
 5.  **Sprint 4 — Seed Corpus + RAG Ingestion Foundation (complete):** Document ingestion, chunking, and embedding storage in SQLite.
-6.  **Sprint 5 — Hybrid RAG Retrieval + Grounded Chat:** Vector + BM25 retrieval and grounded assistant responses.
+6.  **Sprint 5 — Hybrid RAG Retrieval + Grounded Chat (complete):** Vector + BM25 retrieval and grounded assistant responses. 77 tests passing.
 7.  **Sprint 6 — AI Eval Harness:** Automated groundedness and retrieval quality metrics.
 8.  **Sprint 7 — Tool Registry + Read-Only MCP Tools:** RBAC-aware tool registry and scaffolding at least one custom MCP server per Section 5 item 3.
 9.  **Sprint 8 — Mutating Tool + Audit Log + Rollback:** State-changing tools with compensating actions and history.

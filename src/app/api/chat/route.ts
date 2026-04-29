@@ -10,6 +10,7 @@ import { db } from '@/lib/db';
 import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
 import { isSpendCeilingExceeded, recordSpend } from '@/lib/db/spend';
 import { env } from '@/lib/env';
+import { retrieve } from '@/lib/rag/retrieve';
 
 export const runtime = 'nodejs';
 
@@ -153,7 +154,15 @@ export async function POST(req: NextRequest) {
     }[];
 
     const { contextMessages } = buildContextWindow(history);
-    const systemPrompt = buildSystemPrompt(role);
+
+    let ragContext: Awaited<ReturnType<typeof retrieve>> = [];
+    try {
+      ragContext = await retrieve(message, db);
+    } catch (err) {
+      console.error('RAG retrieval failed, proceeding without context:', err);
+    }
+
+    const systemPrompt = buildSystemPrompt(role, ragContext);
     const encoder = new TextEncoder();
 
     const responseStream = new ReadableStream({

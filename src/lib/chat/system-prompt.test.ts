@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { RetrievedChunk } from '@/lib/rag/retrieve';
 import { buildSystemPrompt } from './system-prompt';
 
 describe('buildSystemPrompt', () => {
@@ -22,5 +23,27 @@ describe('buildSystemPrompt', () => {
     const creator = buildSystemPrompt('Creator');
     const admin = buildSystemPrompt('Admin');
     expect(creator).not.toBe(admin);
+  });
+
+  it('includes <context> block when chunks provided', () => {
+    const mockChunks: RetrievedChunk[] = [
+      {
+        chunkId: 'brand-identity#section:0',
+        documentSlug: 'brand-identity',
+        heading: 'Brand Voice',
+        content: 'We write like a knowledgeable friend.',
+        rrfScore: 0.05,
+        vectorRank: 1,
+        bm25Rank: 1,
+      },
+    ];
+    const prompt = buildSystemPrompt('Creator', mockChunks);
+    expect(prompt).toContain('<context>');
+    expect(prompt).toContain('[1] brand-identity > Brand Voice');
+  });
+
+  it('omits <context> block when no chunks provided', () => {
+    const prompt = buildSystemPrompt('Creator');
+    expect(prompt).not.toContain('<context>');
   });
 });

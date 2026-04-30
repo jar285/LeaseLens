@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
-    "eval:golden": "tsx scripts/eval-golden.ts"
+    "eval:golden": "tsx --env-file=.env.local scripts/eval-golden.ts"
   },
   "keywords": [],
   "author": "",

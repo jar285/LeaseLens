@@ -26,6 +26,7 @@
     "next-env.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
+    "scripts/**/*.ts",
     ".next/types/**/*.ts",
     "build/types/**/*.ts",
     "vitest.setup.ts",

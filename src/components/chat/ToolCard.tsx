@@ -2,22 +2,12 @@
 
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 import { useState } from 'react';
-
-interface ToolInvocation {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-  result?: unknown;
-  error?: string;
-  audit_id?: string;
-  compensating_available?: boolean;
-}
+import { useRollback } from '@/lib/audit/use-rollback';
+import type { ToolInvocation } from './ChatMessage';
 
 interface ToolCardProps {
   invocation: ToolInvocation;
 }
-
-type RollbackState = 'idle' | 'rolling_back' | 'rolled_back' | 'rollback_failed';
 
 function formatJson(obj: unknown): string {
   return JSON.stringify(obj, null, 2);
@@ -25,7 +15,9 @@ function formatJson(obj: unknown): string {
 
 export function ToolCard({ invocation }: ToolCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [rollbackState, setRollbackState] = useState<RollbackState>('idle');
+  const { status: rollbackState, rollback: handleUndo } = useRollback(
+    invocation.audit_id,
+  );
   const hasResult = invocation.result !== undefined;
   const hasError = invocation.error !== undefined;
 
@@ -33,21 +25,6 @@ export function ToolCard({ invocation }: ToolCardProps) {
     invocation.compensating_available &&
     invocation.audit_id &&
     rollbackState === 'idle';
-
-  async function handleUndo() {
-    if (!invocation.audit_id) return;
-    setRollbackState('rolling_back');
-    try {
-      const res = await fetch(
-        `/api/audit/${invocation.audit_id}/rollback`,
-        { method: 'POST' },
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setRollbackState('rolled_back');
-    } catch {
-      setRollbackState('rollback_failed');
-    }
-  }
 
   return (
     <div className="my-2 rounded-lg border border-gray-200 bg-white shadow-sm">

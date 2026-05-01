@@ -1,6 +1,10 @@
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 
+// Pricing source: https://www.anthropic.com/pricing
+// Demo display only — verify against current pricing before any production claim.
+// Reused by isSpendCeilingExceeded (chat route guard) and the Sprint 9 cockpit
+// SpendPanel via estimateCost. Single source of truth — do not duplicate.
 const HAIKU_INPUT_COST_PER_MTOK = 0.8;
 const HAIKU_OUTPUT_COST_PER_MTOK = 4.0;
 

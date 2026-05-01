@@ -42,3 +42,4 @@ data/eval-reports/
 # Local read-only reference repos
 docs/_references/ai_mcp_chat_ordo/
 .characterization-diffs/
+tmp/

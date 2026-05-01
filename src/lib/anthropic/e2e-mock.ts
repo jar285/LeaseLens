@@ -6,23 +6,49 @@
 // messages.stream().
 //
 // Behavior:
-//   - First call to messages.create(): returns a tool_use response invoking
-//     schedule_content_item with the seeded `sqs-launch` slug.
-//   - Subsequent calls (after the tool_result is appended): returns end_turn
-//     with text content.
+//   - When the latest message is a fresh user request (no tool_result blocks
+//     present): returns a tool_use invoking schedule_content_item with the
+//     seeded `brand-identity` slug.
+//   - When the latest message is a tool_result (the chat route's second
+//     create call after running the tool): returns end_turn with text.
 //   - messages.stream() emits a single text delta then ends.
+//
+// Sprint-9 amendment: the mock used to track state via a `createCalls`
+// counter, which broke across multiple Playwright tests in the same dev
+// server lifetime (call #3+ never returned tool_use). The mock now inspects
+// the message array directly so behavior is per-request, not per-process.
 //
 // Used only during Playwright E2E. Never imported in production code paths.
 
 import type Anthropic from '@anthropic-ai/sdk';
 
-export function createE2EMockClient(): Anthropic {
-  let createCalls = 0;
+interface CreateArgs {
+  messages?: Array<{
+    role: string;
+    content: unknown;
+  }>;
+}
 
+function lastMessageHasToolResult(args: CreateArgs): boolean {
+  const last = args.messages?.[args.messages.length - 1];
+  if (!last) return false;
+  if (typeof last.content === 'string') return false;
+  if (Array.isArray(last.content)) {
+    return last.content.some(
+      (block) =>
+        typeof block === 'object' &&
+        block !== null &&
+        (block as { type?: string }).type === 'tool_result',
+    );
+  }
+  return false;
+}
+
+export function createE2EMockClient(): Anthropic {
   const messages = {
-    create: async () => {
-      createCalls++;
-      if (createCalls === 1) {
+    create: async (args: CreateArgs = {}) => {
+      const isToolResultFollowup = lastMessageHasToolResult(args);
+      if (!isToolResultFollowup) {
         return {
           id: 'msg_e2e_1',
           type: 'message',

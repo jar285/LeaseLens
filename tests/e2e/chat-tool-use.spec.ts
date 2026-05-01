@@ -41,21 +41,35 @@ test('mutating tool flow renders ToolCard with working Undo', async ({
     .fill('Schedule a brand-identity post for twitter tomorrow.');
   await page.getByRole('button', { name: 'Send message' }).click();
 
-  // Wait for the ToolCard to render with the schedule_content_item tool_use.
-  const toolCard = page.locator('button', {
-    hasText: 'schedule_content_item',
+  // Sprint 9 §12.10 — typing indicator visible between submit and first chunk.
+  // The indicator unmounts when a tool_use arrives or text streams in.
+  // Timing note (sprint-QA M3): if this assertion flakes more than once in
+  // 10 local runs, add a setTimeout(150) delay in
+  // src/lib/anthropic/e2e-mock.ts before the first tool_use chunk.
+  const indicator = page.getByRole('status', {
+    name: 'Assistant is composing',
   });
+  await expect(indicator).toBeVisible({ timeout: 5000 });
+
+  // Wait for the ToolCard to render with the schedule_content_item tool_use.
+  // Use .last() — under shared dev-server state, prior test runs may have
+  // persisted ToolCards in the conversation history. The just-submitted card
+  // is always the most recent.
+  const toolCard = page
+    .locator('button', { hasText: 'schedule_content_item' })
+    .last();
   await expect(toolCard).toBeVisible({ timeout: 30_000 });
 
   // The Undo button appears next to the status pill for mutating-tool results.
   // exact: true disambiguates from the outer header button whose accessible
-  // name happens to contain the descendant Undo text.
-  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  // name happens to contain the descendant Undo text. .last() picks the
+  // most recently rendered Undo (matching the most recent ToolCard).
+  const undo = page.getByRole('button', { name: 'Undo', exact: true }).last();
   await expect(undo).toBeVisible();
 
   // Click Undo and assert the rolled-back state.
   await undo.click();
   await expect(
-    page.getByText('Rolled back', { exact: true }),
+    page.getByText('Rolled back', { exact: true }).last(),
   ).toBeVisible({ timeout: 5000 });
 });

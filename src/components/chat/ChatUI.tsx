@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, Loader2, SquarePen } from 'lucide-react';
+import { AlertCircle, SquarePen } from 'lucide-react';
 import { useState } from 'react';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
 import { ChatComposer } from './ChatComposer';
@@ -206,15 +206,6 @@ export function ChatUI({
           messages={messages}
           isStreaming={status === 'streaming'}
         />
-
-        {status === 'streaming' && (
-          <div className="pointer-events-none absolute bottom-3 left-0 right-0 z-10 flex justify-center">
-            <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs text-gray-500 shadow-sm">
-              <Loader2 className="h-3 w-3 animate-spin text-indigo-500" />
-              <span className="font-medium">Composing response…</span>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="flex flex-col">

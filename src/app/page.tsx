@@ -61,22 +61,30 @@ export default async function Home() {
   return (
     <main className="grid h-screen max-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-[#f8f9fa] font-sans text-gray-900">
       <header className="z-10 flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-8 py-3.5">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-gray-800 transition-opacity hover:opacity-75"
-        >
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white">
-            <Layers
-              className="h-3.5 w-3.5"
-              aria-hidden="true"
-              strokeWidth={2.5}
-            />
-          </span>
-          ContentOps Studio
-        </Link>
-        <span className="rounded border border-gray-200 bg-gray-50 px-2 py-0.5 font-mono text-[10px] text-gray-400">
-          sprint-3
-        </span>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/"
+            className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-gray-800 transition-opacity hover:opacity-75"
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white">
+              <Layers
+                className="h-3.5 w-3.5"
+                aria-hidden="true"
+                strokeWidth={2.5}
+              />
+            </span>
+            ContentOps Studio
+          </Link>
+          {currentRole !== 'Creator' && (
+            <Link
+              href="/cockpit"
+              className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-800"
+            >
+              Cockpit
+            </Link>
+          )}
+        </div>
+        {/* Sprint chip removed in Sprint 9 — see spec §3 / §9.1 */}
       </header>
       <div className="flex min-h-0 w-full justify-center overflow-hidden">
         <div className="relative flex h-full w-full max-w-[52rem] flex-col border-x border-gray-100 bg-white">

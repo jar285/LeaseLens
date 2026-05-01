@@ -148,7 +148,14 @@ describe('Homepage Chat UI', () => {
     expect(input).toBeDisabled();
     expect(submitBtn).toBeDisabled();
 
-    const statusRegion = screen.getByRole('status');
+    // Sprint 9: there are now two role=status elements during streaming —
+    // the SR-only aria-live announcer (this one) AND the in-bubble
+    // TypingIndicator (`name: Assistant is composing`). Disambiguate via
+    // the text the announcer carries.
+    const statusRegion = screen
+      .getAllByRole('status')
+      .find((el) => el.textContent?.includes('Assistant is typing'));
+    expect(statusRegion).toBeDefined();
     expect(statusRegion).toHaveTextContent('Assistant is typing...');
 
     await waitFor(() => {
@@ -159,6 +166,8 @@ describe('Homepage Chat UI', () => {
 
     await waitFor(() => {
       expect(input).not.toBeDisabled();
+      // After streaming completes the announcer's text content empties.
+      // The TypingIndicator is no longer in the DOM either (content arrived).
       expect(statusRegion).toBeEmptyDOMElement();
     });
   });

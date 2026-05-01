@@ -7,7 +7,10 @@ export interface ChatTranscriptProps {
   isStreaming?: boolean;
 }
 
-export function ChatTranscript({ messages }: ChatTranscriptProps) {
+export function ChatTranscript({
+  messages,
+  isStreaming = false,
+}: ChatTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 
@@ -49,8 +52,16 @@ export function ChatTranscript({ messages }: ChatTranscriptProps) {
     >
       <div className="mx-auto w-full max-w-3xl shrink-0">
         <ul className="m-0 list-none space-y-1 p-0 pb-4">
-          {messages.map((msg) => (
-            <ChatMessage key={msg.id} {...msg} />
+          {messages.map((msg, idx) => (
+            <ChatMessage
+              key={msg.id}
+              {...msg}
+              isStreaming={
+                isStreaming &&
+                idx === messages.length - 1 &&
+                msg.role === 'assistant'
+              }
+            />
           ))}
           <div data-testid="transcript-bottom" className="h-1" />
         </ul>

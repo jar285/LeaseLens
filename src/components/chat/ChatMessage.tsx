@@ -1,6 +1,7 @@
 import { PenTool, User } from 'lucide-react';
 import { renderMarkdown } from '@/lib/chat/render-markdown';
 import { ToolCard } from './ToolCard';
+import { TypingIndicator } from './TypingIndicator';
 
 export interface ToolInvocation {
   id: string;
@@ -19,14 +20,24 @@ export interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string;
   toolInvocations?: ToolInvocation[];
+  /** Sprint 9: true only for the actively-streaming assistant message
+   *  (set by ChatTranscript on the last message). Drives the in-bubble
+   *  TypingIndicator visibility under the four-clause condition. */
+  isStreaming?: boolean;
 }
 
 export function ChatMessage({
   role,
   content,
   toolInvocations,
+  isStreaming,
 }: ChatMessageProps) {
   const isUser = role === 'user';
+  const showTypingIndicator =
+    isStreaming === true &&
+    role === 'assistant' &&
+    !content &&
+    (toolInvocations === undefined || toolInvocations.length === 0);
 
   return (
     <li
@@ -57,11 +68,19 @@ export function ChatMessage({
             ))}
           </div>
         )}
-        {/* Message content */}
-        {content && (
-          <div className="wrap-break-word text-[14.5px] leading-[1.7] text-gray-600">
-            {isUser ? content : renderMarkdown(content)}
-          </div>
+        {/* Message content — or TypingIndicator under the four-clause
+            condition (Spec §4.9). The indicator shows only for an empty
+            assistant bubble that is actively streaming AND has no tool
+            invocations underway (a ToolCard is the activity signal during
+            tool use; we don't want both). */}
+        {showTypingIndicator ? (
+          <TypingIndicator />
+        ) : (
+          content && (
+            <div className="wrap-break-word text-[14.5px] leading-[1.7] text-gray-600">
+              {isUser ? content : renderMarkdown(content)}
+            </div>
+          )
         )}
       </div>
     </li>

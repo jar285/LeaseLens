@@ -1,6 +1,6 @@
 # Agent Charter — ContentOps
 
-**Version:** 1.5
+**Version:** 1.6
 **Status:** Active
 **Governs:** All AI coding agent sessions for the ContentOps project
 **Precedence:** This charter outranks any single sprint doc, spec, or
@@ -567,9 +567,11 @@ should be reserved for specs, QA passes, and hard debugging.
 
 ---
 
-## 16. The 11-Sprint Roadmap
+## 16. The 12-Sprint Roadmap
 
-ContentOps is delivered in 11 sprints (Sprint 0 through Sprint 10).
+ContentOps is delivered in 12 sprints (Sprint 0 through Sprint 11). Reframed
+from 11 sprints in v1.6 to insert a dedicated UI polish pass (new Sprint 10)
+before the deployment closeout (renumbered to Sprint 11).
 
 1.  **Sprint 0 — Foundation (complete):** Next.js 16, React 19, TS Strict, Tailwind 4, SQLite, Vitest, Zod, and placeholder page.
 2.  **Sprint 1 — Homepage Chat UI + Streaming Shell (complete):** Polished light editorial UI, deterministic mock streaming, and scroll architecture.
@@ -580,13 +582,15 @@ ContentOps is delivered in 11 sprints (Sprint 0 through Sprint 10).
 7.  **Sprint 6 — AI Eval Harness (complete):** Automated groundedness and retrieval quality metrics. Golden eval: 5/5 cases passing, 86 tests total.
 8.  **Sprint 7 — Tool Registry + Read-Only MCP Tools (complete):** RBAC-aware `ToolRegistry` with 3 read-only corpus tools, Anthropic tool-use loop, `ToolCard` chat UI, and custom MCP server over stdio. 106 tests passing.
 9.  **Sprint 8 — Mutating Tool + Audit Log + Rollback (complete):** State-changing tools (`schedule_content_item`, `approve_draft`) with compensating actions executed in a single sync better-sqlite3 transaction with the audit-row insert. `GET /api/audit` (RBAC-filtered) and `POST /api/audit/[id]/rollback` (atomic, idempotent, audit-ownership policy P1). Undo affordance in `ToolCard`. Test architecture consolidated under `src/lib/test/`. First Playwright E2E smoke test gated by an Anthropic mock client. 132 Vitest tests passing, 1 Playwright spec, 5/5 eval:golden — no regression.
-10. **Sprint 9 — Operator Cockpit Dashboard:** Live state, actions, approvals, and eval health surface.
-11. **Sprint 10 — Demo Deployment + README + Loom:** Vercel deployment, final documentation, and demo recording.
+10. **Sprint 9 — Operator Cockpit Dashboard + Typing Indicator:** Live state, actions, approvals, and eval health surface. Carve-out: a typing indicator on chat that closes the post-submit frozen-UI gap between message send and first stream chunk. Scoped as a UX-bug fix (not polish) so the boundary with Sprint 10 stays clear.
+11. **Sprint 10 — UI Polish Pass:** Composer auto-resize (192px max), focus rings + hover affordances, ToolCard loading skeletons, smooth scroll-to-bottom, and a typography/spacing pass across chat + cockpit. Excludes marketing-style hero with proof-point cards (operator-tool fit, not a consumer chat product). TDD covers state machines and behavioral flows (vitest/RTL + Playwright); aesthetic correctness is human-eyeball review by policy — no visual-regression infra (Chromatic/Percy explicitly declined).
+12. **Sprint 11 — Demo Deployment + README + Loom:** Vercel deployment, final documentation, and demo recording.
 
 ---
 
 ### Changelog
 
+- **v1.6** — Roadmap reframed from 11 sprints to 12 sprints. Inserted new **Sprint 10 — UI Polish Pass** (composer auto-resize, focus/hover affordances, ToolCard skeletons, smooth scroll-to-bottom, typography/spacing pass; explicitly excludes marketing-style hero). Renumbered the existing deployment closeout sprint from Sprint 10 to **Sprint 11 — Demo Deployment + README + Loom**. Carved a typing indicator into Sprint 9 as a UX-bug fix to close the 2-3s post-submit frozen-UI gap. Recorded aesthetic-verification policy: TDD owns state and behavior; aesthetic correctness is human review (Chromatic/Percy declined). Authorized by operator brainstorm session, 2026-05-01.
 - **v1.5** — Sprint 8 marked complete. 132 Vitest tests passing (up from 106 baseline; +21 net-new + 5 MCP contract tests previously hidden by a Sprint 7 vitest-config gap surfaced and fixed in this sprint). One Playwright E2E smoke test introduced. Post-impl amendment to spec §6.2: `schedule_content_item` accepts ISO 8601 datetime strings instead of Unix seconds — server parses to Unix seconds for storage, eliminating LLM date-arithmetic errors and raw timestamps in conversational responses (impl-qa Issue 6).
 - **v1.4** — Sprint 7 marked complete. 106 tests passing. Test architecture consolidation (shared fixtures, dedicated test folder, E2E setup) identified as Sprint 8 candidate scope alongside mutating tools and audit log. Sprint 8 description updated to reflect this.
 - **v1.3** — Sprint plan reordered to 11 sprints. AI Eval Harness moved from late-project (former Sprint 9) to Sprint 6, positioned after RAG retrieval lands and before tools/mutations/cockpit add complexity. Sprint 10 becomes a focused deployment and portfolio closeout (Vercel deploy, README, Loom) rather than a catch-all. Sprint 7 explicitly includes scaffolding at least one custom MCP server per Section 5 item 3.

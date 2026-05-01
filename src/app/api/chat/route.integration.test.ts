@@ -20,16 +20,24 @@ vi.mock('@/lib/env', async (importOriginal) => {
 vi.mock('@/lib/anthropic/client', () => ({
   getAnthropicClient: vi.fn().mockReturnValue({
     messages: {
+      // Non-streaming create() for tool-use iterations
+      create: vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'Test assistant response' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+        stop_reason: 'end_turn',
+      }),
+      // Streaming for final text response
       stream: vi.fn().mockReturnValue({
         on: vi.fn().mockImplementation(function (
           this: unknown,
           event: string,
           cb: (text: string) => void,
         ) {
-          if (event === 'text') cb('Test assistant response');
+          // Only emit via finalMessage to avoid duplication in test assertions
           return this;
         }),
         finalMessage: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'Test assistant response' }],
           usage: { input_tokens: 10, output_tokens: 5 },
         }),
       }),

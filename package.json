@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
-    "eval:golden": "tsx --env-file=.env.local scripts/eval-golden.ts"
+    "eval:golden": "tsx --env-file=.env.local scripts/eval-golden.ts",
+    "mcp:server": "tsx mcp/contentops-server.ts"
   },
   "keywords": [],
   "author": "",
@@ -22,13 +23,14 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@huggingface/transformers": "^4.2.0",
+    "@modelcontextprotocol/sdk": "^1.12.0",
     "better-sqlite3": "^12.9.0",
     "jose": "^6.2.2",
     "lucide-react": "^1.9.0",
     "next": "^16.2.4",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
-    "zod": "^4.3.6"
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",

@@ -1,6 +1,6 @@
 # Agent Charter — ContentOps
 
-**Version:** 1.3
+**Version:** 1.4
 **Status:** Active
 **Governs:** All AI coding agent sessions for the ContentOps project
 **Precedence:** This charter outranks any single sprint doc, spec, or
@@ -578,8 +578,8 @@ ContentOps is delivered in 11 sprints (Sprint 0 through Sprint 10).
 5.  **Sprint 4 — Seed Corpus + RAG Ingestion Foundation (complete):** Document ingestion, chunking, and embedding storage in SQLite.
 6.  **Sprint 5 — Hybrid RAG Retrieval + Grounded Chat (complete):** Vector + BM25 retrieval and grounded assistant responses. 77 tests passing.
 7.  **Sprint 6 — AI Eval Harness (complete):** Automated groundedness and retrieval quality metrics. Golden eval: 5/5 cases passing, 86 tests total.
-8.  **Sprint 7 — Tool Registry + Read-Only MCP Tools:** RBAC-aware tool registry and scaffolding at least one custom MCP server per Section 5 item 3.
-9.  **Sprint 8 — Mutating Tool + Audit Log + Rollback:** State-changing tools with compensating actions and history.
+8.  **Sprint 7 — Tool Registry + Read-Only MCP Tools (complete):** RBAC-aware `ToolRegistry` with 3 read-only corpus tools, Anthropic tool-use loop, `ToolCard` chat UI, and custom MCP server over stdio. 106 tests passing.
+9.  **Sprint 8 — Mutating Tool + Audit Log + Rollback:** State-changing tools with compensating actions and history. Also includes test architecture consolidation (dedicated folder structure, shared fixtures, E2E test setup) identified as technical debt in Sprint 7.
 10. **Sprint 9 — Operator Cockpit Dashboard:** Live state, actions, approvals, and eval health surface.
 11. **Sprint 10 — Demo Deployment + README + Loom:** Vercel deployment, final documentation, and demo recording.
 
@@ -587,6 +587,7 @@ ContentOps is delivered in 11 sprints (Sprint 0 through Sprint 10).
 
 ### Changelog
 
+- **v1.4** — Sprint 7 marked complete. 106 tests passing. Test architecture consolidation (shared fixtures, dedicated test folder, E2E setup) identified as Sprint 8 candidate scope alongside mutating tools and audit log. Sprint 8 description updated to reflect this.
 - **v1.3** — Sprint plan reordered to 11 sprints. AI Eval Harness moved from late-project (former Sprint 9) to Sprint 6, positioned after RAG retrieval lands and before tools/mutations/cockpit add complexity. Sprint 10 becomes a focused deployment and portfolio closeout (Vercel deploy, README, Loom) rather than a catch-all. Sprint 7 explicitly includes scaffolding at least one custom MCP server per Section 5 item 3.
 - **v1.2** — Added Context7 verification requirement to Section 1 (session
   startup) and Section 7 (delivery loop steps 3 and 5). Added Sequential

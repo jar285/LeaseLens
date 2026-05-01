@@ -1,3 +1,8 @@
+import type {
+  TextBlock,
+  Tool,
+  ToolUseBlock,
+} from '@anthropic-ai/sdk/resources/messages';
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAnthropicClient } from '@/lib/anthropic/client';
@@ -11,6 +16,8 @@ import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
 import { isSpendCeilingExceeded, recordSpend } from '@/lib/db/spend';
 import { env } from '@/lib/env';
 import { retrieve } from '@/lib/rag/retrieve';
+import { createToolRegistry } from '@/lib/tools/create-registry';
+import type { AnthropicTool } from '@/lib/tools/domain';
 
 export const runtime = 'nodejs';
 
@@ -21,6 +28,9 @@ const chatRequestBodySchema = z.object({
 
 const SPEND_CEILING_MESSAGE =
   'Daily demo quota reached. Clone the repo for unlimited local use: github.com/your-org/contentop';
+
+// Maximum tool-use iterations to prevent runaway loops
+const MAX_TOOL_ITERATIONS = 3;
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
@@ -34,6 +44,45 @@ function ensureDemoUsersExist(): void {
   for (const user of DEMO_USERS) {
     insertUser.run(user.id, user.email, user.role, user.display_name, now);
   }
+}
+
+/**
+ * Build Anthropic-formatted messages from history.
+ */
+function buildMessagesForAnthropic(
+  history: { role: 'user' | 'assistant' | 'tool'; content: string }[],
+): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return history.map((h) => {
+    if (h.role === 'tool') {
+      // Tool results stored as JSON - extract for display
+      try {
+        const parsed = JSON.parse(h.content);
+        if (parsed.tool_result) {
+          return {
+            role: 'user',
+            content: `[Tool result: ${JSON.stringify(parsed.tool_result.result)}]`,
+          };
+        }
+      } catch {
+        // Fall through to plain text
+      }
+    }
+    if (h.role === 'assistant') {
+      // Check if this is a tool_use message
+      try {
+        const parsed = JSON.parse(h.content);
+        if (parsed.tool_use) {
+          return {
+            role: 'assistant',
+            content: `[Tool use: ${parsed.tool_use.name}]`,
+          };
+        }
+      } catch {
+        // Regular assistant message
+      }
+    }
+    return { role: h.role === 'tool' ? 'user' : h.role, content: h.content };
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -81,6 +130,10 @@ export async function POST(req: NextRequest) {
     if (!userExists) {
       ensureDemoUsersExist();
     }
+
+    // Initialize tool registry and get role-scoped tools
+    const toolRegistry = createToolRegistry(db);
+    const availableTools: AnthropicTool[] = toolRegistry.getToolsForRole(role);
 
     // Demo-only guardrails
     let quotaRemaining: number | null = null;
@@ -149,12 +202,11 @@ export async function POST(req: NextRequest) {
         'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
       )
       .all(activeConversationId) as {
-      role: 'user' | 'assistant';
+      role: 'user' | 'assistant' | 'tool';
       content: string;
     }[];
 
-    const { contextMessages } = buildContextWindow(history);
-
+    // RAG retrieval for implicit grounding (still used alongside explicit tools)
     let ragContext: Awaited<ReturnType<typeof retrieve>> = [];
     try {
       ragContext = await retrieve(message, db);
@@ -182,42 +234,163 @@ export async function POST(req: NextRequest) {
           ),
         );
 
-        let fullResponse = '';
+        let iterations = 0;
+        let finalResponse = '';
+        let tokensIn = 0;
+        let tokensOut = 0;
+        let hasMoreIterations = true;
+
         try {
-          const anthropic = getAnthropicClient();
-          const stream = anthropic.messages.stream({
-            model: env.CONTENTOPS_ANTHROPIC_MODEL,
-            system: systemPrompt,
-            messages: contextMessages,
-            max_tokens: 1024,
-          });
+          while (hasMoreIterations && iterations < MAX_TOOL_ITERATIONS) {
+            iterations++;
 
-          stream.on('text', (text: string) => {
-            fullResponse += text;
-            controller.enqueue(
-              encoder.encode(`${JSON.stringify({ chunk: text })}\n`),
+            // Rebuild context window from current history
+            const messagesForContext = buildMessagesForAnthropic(
+              db
+                .prepare(
+                  'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
+                )
+                .all(activeConversationId!) as {
+                role: 'user' | 'assistant' | 'tool';
+                content: string;
+              }[],
             );
-          });
 
-          const finalMessage = await stream.finalMessage();
-          const tokensIn = finalMessage.usage.input_tokens;
-          const tokensOut = finalMessage.usage.output_tokens;
+            const { contextMessages } = buildContextWindow(messagesForContext);
 
-          // Persist assistant message with token counts
-          db.prepare(
-            'INSERT INTO messages (id, conversation_id, role, content, tokens_in, tokens_out, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          ).run(
-            crypto.randomUUID(),
-            activeConversationId,
-            'assistant',
-            fullResponse,
-            tokensIn,
-            tokensOut,
-            Math.floor(Date.now() / 1000),
-          );
+            // Non-streaming for tool-use iterations, streaming for final text
+            const isLastPossibleIteration = iterations >= MAX_TOOL_ITERATIONS;
+            const useStreaming = isLastPossibleIteration;
+
+            if (useStreaming) {
+              // Streaming for final text response
+              const stream = getAnthropicClient().messages.stream({
+                model: env.CONTENTOPS_ANTHROPIC_MODEL,
+                system: systemPrompt,
+                messages: contextMessages,
+                max_tokens: 1024,
+                tools:
+                  availableTools.length > 0
+                    ? (availableTools as Tool[])
+                    : undefined,
+              });
+
+              let streamText = '';
+              stream.on('text', (text: string) => {
+                streamText += text;
+                controller.enqueue(
+                  encoder.encode(`${JSON.stringify({ chunk: text })}\n`),
+                );
+              });
+
+              const finalMessage = await stream.finalMessage();
+              tokensIn += finalMessage.usage.input_tokens;
+              tokensOut += finalMessage.usage.output_tokens;
+              finalResponse += streamText;
+
+              // Check for tool_use in streaming response (rare but possible)
+              const toolUseBlocks = finalMessage.content.filter(
+                (c): c is ToolUseBlock => c.type === 'tool_use',
+              );
+
+              if (
+                toolUseBlocks.length > 0 &&
+                iterations < MAX_TOOL_ITERATIONS
+              ) {
+                // Execute tools and continue loop
+                for (const toolUse of toolUseBlocks) {
+                  await executeToolAndPersist(
+                    toolUse,
+                    activeConversationId!,
+                    userId,
+                    role,
+                    toolRegistry,
+                    controller,
+                    encoder,
+                  );
+                }
+                continue;
+              }
+
+              // No tool_use - we're done
+              hasMoreIterations = false;
+            } else {
+              // Non-streaming for tool-use iterations
+              const response = await getAnthropicClient().messages.create({
+                model: env.CONTENTOPS_ANTHROPIC_MODEL,
+                system: systemPrompt,
+                messages: contextMessages,
+                max_tokens: 1024,
+                tools:
+                  availableTools.length > 0
+                    ? (availableTools as Tool[])
+                    : undefined,
+              });
+
+              tokensIn += response.usage.input_tokens;
+              tokensOut += response.usage.output_tokens;
+
+              const toolUseBlocks = response.content.filter(
+                (c): c is ToolUseBlock => c.type === 'tool_use',
+              );
+              const textBlocks = response.content.filter(
+                (c): c is TextBlock => c.type === 'text',
+              );
+
+              // Accumulate text content
+              for (const textBlock of textBlocks) {
+                if (textBlock.text) {
+                  finalResponse += textBlock.text;
+                }
+              }
+
+              if (toolUseBlocks.length > 0) {
+                // Execute tools and continue loop
+                for (const toolUse of toolUseBlocks) {
+                  await executeToolAndPersist(
+                    toolUse,
+                    activeConversationId!,
+                    userId,
+                    role,
+                    toolRegistry,
+                    controller,
+                    encoder,
+                  );
+                }
+                continue;
+              }
+
+              // No tool_use - stream the accumulated text and we're done
+              for (const textBlock of textBlocks) {
+                if (textBlock.text) {
+                  controller.enqueue(
+                    encoder.encode(
+                      `${JSON.stringify({ chunk: textBlock.text })}\n`,
+                    ),
+                  );
+                }
+              }
+              hasMoreIterations = false;
+            }
+          }
+
+          // Persist final assistant message
+          if (finalResponse) {
+            db.prepare(
+              'INSERT INTO messages (id, conversation_id, role, content, tokens_in, tokens_out, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            ).run(
+              crypto.randomUUID(),
+              activeConversationId!,
+              'assistant',
+              finalResponse,
+              tokensIn,
+              tokensOut,
+              Math.floor(Date.now() / 1000),
+            );
+          }
 
           // Record spend for ceiling tracking (demo mode only)
-          if (env.CONTENTOPS_DEMO_MODE) {
+          if (env.CONTENTOPS_DEMO_MODE && tokensIn > 0) {
             recordSpend(tokensIn, tokensOut);
           }
         } catch (error) {
@@ -246,4 +419,95 @@ export async function POST(req: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+/**
+ * Execute a tool and persist the tool_use/tool_result to the database.
+ */
+async function executeToolAndPersist(
+  toolUse: ToolUseBlock,
+  conversationId: string,
+  userId: string,
+  role: Role,
+  toolRegistry: ReturnType<typeof createToolRegistry>,
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder,
+) {
+  const toolId = crypto.randomUUID();
+
+  // Emit tool_use event
+  controller.enqueue(
+    encoder.encode(
+      `${JSON.stringify({
+        tool_use: {
+          id: toolId,
+          name: toolUse.name,
+          input: toolUse.input,
+        },
+      })}\n`,
+    ),
+  );
+
+  // Execute tool
+  let toolResult: unknown;
+  let toolError: string | undefined;
+  try {
+    toolResult = await toolRegistry.execute(
+      toolUse.name,
+      toolUse.input as Record<string, unknown>,
+      { role, userId, conversationId },
+    );
+  } catch (err) {
+    toolError = err instanceof Error ? err.message : 'Tool execution failed';
+    toolResult = { error: toolError };
+  }
+
+  // Emit tool_result event
+  controller.enqueue(
+    encoder.encode(
+      `${JSON.stringify({
+        tool_result: {
+          id: toolId,
+          name: toolUse.name,
+          result: toolResult,
+          error: toolError,
+        },
+      })}\n`,
+    ),
+  );
+
+  // Persist tool messages
+  const toolUseContent = JSON.stringify({
+    tool_use: {
+      id: toolId,
+      name: toolUse.name,
+      input: toolUse.input,
+    },
+  });
+  const toolResultContent = JSON.stringify({
+    tool_result: {
+      id: toolId,
+      result: toolResult,
+    },
+  });
+
+  db.prepare(
+    'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+  ).run(
+    crypto.randomUUID(),
+    conversationId,
+    'assistant',
+    toolUseContent,
+    Math.floor(Date.now() / 1000),
+  );
+
+  db.prepare(
+    'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+  ).run(
+    crypto.randomUUID(),
+    conversationId,
+    'tool',
+    toolResultContent,
+    Math.floor(Date.now() / 1000),
+  );
 }

@@ -27,6 +27,7 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "scripts/**/*.ts",
+    "mcp/**/*.ts",
     ".next/types/**/*.ts",
     "build/types/**/*.ts",
     "vitest.setup.ts",

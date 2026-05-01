@@ -17,7 +17,7 @@ export const SCHEMA = `
   CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL REFERENCES conversations(id),
-    role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+    role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'tool')),
     content TEXT NOT NULL,
     tokens_in INTEGER,
     tokens_out INTEGER,

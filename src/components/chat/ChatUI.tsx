@@ -4,7 +4,7 @@ import { AlertCircle, Loader2, SquarePen } from 'lucide-react';
 import { useState } from 'react';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
 import { ChatComposer } from './ChatComposer';
-import type { ChatMessageProps } from './ChatMessage';
+import type { ChatMessageProps, ToolInvocation } from './ChatMessage';
 import { ChatTranscript } from './ChatTranscript';
 
 function getErrorMessage(error: unknown): string {
@@ -52,11 +52,15 @@ export function ChatUI({
       id: assistantMessageId,
       role: 'assistant',
       content: '',
+      toolInvocations: [],
     };
 
     setMessages((prev) => [...prev, userMessage, initialAssistantMessage]);
     setStatus('streaming');
     setErrorMsg('');
+
+    // Track pending tool invocations for this response
+    const pendingTools = new Map<string, ToolInvocation>();
 
     try {
       const response = await fetch('/api/chat', {
@@ -103,10 +107,50 @@ export function ChatUI({
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantMessageId
-                  ? { ...m, content: currentContent }
+                  ? {
+                      ...m,
+                      content: currentContent,
+                      toolInvocations: Array.from(pendingTools.values()),
+                    }
                   : m,
               ),
             );
+          } else if ('tool_use' in data) {
+            // Add pending tool invocation
+            const invocation: ToolInvocation = {
+              id: data.tool_use.id,
+              name: data.tool_use.name,
+              input: data.tool_use.input,
+            };
+            pendingTools.set(data.tool_use.id, invocation);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      toolInvocations: Array.from(pendingTools.values()),
+                    }
+                  : m,
+              ),
+            );
+          } else if ('tool_result' in data) {
+            // Update tool invocation with result
+            const existing = pendingTools.get(data.tool_result.id);
+            if (existing) {
+              existing.result = data.tool_result.result;
+              existing.error = data.tool_result.error;
+              pendingTools.set(data.tool_result.id, existing);
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMessageId
+                    ? {
+                        ...m,
+                        toolInvocations: Array.from(pendingTools.values()),
+                      }
+                    : m,
+                ),
+              );
+            }
           }
         }
       }

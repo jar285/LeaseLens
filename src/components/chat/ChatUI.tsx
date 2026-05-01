@@ -134,11 +134,14 @@ export function ChatUI({
               ),
             );
           } else if ('tool_result' in data) {
-            // Update tool invocation with result
+            // Update tool invocation with result + audit metadata
             const existing = pendingTools.get(data.tool_result.id);
             if (existing) {
               existing.result = data.tool_result.result;
               existing.error = data.tool_result.error;
+              existing.audit_id = data.tool_result.audit_id;
+              existing.compensating_available =
+                data.tool_result.compensating_available;
               pendingTools.set(data.tool_result.id, existing);
               setMessages((prev) =>
                 prev.map((m) =>

@@ -8,6 +8,10 @@ export interface ToolInvocation {
   input: Record<string, unknown>;
   result?: unknown;
   error?: string;
+  /** Sprint 8: audit_log row id for mutating-tool results — drives Undo button. */
+  audit_id?: string;
+  /** Sprint 8: true when descriptor.compensatingAction was registered. */
+  compensating_available?: boolean;
 }
 
 export interface ChatMessageProps {

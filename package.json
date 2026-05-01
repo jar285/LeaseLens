@@ -12,6 +12,7 @@
     "lint": "biome check src/",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
     "eval:golden": "tsx --env-file=.env.local scripts/eval-golden.ts",
     "mcp:server": "tsx mcp/contentops-server.ts"
@@ -34,6 +35,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.13",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.2.4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -43,6 +45,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "dotenv": "^17.0.0",
     "happy-dom": "^20.9.0",
     "postcss": "^8.5.10",
     "tailwindcss": "^4.2.4",

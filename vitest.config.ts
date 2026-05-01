@@ -9,7 +9,11 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     test: {
       environment: 'happy-dom',
-      include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
+      include: [
+        'src/**/*.test.{ts,tsx}',
+        'tests/**/*.test.{ts,tsx}',
+        'mcp/**/*.test.{ts,tsx}',
+      ],
       setupFiles: ['./vitest.setup.ts'],
     },
     resolve: {

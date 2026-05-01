@@ -17,17 +17,70 @@ export interface ToolDescriptor {
   roles: Role[] | 'ALL';
   /** Organizational category */
   category: ToolCategory;
-  /** Execute the tool with validated input */
+  /**
+   * Execute the tool with validated input.
+   * Read-only tools: async, returns the raw result.
+   * Mutating tools: sync, returns MutationOutcome.
+   * Mutating tools MUST throw on validation failures (Sprint 8 spec 4.3).
+   */
   execute: (
     input: Record<string, unknown>,
     context: ToolExecutionContext,
-  ) => Promise<unknown>;
+  ) => Promise<unknown> | MutationOutcome;
+  /**
+   * When set, this tool is mutating. The registry runs `execute` inside
+   * a sync better-sqlite3 transaction with an audit-row insert. The
+   * function below is the rollback path — receives the serialized
+   * compensating-action payload that the original execute returned.
+   */
+  compensatingAction?: (
+    payload: Record<string, unknown>,
+    context: ToolExecutionContext,
+  ) => void;
 }
 
 export interface ToolExecutionContext {
   role: Role;
   userId: string;
   conversationId: string;
+  /**
+   * LLM-issued tool_use id from the Anthropic response, when applicable.
+   * The chat route sets this; MCP-originated calls leave it undefined.
+   * Persisted as audit_log.tool_use_id when set.
+   */
+  toolUseId?: string;
+}
+
+/** What a mutating tool's execute returns synchronously. */
+export interface MutationOutcome {
+  result: unknown;
+  compensatingActionPayload: Record<string, unknown>;
+}
+
+/**
+ * Uniform envelope returned by ToolRegistry.execute() for ALL tools.
+ * Read-only paths set audit_id to undefined; mutating paths set it
+ * to the freshly-written audit_log row id. Keeps audit_id out of
+ * `result` so it cannot leak into LLM-visible content or persisted messages.
+ */
+export interface ToolExecutionResult {
+  result: unknown;
+  audit_id: string | undefined;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  tool_name: string;
+  tool_use_id: string | null;
+  actor_user_id: string;
+  actor_role: Role;
+  conversation_id: string | null;
+  input_json: string;
+  output_json: string;
+  compensating_action_json: string;
+  status: 'executed' | 'rolled_back';
+  created_at: number;
+  rolled_back_at: number | null;
 }
 
 /** Anthropic SDK tool format */

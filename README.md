@@ -20,35 +20,49 @@ This project is a portfolio piece targeting Forward Deployed, AI Product, and Ap
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Next.js 16 App Router                          │
-│  ┌──────────────┐   ┌───────────────────────┐   │
-│  │  Chat UI     │   │  /api/chat (POST)      │   │
-│  │  (streaming) │◄──│  Anthropic tool-use   │   │
-│  │  ToolCard    │   │  loop (max 3 iters)   │   │
-│  └──────────────┘   └──────────┬────────────┘   │
-└─────────────────────────────────┼───────────────┘
-                                  │
-              ┌───────────────────▼──────────────────┐
-              │  ToolRegistry (RBAC-filtered)         │
-              │  search_corpus · get_document_summary │
-              │  list_documents                       │
-              └───────────────────┬──────────────────┘
-                                  │
-          ┌───────────────────────▼──────────────────────┐
-          │  SQLite (better-sqlite3)                      │
-          │  users · sessions · conversations · messages  │
-          │  documents · chunks · audit_log               │
-          └───────────────────────┬──────────────────────┘
-                                  │
-              ┌───────────────────▼──────────────────┐
-              │  RAG Pipeline                         │
-              │  Ingest → Chunk → Embed (WASM)        │
-              │  Retrieve: vector + BM25 + RRF        │
-              └──────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Next.js 16 App Router                                │
+│  ┌──────────────┐   ┌────────────────────────────┐    │
+│  │  Chat UI     │   │  /api/chat (POST)           │    │
+│  │  (streaming) │◄──│  Anthropic tool-use loop    │    │
+│  │  ToolCard +  │   │  (max 3 iters)              │    │
+│  │  Undo button │   └──────────┬─────────────────┘    │
+│  └──────────────┘              │                       │
+│  ┌─────────────────────────────▼──────────────────┐    │
+│  │  /api/audit (GET)        — RBAC-filtered list  │    │
+│  │  /api/audit/[id]/rollback (POST) — atomic undo │    │
+│  └─────────────────────────────┬──────────────────┘    │
+└────────────────────────────────┼───────────────────────┘
+                                 │
+            ┌────────────────────▼─────────────────────┐
+            │  ToolRegistry (RBAC-filtered, audited)   │
+            │  Read-only:  search_corpus               │
+            │              get_document_summary        │
+            │              list_documents              │
+            │  Mutating:   schedule_content_item       │
+            │              approve_draft               │
+            │  Mutating tools execute in a sync        │
+            │  better-sqlite3 transaction with a       │
+            │  paired audit_log row insert.            │
+            └────────────────────┬─────────────────────┘
+                                 │
+        ┌────────────────────────▼────────────────────────┐
+        │  SQLite (better-sqlite3)                         │
+        │  users · sessions · conversations · messages     │
+        │  documents · chunks                              │
+        │  audit_log · content_calendar · approvals        │
+        └────────────────────────┬────────────────────────┘
+                                 │
+            ┌────────────────────▼────────────────────┐
+            │  RAG Pipeline                            │
+            │  Ingest → Chunk → Embed (WASM)           │
+            │  Retrieve: vector + BM25 + RRF           │
+            └──────────────────────────────────────────┘
 ```
 
-**Custom MCP server** at `mcp/contentops-server.ts` exposes the same 3 tools over stdio transport — consumable by Claude Desktop, Cursor, or any MCP client.
+**Custom MCP server** at `mcp/contentops-server.ts` exposes all 5 tools (3 read-only + 2 mutating) over stdio transport — consumable by Claude Desktop, Cursor, or any MCP client. Mutating MCP calls produce audit rows attributed to actor `mcp-server`.
+
+**Audit + rollback invariants.** Every successful mutating-tool call writes one `audit_log` row inside the same SQLite transaction as the mutation — if either write fails, both roll back. The `ToolCard` UI renders an Undo button for mutating-tool results; clicking it issues `POST /api/audit/[id]/rollback`, which runs the descriptor's compensating action and updates the audit row's status atomically. Admins see the full audit log; non-admins see only their own entries.
 
 ---
 
@@ -63,7 +77,8 @@ This project is a portfolio piece targeting Forward Deployed, AI Product, and Ap
 | LLM | Anthropic Claude (`claude-haiku-4-5` default) |
 | Embeddings | `@huggingface/transformers` (WASM, local, no API key) |
 | MCP | `@modelcontextprotocol/sdk` (stdio transport) |
-| Testing | Vitest 4 |
+| Testing (unit + integration) | Vitest 4 |
+| Testing (E2E) | `@playwright/test` |
 | Linting | Biome |
 | Validation | Zod 3 |
 
@@ -131,8 +146,17 @@ Use the role switcher in the top-right corner of the chat UI. Each role unlocks 
 | Role | Tools available | Access |
 |------|----------------|--------|
 | Creator | `search_corpus` | Ask the AI to search the brand corpus explicitly |
-| Editor | + `get_document_summary` | Inspect individual corpus documents by slug |
-| Admin | + `list_documents` | View the full corpus inventory |
+| Editor | + `get_document_summary`, `schedule_content_item` | Inspect documents, schedule items to the content calendar |
+| Admin | + `list_documents`, `approve_draft` | Full corpus inventory, draft approvals, full audit-log visibility |
+
+The same registry that filters the prompt's tool manifest also gates execution — if a role can't see a tool in its manifest, it can't invoke it at runtime.
+
+### Mutating Tools, Audit, and Undo
+
+`schedule_content_item` (Editor + Admin) and `approve_draft` (Admin only) write SQLite rows transactionally. Each successful mutation produces an `audit_log` row with a serializable compensating-action payload. The `ToolCard` UI renders an **Undo** button next to mutating-tool results; clicking it runs the compensating action and the audit-row status update atomically. Read-only tools produce no audit row and no Undo button.
+
+- `GET /api/audit` — Admin sees all rows; non-admins see only their own.
+- `POST /api/audit/[id]/rollback` — audit-ownership policy: Admin can roll back any row; non-admins only their own. Idempotent on already-rolled-back rows.
 
 ### Chat + RAG
 
@@ -142,7 +166,7 @@ The chat interface at `/` provides grounded answers about the Side Quest Syndica
 
 ### MCP Server
 
-The same 3 tools are exposed over the Model Context Protocol for use in Claude Desktop, Cursor, or any MCP-compatible client:
+All 5 tools (3 read-only + 2 mutating) are exposed over the Model Context Protocol for use in Claude Desktop, Cursor, or any MCP-compatible client. MCP-originated mutations produce audit rows attributed to actor `mcp-server`:
 
 ```bash
 npm run mcp:server
@@ -166,8 +190,11 @@ Add to your MCP client config:
 ## Running the Tests
 
 ```bash
-# All unit and integration tests (106 tests)
+# All unit + integration + contract tests (132 tests)
 npm run test
+
+# E2E smoke (Playwright; auto-launches dev server with the Anthropic mock)
+npm run test:e2e
 
 # Type checking
 npm run typecheck
@@ -183,16 +210,20 @@ npm run eval:golden
 
 | Area | Files | Count |
 |------|-------|-------|
-| Tool Registry (RBAC, dispatch, errors) | `src/lib/tools/registry.test.ts` | 6 |
+| Tool Registry (RBAC, dispatch, audit hook, validation throw) | `src/lib/tools/registry.test.ts` | 11 |
+| Mutating tools (schedule + approve, idempotent rollback, ISO validation) | `src/lib/tools/mutating-tools.test.ts` | 5 |
+| Audit-log helpers (round-trip, idempotent mark, RBAC filter) | `src/lib/tools/audit-log.test.ts` | 3 |
+| `GET /api/audit` (RBAC filtering, no-cookie default) | `src/app/api/audit/route.integration.test.ts` | 3 |
+| `POST /api/audit/[id]/rollback` (atomic compensating action, idempotent, throw → status preserved) | `src/app/api/audit/[id]/rollback/route.integration.test.ts` | 4 |
 | Corpus tools (search, summary, list) | `src/lib/tools/corpus-tools.test.ts` | 4 |
 | RAG retrieval pipeline | `src/lib/rag/*.test.ts` | ~20 |
 | Chat route (streaming, tool-use loop) | `src/app/api/chat/route.integration.test.ts` | ~10 |
 | Auth, sessions, middleware | `src/lib/auth/*.test.ts`, `src/middleware.test.ts` | ~20 |
 | DB schema and helpers | `src/lib/db/*.test.ts` | ~10 |
-| Eval scoring functions | `src/lib/evals/scoring.test.ts` | 6 |
-| Eval runner | `src/lib/evals/runner.test.ts` | 3 |
-| MCP contract | `mcp/contentops-server.test.ts` | 2 |
+| Eval scoring + runner | `src/lib/evals/*.test.ts` | 9 |
+| MCP contract (read-only + mutating-tool parity) | `mcp/contentops-server.test.ts` | 6 |
 | UI components | `src/app/page.test.tsx` | ~25 |
+| **E2E smoke** — chat → tool_use → ToolCard → Undo (Playwright) | `tests/e2e/chat-tool-use.spec.ts` | 1 |
 
 ### Golden eval
 
@@ -204,31 +235,49 @@ npm run eval:golden
 
 ```
 ContentOps/
-├── mcp/                          # Custom MCP server (stdio transport)
-│   ├── contentops-server.ts
+├── mcp/                              # Custom MCP server (stdio transport)
+│   ├── contentops-server.ts          # Registers all 5 tools (read-only + mutating)
 │   └── contentops-server.test.ts
 ├── scripts/
-│   └── eval-golden.ts            # Golden eval CLI entry point
+│   └── eval-golden.ts                # Golden eval CLI entry point
+├── tests/
+│   └── e2e/                          # Playwright smoke tests
+│       └── chat-tool-use.spec.ts
+├── playwright.config.ts              # E2E config — webServer.env engages Anthropic mock
 ├── src/
 │   ├── app/
-│   │   ├── api/chat/route.ts     # Anthropic tool-use loop + streaming
-│   │   └── page.tsx              # Chat homepage
+│   │   ├── api/
+│   │   │   ├── chat/route.ts                 # Anthropic tool-use loop + streaming
+│   │   │   └── audit/
+│   │   │       ├── route.ts                  # GET — RBAC-filtered audit log
+│   │   │       └── [id]/rollback/route.ts    # POST — atomic compensating action
+│   │   └── page.tsx                  # Chat homepage
 │   ├── components/chat/
-│   │   ├── ChatUI.tsx            # Stream reader + message state
-│   │   ├── ChatMessage.tsx       # Individual message renderer
-│   │   └── ToolCard.tsx          # Inline tool invocation card
-│   ├── corpus/                   # Side Quest Syndicate markdown documents
+│   │   ├── ChatUI.tsx                # Stream reader + message state
+│   │   ├── ChatMessage.tsx           # Individual message renderer
+│   │   └── ToolCard.tsx              # Inline tool card + Undo button
+│   ├── corpus/                       # Side Quest Syndicate markdown documents
 │   ├── lib/
-│   │   ├── auth/                 # Session cookies, RBAC types, middleware
-│   │   ├── chat/                 # Stream line parser, history helpers
-│   │   ├── db/                   # Schema, migrations, test helpers
-│   │   ├── evals/                # Golden eval: domain, scoring, runner, reporter
-│   │   ├── rag/                  # Ingest, chunk, embed, retrieve (vector+BM25+RRF)
-│   │   └── tools/                # ToolRegistry, corpus tools, domain types
-│   └── middleware.ts             # RBAC route enforcement
+│   │   ├── anthropic/
+│   │   │   ├── client.ts             # SDK construction (E2E-mock-flag-gated)
+│   │   │   └── e2e-mock.ts           # Deterministic mock for Playwright runs
+│   │   ├── auth/                     # Session cookies, RBAC types, constants
+│   │   ├── chat/                     # Stream line parser, history helpers, system prompt
+│   │   ├── db/                       # Schema, db singleton
+│   │   ├── evals/                    # Golden eval: domain, scoring, runner, reporter
+│   │   ├── rag/                      # Ingest, chunk, embed, retrieve (vector+BM25+RRF)
+│   │   ├── test/                     # Shared test helpers (db, seed, embed-mock)
+│   │   └── tools/
+│   │       ├── domain.ts             # ToolDescriptor, MutationOutcome, AuditLogEntry
+│   │       ├── registry.ts           # ToolRegistry — RBAC + audit + transactional mutate
+│   │       ├── corpus-tools.ts       # search_corpus, get_document_summary, list_documents
+│   │       ├── mutating-tools.ts     # schedule_content_item, approve_draft
+│   │       ├── audit-log.ts          # write/read/markRolledBack helpers
+│   │       └── create-registry.ts    # Factory wiring db → registry with all 5 tools
+│   └── middleware.ts                 # RBAC route enforcement
 └── docs/
-    ├── _meta/agent-charter.md    # Engineering constraints and delivery rules
-    └── _specs/                   # Spec, QA, and sprint docs for each sprint
+    ├── _meta/agent-charter.md        # Engineering constraints and delivery rules
+    └── _specs/                       # Spec, QA, and sprint docs for each sprint
 ```
 
 ---
@@ -247,7 +296,7 @@ ContentOps is built sprint-by-sprint with a spec → QA → sprint plan → impl
 | 5 | Hybrid RAG retrieval + grounded chat | Complete |
 | 6 | AI eval harness (golden retrieval eval) | Complete |
 | 7 | Tool registry + read-only MCP tools | Complete |
-| 8 | Mutating tools + audit log + rollback | Planned |
+| 8 | Mutating tools + audit log + rollback + test consolidation + first Playwright E2E | Complete |
 | 9 | Operator cockpit dashboard | Planned |
 | 10 | Vercel deployment + README + Loom | Planned |
 

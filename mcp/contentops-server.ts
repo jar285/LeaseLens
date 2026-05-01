@@ -55,7 +55,7 @@ async function main() {
     },
     async ({ query, max_results }: { query: string; max_results?: number }) => {
       try {
-        const result = await registry.execute(
+        const { result } = await registry.execute(
           'search_corpus',
           { query, max_results },
           MCP_CONTEXT,
@@ -91,7 +91,7 @@ async function main() {
     },
     async ({ slug }: { slug: string }) => {
       try {
-        const result = await registry.execute(
+        const { result } = await registry.execute(
           'get_document_summary',
           { slug },
           MCP_CONTEXT,
@@ -128,7 +128,7 @@ async function main() {
     },
     async () => {
       try {
-        const result = await registry.execute(
+        const { result } = await registry.execute(
           'list_documents',
           {},
           MCP_CONTEXT,
@@ -146,6 +146,103 @@ async function main() {
                   error instanceof Error
                     ? error.message
                     : 'Failed to list documents',
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // Sprint 8: register mutating tools. audit_id is intentionally dropped
+  // at the MCP boundary — MCP clients see only the raw tool result.
+  server.registerTool(
+    'schedule_content_item',
+    {
+      description:
+        'Schedule a content item for publication on a given channel and time. Mutating: produces an audit_log row.',
+      inputSchema: {
+        document_slug: z.string().describe('Slug of the document to schedule.'),
+        scheduled_for: z
+          .string()
+          .describe(
+            'ISO 8601 datetime when to publish (e.g. "2026-05-02T09:00:00Z"). Server parses this.',
+          ),
+        channel: z
+          .string()
+          .describe('Channel identifier (e.g., "twitter", "rss").'),
+      },
+    },
+    async ({
+      document_slug,
+      scheduled_for,
+      channel,
+    }: {
+      document_slug: string;
+      scheduled_for: string;
+      channel: string;
+    }) => {
+      try {
+        const { result } = await registry.execute(
+          'schedule_content_item',
+          { document_slug, scheduled_for, channel },
+          MCP_CONTEXT,
+        );
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                error:
+                  error instanceof Error ? error.message : 'Schedule failed',
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    'approve_draft',
+    {
+      description:
+        'Approve a draft document for publication. Admin-only; mutating; produces an audit_log row.',
+      inputSchema: {
+        document_slug: z.string().describe('Slug of the document to approve.'),
+        notes: z.string().optional().describe('Optional approval notes.'),
+      },
+    },
+    async ({
+      document_slug,
+      notes,
+    }: {
+      document_slug: string;
+      notes?: string;
+    }) => {
+      try {
+        const { result } = await registry.execute(
+          'approve_draft',
+          { document_slug, notes },
+          MCP_CONTEXT,
+        );
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                error:
+                  error instanceof Error ? error.message : 'Approval failed',
               }),
             },
           ],

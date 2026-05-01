@@ -1,6 +1,6 @@
 # Agent Charter — ContentOps
 
-**Version:** 1.4
+**Version:** 1.5
 **Status:** Active
 **Governs:** All AI coding agent sessions for the ContentOps project
 **Precedence:** This charter outranks any single sprint doc, spec, or
@@ -579,7 +579,7 @@ ContentOps is delivered in 11 sprints (Sprint 0 through Sprint 10).
 6.  **Sprint 5 — Hybrid RAG Retrieval + Grounded Chat (complete):** Vector + BM25 retrieval and grounded assistant responses. 77 tests passing.
 7.  **Sprint 6 — AI Eval Harness (complete):** Automated groundedness and retrieval quality metrics. Golden eval: 5/5 cases passing, 86 tests total.
 8.  **Sprint 7 — Tool Registry + Read-Only MCP Tools (complete):** RBAC-aware `ToolRegistry` with 3 read-only corpus tools, Anthropic tool-use loop, `ToolCard` chat UI, and custom MCP server over stdio. 106 tests passing.
-9.  **Sprint 8 — Mutating Tool + Audit Log + Rollback:** State-changing tools with compensating actions and history. Also includes test architecture consolidation (dedicated folder structure, shared fixtures, E2E test setup) identified as technical debt in Sprint 7.
+9.  **Sprint 8 — Mutating Tool + Audit Log + Rollback (complete):** State-changing tools (`schedule_content_item`, `approve_draft`) with compensating actions executed in a single sync better-sqlite3 transaction with the audit-row insert. `GET /api/audit` (RBAC-filtered) and `POST /api/audit/[id]/rollback` (atomic, idempotent, audit-ownership policy P1). Undo affordance in `ToolCard`. Test architecture consolidated under `src/lib/test/`. First Playwright E2E smoke test gated by an Anthropic mock client. 132 Vitest tests passing, 1 Playwright spec, 5/5 eval:golden — no regression.
 10. **Sprint 9 — Operator Cockpit Dashboard:** Live state, actions, approvals, and eval health surface.
 11. **Sprint 10 — Demo Deployment + README + Loom:** Vercel deployment, final documentation, and demo recording.
 
@@ -587,6 +587,7 @@ ContentOps is delivered in 11 sprints (Sprint 0 through Sprint 10).
 
 ### Changelog
 
+- **v1.5** — Sprint 8 marked complete. 132 Vitest tests passing (up from 106 baseline; +21 net-new + 5 MCP contract tests previously hidden by a Sprint 7 vitest-config gap surfaced and fixed in this sprint). One Playwright E2E smoke test introduced. Post-impl amendment to spec §6.2: `schedule_content_item` accepts ISO 8601 datetime strings instead of Unix seconds — server parses to Unix seconds for storage, eliminating LLM date-arithmetic errors and raw timestamps in conversational responses (impl-qa Issue 6).
 - **v1.4** — Sprint 7 marked complete. 106 tests passing. Test architecture consolidation (shared fixtures, dedicated test folder, E2E setup) identified as Sprint 8 candidate scope alongside mutating tools and audit log. Sprint 8 description updated to reflect this.
 - **v1.3** — Sprint plan reordered to 11 sprints. AI Eval Harness moved from late-project (former Sprint 9) to Sprint 6, positioned after RAG retrieval lands and before tools/mutations/cockpit add complexity. Sprint 10 becomes a focused deployment and portfolio closeout (Vercel deploy, README, Loom) rather than a catch-all. Sprint 7 explicitly includes scaffolding at least one custom MCP server per Section 5 item 3.
 - **v1.2** — Added Context7 verification requirement to Section 1 (session

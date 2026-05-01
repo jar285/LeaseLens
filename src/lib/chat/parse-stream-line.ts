@@ -10,6 +10,8 @@ export type StreamLineMessage =
         name: string;
         result: unknown;
         error?: string;
+        audit_id?: string;
+        compensating_available?: boolean;
       };
     };
 
@@ -91,6 +93,8 @@ export function parseStreamLine(line: string): StreamLineMessage | null {
             name: string;
             result: unknown;
             error?: string;
+            audit_id?: string;
+            compensating_available?: boolean;
           };
         }
       ).tool_result;

@@ -448,21 +448,28 @@ async function executeToolAndPersist(
     ),
   );
 
-  // Execute tool
+  // Execute tool — destructure the ToolExecutionResult envelope.
+  // For mutating tools, audit_id is set; for read-only tools it's undefined.
   let toolResult: unknown;
   let toolError: string | undefined;
+  let auditId: string | undefined;
   try {
-    toolResult = await toolRegistry.execute(
+    const envelope = await toolRegistry.execute(
       toolUse.name,
       toolUse.input as Record<string, unknown>,
-      { role, userId, conversationId },
+      { role, userId, conversationId, toolUseId: toolId },
     );
+    toolResult = envelope.result;
+    auditId = envelope.audit_id;
   } catch (err) {
     toolError = err instanceof Error ? err.message : 'Tool execution failed';
     toolResult = { error: toolError };
   }
 
-  // Emit tool_result event
+  // Emit tool_result event. audit_id and compensating_available are
+  // metadata about the call — present only for mutating-tool successes.
+  // They never enter `result` (which is what the LLM and persisted
+  // message bodies see).
   controller.enqueue(
     encoder.encode(
       `${JSON.stringify({
@@ -471,6 +478,9 @@ async function executeToolAndPersist(
           name: toolUse.name,
           result: toolResult,
           error: toolError,
+          ...(auditId
+            ? { audit_id: auditId, compensating_available: true }
+            : {}),
         },
       })}\n`,
     ),

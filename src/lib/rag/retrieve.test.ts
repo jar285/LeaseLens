@@ -1,74 +1,13 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SCHEMA } from '@/lib/db/schema';
+import { createTestDb } from '@/lib/test/db';
+import { seedChunk, seedDocument } from '@/lib/test/seed';
 import { retrieve } from './retrieve';
 
-vi.mock('./embed', () => ({
-  embedBatch: vi.fn(async (texts: string[]) =>
-    texts.map((text) => {
-      const vec = Array.from({ length: 384 }, (_, i) => {
-        return ((text.charCodeAt(i % text.length) + i) % 100) / 100;
-      });
-      const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
-      return norm === 0 ? vec : vec.map((v) => v / norm);
-    }),
-  ),
-}));
-
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.exec(SCHEMA);
-  return db;
-}
-
-function mockEmbedding(text: string): Buffer {
-  const vec = Array.from({ length: 384 }, (_, i) => {
-    return ((text.charCodeAt(i % text.length) + i) % 100) / 100;
-  });
-  const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
-  const normalized = norm === 0 ? vec : vec.map((v) => v / norm);
-  return Buffer.from(new Float32Array(normalized).buffer);
-}
-
-function seedDocument(db: Database.Database, slug: string): string {
-  const docId = `doc-${slug}`;
-  db.prepare(
-    'INSERT INTO documents (id, slug, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(docId, slug, slug, 'full doc content', 'hash', Date.now());
-  return docId;
-}
-
-function seedChunk(
-  db: Database.Database,
-  docId: string,
-  overrides: {
-    id: string;
-    content: string;
-    level?: 'document' | 'section' | 'passage';
-    heading?: string | null;
-    index?: number;
-  },
-): void {
-  const level = overrides.level ?? 'section';
-  const heading = overrides.heading ?? null;
-  const chunkIndex = overrides.index ?? 0;
-  const embedding = mockEmbedding(overrides.content);
-
-  db.prepare(
-    `INSERT INTO chunks (id, document_id, chunk_index, chunk_level, heading, content, embedding, embedding_model, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    overrides.id,
-    docId,
-    chunkIndex,
-    level,
-    heading,
-    overrides.content,
-    embedding,
-    'all-MiniLM-L6-v2',
-    Date.now(),
-  );
-}
+vi.mock('./embed', async () => {
+  const m = await import('@/lib/test/embed-mock');
+  return m.buildEmbedderMock();
+});
 
 describe('retrieve', () => {
   let db: Database.Database;

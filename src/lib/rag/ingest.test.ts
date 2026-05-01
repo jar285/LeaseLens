@@ -1,22 +1,15 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SCHEMA } from '@/lib/db/schema';
+import { createTestDb } from '@/lib/test/db';
 import { ingestCorpus } from './ingest';
 
-vi.mock('./embed', () => ({
-  embedBatch: vi.fn(async (texts: string[]) =>
-    texts.map((text) => {
-      const vec = Array.from({ length: 384 }, (_, i) => {
-        return ((text.charCodeAt(i % text.length) + i) % 100) / 100;
-      });
-      const norm = Math.sqrt(vec.reduce((s, x) => s + x * x, 0));
-      return norm === 0 ? vec : vec.map((v) => v / norm);
-    }),
-  ),
-}));
+vi.mock('./embed', async () => {
+  const m = await import('@/lib/test/embed-mock');
+  return m.buildEmbedderMock();
+});
 
 const DOC_CONTENT = [
   '# Mock Document',
@@ -31,12 +24,6 @@ const DOC_CONTENT = [
 ].join('\n');
 
 const DOC_CONTENT_V2 = `${DOC_CONTENT}\n\nAdditional content that changes the hash.`;
-
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.exec(SCHEMA);
-  return db;
-}
 
 function makeTempCorpus(content: string): string {
   const dir = join(

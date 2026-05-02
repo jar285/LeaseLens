@@ -32,7 +32,7 @@ describe('AuditFeedPanel', () => {
   afterEach(cleanup);
 
   it('renders empty state when no rows', () => {
-    render(<AuditFeedPanel initialRows={[]} role="Admin" userId="u1" />);
+    render(<AuditFeedPanel initialRows={[]} viewerRole="Admin" userId="u1" />);
     expect(
       screen.getByText('No tool actions recorded yet.'),
     ).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe('AuditFeedPanel', () => {
     render(
       <AuditFeedPanel
         initialRows={[editorRow, mcpRow]}
-        role="Editor"
+        viewerRole="Editor"
         userId="editor-id"
       />,
     );

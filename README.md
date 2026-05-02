@@ -4,6 +4,16 @@ An AI operator cockpit for onboarding a media brand into an AI-assisted content 
 
 **Demo brand:** Side Quest Syndicate — a fictional tabletop and board game media brand used as the seeded corpus throughout the project.
 
+**Deployment status:** local demo is implemented; public Vercel deployment and Loom walkthrough are planned for the final closeout sprint.
+
+---
+
+## Why This Fits AI Product Engineering
+
+ContentOps is built around the kind of internal AI workflow Doing Things describes: reducing repetitive media-operations work while keeping human judgment, role permissions, and rollback controls visible. The demo shows how a content team can ask grounded brand questions, search onboarding materials, schedule content, approve drafts, inspect audit history, and monitor eval/spend health from one working product surface.
+
+The project emphasizes product judgment as much as model integration: every AI action is tied to an operator role, every mutation is auditable and undoable, and retrieval quality is measured with a deterministic eval harness rather than assumed.
+
 ---
 
 ## What This Project Demonstrates
@@ -12,7 +22,7 @@ This project is a portfolio piece targeting Forward Deployed, AI Product, and Ap
 
 1. **Full-stack TypeScript delivery** — Next.js 16 App Router, React 19, strict TypeScript, Tailwind CSS 4, SQLite, end-to-end from schema to streaming UI.
 2. **LLM + RAG + Tool composition** — Anthropic streaming chat, hybrid retrieval (vector + BM25 + reciprocal rank fusion), and an RBAC-aware tool registry wired into the Anthropic tool-use loop — not isolated API calls.
-3. **AI evaluation** — A deterministic golden eval harness measuring retrieval quality (Precision@K, Recall@K, MRR, Groundedness) against a curated golden set. Runs in CI, exits 0/1.
+3. **AI evaluation** — A deterministic golden eval harness measuring retrieval quality (Precision@K, Recall@K, MRR, Groundedness) against a curated golden set. It exits 0/1 and writes a machine-readable report for the cockpit.
 4. **Engineering constraints** — Role-based access control (Creator / Editor / Admin) enforced in middleware, at the API layer, and in the tool registry. The same registry that filters the prompt's tool manifest also enforces execution — prompt claims and runtime behavior cannot drift apart.
 
 ---
@@ -86,7 +96,7 @@ This project is a portfolio piece targeting Forward Deployed, AI Product, and Ap
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 20.9.0+
 - An [Anthropic API key](https://console.anthropic.com/)
 - Git
 
@@ -99,7 +109,7 @@ This project is a portfolio piece targeting Forward Deployed, AI Product, and Ap
 ```bash
 git clone git@github.com:jar285/ContentOps.git
 cd ContentOps
-npm install
+npm ci
 ```
 
 ### 2. Configure environment
@@ -158,6 +168,10 @@ The same registry that filters the prompt's tool manifest also gates execution �
 - `GET /api/audit` — Admin sees all rows; non-admins see only their own.
 - `POST /api/audit/[id]/rollback` — audit-ownership policy: Admin can roll back any row; non-admins only their own. Idempotent on already-rolled-back rows.
 
+### Operator Cockpit
+
+Editors and Admins can open `/cockpit` from the header. The cockpit shows recent audited actions, scheduled content, approval history for Admins, today's demo spend, and the latest golden-eval health report. Panels use page-load state plus manual refresh, keeping the demo simple while still showing the operating surface behind the chat.
+
 ### Chat + RAG
 
 The chat interface at `/` provides grounded answers about the Side Quest Syndicate brand. The assistant combines:
@@ -190,10 +204,10 @@ Add to your MCP client config:
 ## Running the Tests
 
 ```bash
-# All unit + integration + contract tests (132 tests)
+# Unit + integration + contract tests
 npm run test
 
-# E2E smoke (Playwright; auto-launches dev server with the Anthropic mock)
+# E2E smoke specs (Playwright; auto-launches dev server with the Anthropic mock)
 npm run test:e2e
 
 # Type checking
@@ -202,8 +216,11 @@ npm run typecheck
 # Linting
 npm run lint
 
-# Golden retrieval eval (deterministic, no LLM calls, exits 0/1)
+# Golden retrieval eval (deterministic, exits 0/1, writes data/eval-reports/)
 npm run eval:golden
+
+# Production build check
+npm run build
 ```
 
 ### What the tests cover
@@ -223,7 +240,7 @@ npm run eval:golden
 | Eval scoring + runner | `src/lib/evals/*.test.ts` | 9 |
 | MCP contract (read-only + mutating-tool parity) | `mcp/contentops-server.test.ts` | 6 |
 | UI components | `src/app/page.test.tsx` | ~25 |
-| **E2E smoke** — chat → tool_use → ToolCard → Undo (Playwright) | `tests/e2e/chat-tool-use.spec.ts` | 1 |
+| **E2E smoke** — chat → tool_use → ToolCard → Undo, cockpit dashboard smoke (Playwright) | `tests/e2e/*.spec.ts` | 2 specs |
 
 ### Golden eval
 
@@ -242,7 +259,8 @@ ContentOps/
 │   └── eval-golden.ts                # Golden eval CLI entry point
 ├── tests/
 │   └── e2e/                          # Playwright smoke tests
-│       └── chat-tool-use.spec.ts
+│       ├── chat-tool-use.spec.ts
+│       └── cockpit-dashboard.spec.ts
 ├── playwright.config.ts              # E2E config — webServer.env engages Anthropic mock
 ├── src/
 │   ├── app/
@@ -297,8 +315,9 @@ ContentOps is built sprint-by-sprint with a spec → QA → sprint plan → impl
 | 6 | AI eval harness (golden retrieval eval) | Complete |
 | 7 | Tool registry + read-only MCP tools | Complete |
 | 8 | Mutating tools + audit log + rollback + test consolidation + first Playwright E2E | Complete |
-| 9 | Operator cockpit dashboard | Planned |
-| 10 | Vercel deployment + README + Loom | Planned |
+| 9 | Operator cockpit dashboard + typing indicator | Complete |
+| 10 | UI polish pass | Planned |
+| 11 | Vercel deployment + README + Loom | Planned |
 
 ---
 

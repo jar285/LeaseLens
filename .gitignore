@@ -12,6 +12,7 @@ dist/
 # Testing
 coverage/
 .vitest/
+test-results/
 
 # Environment Variables
 .env
@@ -28,6 +29,10 @@ yarn-error.log*
 .DS_Store
 
 # SQLite
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
 data/*.db
 data/*.db-shm
 data/*.db-wal

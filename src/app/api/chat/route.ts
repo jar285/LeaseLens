@@ -27,7 +27,7 @@ const chatRequestBodySchema = z.object({
 });
 
 const SPEND_CEILING_MESSAGE =
-  'Daily demo quota reached. Clone the repo for unlimited local use: github.com/your-org/contentop';
+  'Daily demo quota reached. Clone the repo for unlimited local use: github.com/jar285/ContentOps';
 
 // Maximum tool-use iterations to prevent runaway loops
 const MAX_TOOL_ITERATIONS = 3;
@@ -196,15 +196,14 @@ export async function POST(req: NextRequest) {
       ).run(crypto.randomUUID(), activeConversationId, 'user', message, now);
     })();
 
-    // Load full history (includes the just-persisted user message at the end)
-    const history = db
-      .prepare(
-        'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
-      )
-      .all(activeConversationId) as {
-      role: 'user' | 'assistant' | 'tool';
-      content: string;
-    }[];
+    if (!activeConversationId) {
+      return NextResponse.json(
+        { error: 'Failed to initialize conversation' },
+        { status: 500 },
+      );
+    }
+
+    const resolvedConversationId = activeConversationId;
 
     // RAG retrieval for implicit grounding (still used alongside explicit tools)
     let ragContext: Awaited<ReturnType<typeof retrieve>> = [];
@@ -250,7 +249,7 @@ export async function POST(req: NextRequest) {
                 .prepare(
                   'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
                 )
-                .all(activeConversationId!) as {
+                .all(resolvedConversationId) as {
                 role: 'user' | 'assistant' | 'tool';
                 content: string;
               }[],
@@ -301,7 +300,7 @@ export async function POST(req: NextRequest) {
                 for (const toolUse of toolUseBlocks) {
                   await executeToolAndPersist(
                     toolUse,
-                    activeConversationId!,
+                    resolvedConversationId,
                     userId,
                     role,
                     toolRegistry,
@@ -349,7 +348,7 @@ export async function POST(req: NextRequest) {
                 for (const toolUse of toolUseBlocks) {
                   await executeToolAndPersist(
                     toolUse,
-                    activeConversationId!,
+                    resolvedConversationId,
                     userId,
                     role,
                     toolRegistry,
@@ -380,7 +379,7 @@ export async function POST(req: NextRequest) {
               'INSERT INTO messages (id, conversation_id, role, content, tokens_in, tokens_out, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
             ).run(
               crypto.randomUUID(),
-              activeConversationId!,
+              resolvedConversationId,
               'assistant',
               finalResponse,
               tokensIn,

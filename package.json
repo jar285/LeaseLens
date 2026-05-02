@@ -21,6 +21,9 @@
   "author": "",
   "license": "ISC",
   "description": "",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@huggingface/transformers": "^4.2.0",

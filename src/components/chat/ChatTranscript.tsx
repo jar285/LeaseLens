@@ -5,14 +5,17 @@ import { ChatMessage, type ChatMessageProps } from './ChatMessage';
 export interface ChatTranscriptProps {
   messages: ChatMessageProps[];
   isStreaming?: boolean;
+  onSelectPrompt?: (prompt: string) => void;
 }
 
 export function ChatTranscript({
   messages,
   isStreaming = false,
+  onSelectPrompt,
 }: ChatTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
+  const previousMessageCount = useRef(messages.length);
 
   // Track user scroll intent: if user scrolls up, unpin; if at bottom, re-pin
   const handleScroll = () => {
@@ -24,11 +27,21 @@ export function ChatTranscript({
     pinnedToBottom.current = atBottom;
   };
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: auto-scroll when messages change or streaming updates content
+  // Adapted from docs/_references/ai_mcp_chat_ordo/src/hooks/useChatScroll.ts.
   useEffect(() => {
-    if (!pinnedToBottom.current || !scrollRef.current) return;
-    scrollRef.current.scrollTo({
-      top: scrollRef.current.scrollHeight,
+    const messageCountChanged =
+      messages.length !== previousMessageCount.current;
+    previousMessageCount.current = messages.length;
+
+    if (messageCountChanged) {
+      pinnedToBottom.current = true;
+    }
+
+    const el = scrollRef.current;
+    if (!pinnedToBottom.current || !el) return;
+
+    el.scrollTo({
+      top: el.scrollHeight,
       behavior: 'smooth',
     });
   }, [messages]);
@@ -37,9 +50,10 @@ export function ChatTranscript({
     return (
       <div
         ref={scrollRef}
+        data-testid="chat-transcript-scroll"
         className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
       >
-        <ChatEmptyState />
+        <ChatEmptyState onSelectPrompt={onSelectPrompt} />
       </div>
     );
   }
@@ -47,6 +61,7 @@ export function ChatTranscript({
   return (
     <div
       ref={scrollRef}
+      data-testid="chat-transcript-scroll"
       onScroll={handleScroll}
       className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-6 md:px-8"
     >

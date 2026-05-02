@@ -67,9 +67,7 @@ export function createE2EMockClient(): Anthropic {
                 document_slug: 'brand-identity',
                 // ISO 8601 string — Sprint 8 amendment. Server parses to
                 // Unix seconds via parseIsoToUnixSeconds.
-                scheduled_for: new Date(
-                  Date.now() + 86_400_000,
-                ).toISOString(),
+                scheduled_for: new Date(Date.now() + 86_400_000).toISOString(),
                 channel: 'twitter',
               },
             },

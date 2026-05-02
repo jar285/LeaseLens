@@ -9,7 +9,7 @@ import { RefreshButton } from './RefreshButton';
 
 export interface AuditFeedPanelProps {
   initialRows: CockpitAuditRow[];
-  role: Role;
+  viewerRole: Role;
   userId: string;
 }
 
@@ -30,18 +30,18 @@ function summarizeInput(json: string): string {
 
 function AuditRowItem({
   row,
-  role,
+  viewerRole,
   userId,
 }: {
   row: CockpitAuditRow;
-  role: Role;
+  viewerRole: Role;
   userId: string;
 }) {
   const { status: rollbackStatus, rollback } = useRollback(row.id);
 
   const showUndo =
     row.status === 'executed' &&
-    (role === 'Admin' || row.actor_user_id === userId) &&
+    (viewerRole === 'Admin' || row.actor_user_id === userId) &&
     rollbackStatus === 'idle';
 
   const isRolledBack =
@@ -50,7 +50,10 @@ function AuditRowItem({
   const actor = row.actor_display_name ?? row.actor_user_id;
 
   return (
-    <li className="grid grid-cols-[140px_140px_140px_minmax(0,1fr)_100px_80px] items-center gap-3 border-b border-gray-100 px-4 py-2.5 text-xs">
+    <li
+      data-testid={`audit-row-${row.id}`}
+      className="grid min-w-[760px] grid-cols-[140px_140px_140px_minmax(0,1fr)_100px_84px] items-center gap-3 border-b border-gray-100 px-4 py-2.5 text-xs"
+    >
       <span className="text-gray-500">{formatTime(row.created_at)}</span>
       <span className="font-mono text-gray-700">{row.tool_name}</span>
       <span className="text-gray-700">{actor}</span>
@@ -73,7 +76,7 @@ function AuditRowItem({
           <button
             type="button"
             onClick={rollback}
-            className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700 hover:bg-amber-100"
+            className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
           >
             Undo
           </button>
@@ -85,7 +88,7 @@ function AuditRowItem({
           <button
             type="button"
             onClick={rollback}
-            className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-red-700"
+            className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-red-700 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
           >
             Retry
           </button>
@@ -97,7 +100,7 @@ function AuditRowItem({
 
 export function AuditFeedPanel({
   initialRows,
-  role,
+  viewerRole,
   userId,
 }: AuditFeedPanelProps) {
   const [rows, setRows] = useState<CockpitAuditRow[]>(initialRows);
@@ -114,7 +117,7 @@ export function AuditFeedPanel({
   }
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
         <h2 className="text-sm font-semibold text-gray-800">Recent actions</h2>
         <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
@@ -124,11 +127,18 @@ export function AuditFeedPanel({
           No tool actions recorded yet.
         </div>
       ) : (
-        <ul className="m-0 list-none p-0">
-          {rows.map((row) => (
-            <AuditRowItem key={row.id} row={row} role={role} userId={userId} />
-          ))}
-        </ul>
+        <div className="overflow-x-auto">
+          <ul className="m-0 list-none p-0">
+            {rows.map((row) => (
+              <AuditRowItem
+                key={row.id}
+                row={row}
+                viewerRole={viewerRole}
+                userId={userId}
+              />
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

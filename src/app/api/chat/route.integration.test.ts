@@ -30,8 +30,8 @@ vi.mock('@/lib/anthropic/client', () => ({
       stream: vi.fn().mockReturnValue({
         on: vi.fn().mockImplementation(function (
           this: unknown,
-          event: string,
-          cb: (text: string) => void,
+          _event: string,
+          _cb: (text: string) => void,
         ) {
           // Only emit via finalMessage to avoid duplication in test assertions
           return this;

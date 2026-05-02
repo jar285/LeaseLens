@@ -20,6 +20,7 @@ export function ToolCard({ invocation }: ToolCardProps) {
   );
   const hasResult = invocation.result !== undefined;
   const hasError = invocation.error !== undefined;
+  const isPending = !hasResult && !hasError;
 
   const canUndo =
     invocation.compensating_available &&
@@ -27,15 +28,17 @@ export function ToolCard({ invocation }: ToolCardProps) {
     rollbackState === 'idle';
 
   return (
-    <div className="my-2 rounded-lg border border-gray-200 bg-white shadow-sm">
+    <div className="my-2 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       {/* Header — flex row with the expand toggle as a button and Undo/Retry
           as siblings (avoids invalid nested-button HTML). */}
-      <div className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50">
+      <div className="flex items-center gap-2 px-3 py-2 transition-colors hover:bg-gray-50">
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
-          aria-label={isExpanded ? 'Collapse tool details' : 'Expand tool details'}
-          className="flex flex-1 items-center gap-2 text-left"
+          aria-label={
+            isExpanded ? 'Collapse tool details' : 'Expand tool details'
+          }
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
         >
           {isExpanded ? (
             <ChevronDown className="h-4 w-4 text-gray-400" />
@@ -43,7 +46,7 @@ export function ToolCard({ invocation }: ToolCardProps) {
             <ChevronRight className="h-4 w-4 text-gray-400" />
           )}
           <Wrench className="h-4 w-4 text-indigo-500" />
-          <span className="text-sm font-medium text-gray-700">
+          <span className="truncate text-sm font-medium text-gray-700">
             {invocation.name}
           </span>
         </button>
@@ -63,9 +66,9 @@ export function ToolCard({ invocation }: ToolCardProps) {
                 Done
               </span>
             )}
-            {!hasResult && !hasError && (
+            {isPending && (
               <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                Running…
+                Running...
               </span>
             )}
           </>
@@ -76,7 +79,7 @@ export function ToolCard({ invocation }: ToolCardProps) {
           <button
             type="button"
             onClick={handleUndo}
-            className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700 hover:bg-amber-100"
+            className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
           >
             Undo
           </button>
@@ -95,12 +98,26 @@ export function ToolCard({ invocation }: ToolCardProps) {
           <button
             type="button"
             onClick={handleUndo}
-            className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-700"
+            className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-700 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
           >
             Retry undo
           </button>
         )}
       </div>
+
+      {isPending && (
+        <div
+          role="status"
+          className="border-t border-gray-100 px-3 py-2.5 text-xs text-gray-500"
+        >
+          <span className="sr-only">Tool is running</span>
+          <div className="space-y-1.5" aria-hidden="true">
+            <div className="h-2 w-2/3 animate-pulse rounded bg-gray-100" />
+            <div className="h-2 w-1/2 animate-pulse rounded bg-gray-100" />
+            <div className="h-2 w-3/4 animate-pulse rounded bg-gray-100" />
+          </div>
+        </div>
+      )}
 
       {/* Expanded content */}
       {isExpanded && (

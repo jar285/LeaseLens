@@ -2,6 +2,13 @@ import { expect, test } from '@playwright/test';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { encrypt } from '@/lib/auth/session';
 
+async function startFreshConversation(page: import('@playwright/test').Page) {
+  const newConversation = page.getByTestId('new-conversation-btn');
+  if (await newConversation.isVisible()) {
+    await newConversation.click();
+  }
+}
+
 test.beforeEach(async ({ context }) => {
   const admin = DEMO_USERS.find((u) => u.role === 'Admin');
   if (!admin) throw new Error('Admin demo user not found');
@@ -29,6 +36,7 @@ test('mutating tool flow renders ToolCard with working Undo', async ({
   page,
 }) => {
   await page.goto('/');
+  await startFreshConversation(page);
 
   // Send any prompt — the dev server runs with CONTENTOPS_E2E_MOCK=1 so the
   // mock client at src/lib/anthropic/e2e-mock.ts ignores prompt content

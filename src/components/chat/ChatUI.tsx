@@ -189,7 +189,7 @@ export function ChatUI({
           data-testid="new-conversation-btn"
           onClick={handleNewConversation}
           disabled={status === 'streaming'}
-          className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 disabled:pointer-events-none disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40"
         >
           <SquarePen className="h-3.5 w-3.5" aria-hidden="true" />
           New conversation
@@ -205,6 +205,7 @@ export function ChatUI({
         <ChatTranscript
           messages={messages}
           isStreaming={status === 'streaming'}
+          onSelectPrompt={handleSubmit}
         />
       </div>
 

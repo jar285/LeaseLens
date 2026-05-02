@@ -3,7 +3,6 @@
 // Simplified: uses existing retrieve() function instead of separate SearchHandler
 
 import type Database from 'better-sqlite3';
-import type { Role } from '@/lib/auth/types';
 import { retrieve } from '@/lib/rag/retrieve';
 import type { ToolDescriptor } from './domain';
 

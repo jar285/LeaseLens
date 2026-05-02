@@ -17,11 +17,15 @@ export function CockpitDashboard({ initialData }: CockpitDashboardProps) {
   const isAdmin = role === 'Admin';
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <div className="lg:col-span-1">
-        <AuditFeedPanel initialRows={recentAudit} role={role} userId={userId} />
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="min-w-0 lg:col-span-1">
+        <AuditFeedPanel
+          initialRows={recentAudit}
+          viewerRole={role}
+          userId={userId}
+        />
       </div>
-      <div className="flex flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-4">
         <SpendPanel initialSnapshot={spend} />
         <EvalHealthPanel initialSnapshot={evalHealth} />
         <SchedulePanel initialItems={scheduled} />

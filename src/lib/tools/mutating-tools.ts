@@ -102,9 +102,7 @@ export function createScheduleContentItemTool(
   };
 }
 
-export function createApproveDraftTool(
-  db: Database.Database,
-): ToolDescriptor {
+export function createApproveDraftTool(db: Database.Database): ToolDescriptor {
   return {
     name: 'approve_draft',
     description:

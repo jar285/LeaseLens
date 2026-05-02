@@ -10,8 +10,8 @@
  */
 
 import type Database from 'better-sqlite3';
-import type { Role } from '@/lib/auth/types';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import type { Role } from '@/lib/auth/types';
 import { mockEmbedding } from './embed-mock';
 
 /**

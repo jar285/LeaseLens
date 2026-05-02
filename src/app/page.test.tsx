@@ -93,6 +93,28 @@ describe('Homepage Chat UI', () => {
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 
+  it('submits an empty-state suggested prompt', async () => {
+    render(<ChatUI />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Define Brand Voice/i }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Summarize the Side Quest Syndicate brand voice/i),
+      ).toBeInTheDocument();
+    });
+
+    expect(window.fetch).toHaveBeenCalledWith(
+      '/api/chat',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('brand voice'),
+      }),
+    );
+  });
+
   it('allows typing and disables submit when empty', () => {
     render(<ChatUI />);
 

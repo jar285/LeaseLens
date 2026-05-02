@@ -269,9 +269,9 @@ describe('ToolRegistry', () => {
       const cal = db
         .prepare('SELECT COUNT(*) as n FROM content_calendar')
         .get() as { n: number };
-      const aud = db
-        .prepare('SELECT COUNT(*) as n FROM audit_log')
-        .get() as { n: number };
+      const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
+        n: number;
+      };
       expect(cal.n).toBe(0);
       expect(aud.n).toBe(0);
     });
@@ -286,9 +286,9 @@ describe('ToolRegistry', () => {
         { role: 'Admin', userId: 'u', conversationId: 'c' },
       );
 
-      const aud = db
-        .prepare('SELECT COUNT(*) as n FROM audit_log')
-        .get() as { n: number };
+      const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
+        n: number;
+      };
       expect(aud.n).toBe(0);
     });
 
@@ -329,9 +329,9 @@ describe('ToolRegistry', () => {
         ),
       ).rejects.toThrow('missing required_field');
 
-      const aud = db
-        .prepare('SELECT COUNT(*) as n FROM audit_log')
-        .get() as { n: number };
+      const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
+        n: number;
+      };
       expect(aud.n).toBe(0);
     });
   });

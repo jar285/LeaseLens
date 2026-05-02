@@ -1,6 +1,63 @@
 import { expect, test } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { encrypt } from '@/lib/auth/session';
+import { db } from '@/lib/db';
+
+function seedExecutedAuditRow(actorUserId: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const scheduleId = randomUUID();
+  const auditId = randomUUID();
+  const input = {
+    document_slug: 'brand-identity',
+    scheduled_for: new Date(Date.now() + 86_400_000).toISOString(),
+    channel: 'twitter',
+  };
+  const output = {
+    schedule_id: scheduleId,
+    document_slug: input.document_slug,
+    scheduled_for: input.scheduled_for,
+    channel: input.channel,
+  };
+
+  db.transaction(() => {
+    db.prepare(
+      `INSERT INTO content_calendar (
+         id, document_slug, scheduled_for, channel, scheduled_by, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      scheduleId,
+      input.document_slug,
+      Math.floor(Date.now() / 1000) + 86_400,
+      input.channel,
+      actorUserId,
+      now,
+    );
+
+    db.prepare(
+      `INSERT INTO audit_log (
+         id, tool_name, tool_use_id, actor_user_id, actor_role, conversation_id,
+         input_json, output_json, compensating_action_json, status, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      auditId,
+      'schedule_content_item',
+      `toolu_${auditId}`,
+      actorUserId,
+      'Admin',
+      null,
+      JSON.stringify(input),
+      JSON.stringify(output),
+      JSON.stringify({ schedule_id: scheduleId }),
+      'executed',
+      now,
+    );
+  })();
+
+  return auditId;
+}
+
+let seededAuditId = '';
 
 test.beforeEach(async ({ context, page }) => {
   const admin = DEMO_USERS.find((u) => u.role === 'Admin');
@@ -21,21 +78,9 @@ test.beforeEach(async ({ context, page }) => {
     },
   ]);
 
-  // Seed at least one executed audit row by routing through the chat tool flow.
-  // The dev server runs with CONTENTOPS_E2E_MOCK=1 so the mock client at
-  // src/lib/anthropic/e2e-mock.ts deterministically returns a
-  // schedule_content_item tool_use against the seeded `brand-identity` slug.
-  await page.goto('/');
-  await page
-    .getByRole('textbox')
-    .fill('Schedule a brand-identity post for twitter tomorrow.');
-  await page.getByRole('button', { name: 'Send message' }).click();
-  await expect(
-    page
-      .getByRole('button')
-      .filter({ hasText: 'schedule_content_item' })
-      .last(),
-  ).toBeVisible({ timeout: 30_000 });
+  // Seed an executed audit row directly so cockpit clickability tests isolate
+  // cockpit layout, not chat/model behavior.
+  seededAuditId = seedExecutedAuditRow(admin.id);
 });
 
 test('cockpit dashboard renders panels and supports Undo on audit row', async ({
@@ -66,14 +111,45 @@ test('cockpit dashboard renders panels and supports Undo on audit row', async ({
   ).toBeVisible();
 
   // Click Undo on the first executed audit row (the row created in beforeEach).
-  // Use force-click — at narrower viewports the SpendPanel below the audit
-  // feed can intercept pointer events during scroll-into-view. The button
-  // itself is visible+enabled per Playwright's own log; force bypasses the
-  // pointer-event intercept check.
-  const undo = page.getByRole('button', { name: 'Undo', exact: true }).first();
+  const undo = page
+    .getByTestId(`audit-row-${seededAuditId}`)
+    .getByRole('button', { name: 'Undo', exact: true });
   await expect(undo).toBeVisible();
   await undo.scrollIntoViewIfNeeded();
-  await undo.click({ force: true });
+  await undo.click();
+  await expect(page.getByText('Rolled back', { exact: true }).first()).toBeVisible(
+    { timeout: 5000 },
+  );
+});
+
+test('cockpit dashboard keeps audit actions clickable on mobile width', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/cockpit');
+
+  await expect(page).toHaveURL(/\/cockpit$/);
+  await expect(page.getByText('Operator Cockpit')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Recent actions' }),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Spend/ })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Eval health' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Scheduled' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Recent approvals' }),
+  ).toBeVisible();
+
+  const undo = page
+    .getByTestId(`audit-row-${seededAuditId}`)
+    .getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeVisible();
+  await undo.scrollIntoViewIfNeeded();
+  await undo.click();
   await expect(page.getByText('Rolled back', { exact: true }).first()).toBeVisible(
     { timeout: 5000 },
   );

@@ -64,7 +64,7 @@ export default async function Home() {
         <div className="flex items-center gap-4">
           <Link
             href="/"
-            className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-gray-800 transition-opacity hover:opacity-75"
+            className="flex items-center gap-2.5 rounded-md text-[15px] font-semibold tracking-tight text-gray-800 transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white">
               <Layers
@@ -78,7 +78,7 @@ export default async function Home() {
           {currentRole !== 'Creator' && (
             <Link
               href="/cockpit"
-              className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-800"
+              className="rounded-md px-1 text-sm font-medium text-gray-500 transition-colors hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               Cockpit
             </Link>

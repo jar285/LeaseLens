@@ -50,7 +50,9 @@ describe('mutating-tools', () => {
       scheduled_for: isoTime,
       channel: 'twitter',
     });
-    expect((outcome.result as { schedule_id: string }).schedule_id).toBeTruthy();
+    expect(
+      (outcome.result as { schedule_id: string }).schedule_id,
+    ).toBeTruthy();
     expect(outcome.compensatingActionPayload).toEqual({
       schedule_id: (outcome.result as { schedule_id: string }).schedule_id,
     });
@@ -140,9 +142,14 @@ describe('mutating-tools', () => {
       editorCtx,
     ) as MutationOutcome;
     const scheduleId = (outcome.result as { schedule_id: string }).schedule_id;
+    const rollback = tool.compensatingAction;
+    expect(rollback).toBeDefined();
+    if (!rollback) {
+      throw new Error('Expected schedule_content_item to define rollback');
+    }
 
     // First rollback removes the row.
-    tool.compensatingAction!(outcome.compensatingActionPayload, editorCtx);
+    rollback(outcome.compensatingActionPayload, editorCtx);
     let count = db
       .prepare('SELECT COUNT(*) as n FROM content_calendar')
       .get() as { n: number };
@@ -150,11 +157,11 @@ describe('mutating-tools', () => {
 
     // Second rollback on the same payload is a no-op (DELETE matches 0 rows).
     expect(() =>
-      tool.compensatingAction!(outcome.compensatingActionPayload, editorCtx),
+      rollback(outcome.compensatingActionPayload, editorCtx),
     ).not.toThrow();
-    count = db
-      .prepare('SELECT COUNT(*) as n FROM content_calendar')
-      .get() as { n: number };
+    count = db.prepare('SELECT COUNT(*) as n FROM content_calendar').get() as {
+      n: number;
+    };
     expect(count.n).toBe(0);
     expect(scheduleId).toBeTruthy(); // sanity
   });

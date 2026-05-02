@@ -1,8 +1,8 @@
 // Integration tests for corpus tools
 // Tests against seeded database
 
+import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { join } from 'path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   createGetDocumentSummaryTool,

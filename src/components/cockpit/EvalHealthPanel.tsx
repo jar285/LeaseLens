@@ -40,7 +40,7 @@ export function EvalHealthPanel({ initialSnapshot }: EvalHealthPanelProps) {
     : 'bg-amber-100 text-amber-700';
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
         <h2 className="text-sm font-semibold text-gray-800">Eval health</h2>
         <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />

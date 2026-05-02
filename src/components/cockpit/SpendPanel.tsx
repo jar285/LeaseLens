@@ -24,14 +24,14 @@ export function SpendPanel({ initialSnapshot }: SpendPanelProps) {
   }
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
         <h2 className="text-sm font-semibold text-gray-800">
           Spend ({snapshot.date})
         </h2>
         <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
       </header>
-      <div className="grid grid-cols-3 gap-4 px-4 py-4 text-center">
+      <div className="grid grid-cols-1 gap-4 px-4 py-4 text-center sm:grid-cols-3">
         <div>
           <div className="text-xs text-gray-500">Tokens in</div>
           <div className="mt-1 text-lg font-semibold text-gray-800">

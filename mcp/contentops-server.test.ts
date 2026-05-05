@@ -114,10 +114,13 @@ describe('MCP Server Contract', () => {
         .prepare('SELECT COUNT(*) as n FROM audit_log')
         .get() as { n: number };
 
-      // Find a real corpus slug — any will do (corpus already seeded in beforeAll).
+      // Find a real corpus slug from the sample workspace specifically.
+      // The dev DB may carry uploaded brand documents from manual smoke
+      // tests; an unscoped LIMIT 1 can pick a non-sample slug and the
+      // schedule tool's per-workspace existence check then 500s.
       const doc = db
-        .prepare('SELECT slug FROM documents LIMIT 1')
-        .get() as { slug: string } | undefined;
+        .prepare('SELECT slug FROM documents WHERE workspace_id = ? LIMIT 1')
+        .get(SAMPLE_WORKSPACE.id) as { slug: string } | undefined;
       expect(doc).toBeDefined();
       if (!doc) return;
 

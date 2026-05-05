@@ -60,6 +60,35 @@ export function createWorkspace(
   };
 }
 
+/**
+ * Resolves the visitor's previously-created brands from the cookie list,
+ * filtering out the active workspace, the sample, and any that have been
+ * TTL-purged (or never existed). Preserves cookie order so the menu reads
+ * upload-order top-to-bottom.
+ */
+export function listVisitorBrands(
+  db: Database.Database,
+  created_workspace_ids: string[],
+  excludeId: string,
+): Workspace[] {
+  const candidates = created_workspace_ids.filter((id) => id !== excludeId);
+  if (candidates.length === 0) return [];
+  const placeholders = candidates.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT * FROM workspaces
+       WHERE id IN (${placeholders})
+         AND is_sample = 0
+         AND expires_at IS NOT NULL
+         AND expires_at > unixepoch()`,
+    )
+    .all(...candidates) as Workspace[];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return candidates
+    .map((id) => byId.get(id))
+    .filter((w): w is Workspace => w !== undefined);
+}
+
 export function listExpiredWorkspaceIds(db: Database.Database): string[] {
   const rows = db
     .prepare(

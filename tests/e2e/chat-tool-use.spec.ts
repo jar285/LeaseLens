@@ -26,6 +26,7 @@ test.beforeEach(async ({ context }) => {
   // redirect to /onboarding before the test prompt fires.
   const workspaceToken = await encodeWorkspace({
     workspace_id: SAMPLE_WORKSPACE.id,
+    created_workspace_ids: [],
   });
 
   await context.addCookies([

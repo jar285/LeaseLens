@@ -6,11 +6,18 @@ import type { Workspace } from '@/lib/workspaces/types';
  * a "Switch workspace" affordance. Sprint 11 (revised): the affordance
  * is now a popover (WorkspaceMenu) instead of a link to /onboarding.
  */
-export function WorkspaceHeader({ workspace }: { workspace: Workspace }) {
+export function WorkspaceHeader({
+  workspace,
+  otherBrands,
+}: {
+  workspace: Workspace;
+  otherBrands: Workspace[];
+}) {
   return (
     <WorkspaceMenu
       workspaceName={workspace.name}
       isSample={Boolean(workspace.is_sample)}
+      otherBrands={otherBrands}
     />
   );
 }

@@ -252,6 +252,89 @@ describe('Homepage Chat UI', () => {
       expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
     });
     expect(screen.queryByText('Hello')).not.toBeInTheDocument();
-    expect(screen.getByTestId('conversation-toolbar')).toHaveClass('invisible');
+    // Toolbar stays visible to host the Continue-previous undo affordance —
+    // empty state with a stash is the one case where the toolbar shows
+    // without messages.
+    expect(screen.getByTestId('conversation-toolbar')).not.toHaveClass(
+      'invisible',
+    );
+    expect(screen.getByTestId('continue-previous-btn')).toBeInTheDocument();
+  });
+
+  it('shows "Continue previous" after clicking New conversation, restores the prior thread on click', () => {
+    render(
+      <ChatUI
+        initialMessages={[
+          { id: 'msg-1', role: 'user', content: 'What is our brand voice?' },
+        ]}
+        conversationId="conv-1"
+        workspaceName="Side Quest Syndicate"
+      />,
+    );
+
+    expect(screen.getByText('What is our brand voice?')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('continue-previous-btn'),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+
+    expect(
+      screen.queryByText('What is our brand voice?'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('continue-previous-btn')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('new-conversation-btn'),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('continue-previous-btn'));
+
+    expect(screen.getByText('What is our brand voice?')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('continue-previous-btn'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('new-conversation-btn')).toBeInTheDocument();
+  });
+
+  it('does not show Continue previous on initial empty state (no stash yet)', () => {
+    render(
+      <ChatUI
+        initialMessages={[]}
+        conversationId={null}
+        workspaceName="Side Quest Syndicate"
+      />,
+    );
+    expect(
+      screen.queryByTestId('continue-previous-btn'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('remounts on workspace change so the prior thread does not bleed across', () => {
+    // The page passes `key={workspace.id}` to ChatUI. On workspace switch,
+    // React unmounts the old instance and mounts a fresh one with the new
+    // workspace's initialMessages — preventing the GitLab thread from
+    // surviving into the MailChimp chat after upload.
+    const { rerender } = render(
+      <ChatUI
+        key="ws-gitlab"
+        initialMessages={[
+          { id: 'msg-old', role: 'user', content: 'GitLab question' },
+        ]}
+        conversationId="conv-gitlab"
+        workspaceName="GitLab"
+      />,
+    );
+    expect(screen.getByText('GitLab question')).toBeInTheDocument();
+
+    rerender(
+      <ChatUI
+        key="ws-mailchimp"
+        initialMessages={[]}
+        conversationId={null}
+        workspaceName="MailChimp"
+      />,
+    );
+    expect(screen.queryByText('GitLab question')).not.toBeInTheDocument();
+    expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
   });
 });

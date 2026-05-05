@@ -41,7 +41,14 @@ export async function decodeWorkspace(
     const { payload } = await jwtVerify(token, getSecret(), {
       algorithms: ['HS256'],
     });
-    return payload as unknown as WorkspaceCookiePayload;
+    const raw = payload as Record<string, unknown>;
+    if (typeof raw.workspace_id !== 'string') return null;
+    const list = Array.isArray(raw.created_workspace_ids)
+      ? raw.created_workspace_ids.filter(
+          (v): v is string => typeof v === 'string',
+        )
+      : [];
+    return { workspace_id: raw.workspace_id, created_workspace_ids: list };
   } catch {
     return null;
   }

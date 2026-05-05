@@ -85,6 +85,27 @@ describe('BrandUploadModal', () => {
     expect(screen.getByText(/Selected files \(2\)/i)).toBeInTheDocument();
   });
 
+  it('renders the drop-zone with click-to-choose copy', () => {
+    render(<BrandUploadModal open onClose={() => {}} onSuccess={() => {}} />);
+    expect(screen.getByTestId('brand-files-dropzone')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Drag \.md files here, or click to choose/i),
+    ).toBeInTheDocument();
+  });
+
+  it('drag-and-dropping markdown files populates the selected list', () => {
+    render(<BrandUploadModal open onClose={() => {}} onSuccess={() => {}} />);
+    const dropzone = screen.getByTestId('brand-files-dropzone');
+    const file = new File(['# Brand\n\ncontent'], 'brand.md', {
+      type: 'text/markdown',
+    });
+    fireEvent.drop(dropzone, {
+      dataTransfer: { files: [file] },
+    });
+    expect(screen.getByText('brand.md')).toBeInTheDocument();
+    expect(screen.getByText(/1 file selected/i)).toBeInTheDocument();
+  });
+
   it('shows server error message when /api/workspaces returns non-ok', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

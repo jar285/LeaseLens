@@ -70,7 +70,10 @@ export async function middleware(request: NextRequest) {
     ? await decodeWorkspace(workspaceCookie.value)
     : null;
   if (!workspacePayload) {
-    const token = await encodeWorkspace({ workspace_id: SAMPLE_WORKSPACE.id });
+    const token = await encodeWorkspace({
+      workspace_id: SAMPLE_WORKSPACE.id,
+      created_workspace_ids: [],
+    });
     response.cookies.set(WORKSPACE_COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

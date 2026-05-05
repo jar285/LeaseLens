@@ -75,6 +75,7 @@ test.beforeEach(async ({ context, page }) => {
   // Sprint 11: workspace cookie required by chat / cockpit routes.
   const workspaceToken = await encodeWorkspace({
     workspace_id: SAMPLE_WORKSPACE.id,
+    created_workspace_ids: [],
   });
   await context.addCookies([
     {

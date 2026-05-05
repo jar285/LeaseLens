@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { migrate } from '@/lib/db/migrate';
@@ -39,6 +41,7 @@ export function runSeed(db: Database.Database) {
 // Execute if run directly
 if (require.main === module) {
   (async () => {
+    mkdirSync(dirname(env.CONTENTOPS_DB_PATH), { recursive: true });
     const seedDb = new Database(env.CONTENTOPS_DB_PATH);
     console.log('Seeding database...');
     try {

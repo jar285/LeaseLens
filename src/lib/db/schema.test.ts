@@ -76,4 +76,11 @@ describe('Database Schema and Configuration', () => {
       expect(journalMode).toBe('memory');
     }
   });
+
+  it('should have foreign_keys enforcement enabled at boot', () => {
+    // Locked invariant — schema declares REFERENCES clauses that only
+    // enforce when the pragma is ON. Don't rely on the library default.
+    const fk = db.pragma('foreign_keys', { simple: true });
+    expect(fk).toBe(1);
+  });
 });

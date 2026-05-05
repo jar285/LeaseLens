@@ -6,10 +6,11 @@
  * Spec §4.4. Lazy TTL purge runs before the new INSERT (Spec §4.5).
  */
 
-import { NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { WORKSPACE_TTL_SECONDS } from '@/lib/workspaces/constants';
 import {
+  decodeWorkspace,
   encodeWorkspace,
   WORKSPACE_COOKIE_NAME,
 } from '@/lib/workspaces/cookie';
@@ -23,7 +24,7 @@ import {
 
 export const runtime = 'nodejs';
 
-export async function POST(req: Request): Promise<NextResponse> {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const form = await req.formData();
     const name = String(form.get('name') ?? '');
@@ -47,7 +48,20 @@ export async function POST(req: Request): Promise<NextResponse> {
     purgeExpiredWorkspaces(db);
 
     const { workspaceId } = await ingestUpload(db, validated);
-    const token = await encodeWorkspace({ workspace_id: workspaceId });
+
+    // Append the new workspace id to the visitor's history. De-dupe so
+    // re-uploading the same workspace (theoretical) doesn't double-list.
+    const incoming = req.cookies.get(WORKSPACE_COOKIE_NAME);
+    const prior = incoming ? await decodeWorkspace(incoming.value) : null;
+    const priorList = prior?.created_workspace_ids ?? [];
+    const created_workspace_ids = priorList.includes(workspaceId)
+      ? priorList
+      : [...priorList, workspaceId];
+
+    const token = await encodeWorkspace({
+      workspace_id: workspaceId,
+      created_workspace_ids,
+    });
 
     const res = NextResponse.json({ workspace_id: workspaceId }, { status: 200 });
     res.cookies.set(WORKSPACE_COOKIE_NAME, token, {

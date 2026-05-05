@@ -13,6 +13,7 @@
  * closes the modal and refreshes the route).
  */
 
+import { Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 const MAX_FILE_BYTES = 100_000;
@@ -45,7 +46,9 @@ export function BrandUploadModal({
   const [files, setFiles] = useState<File[]>([]);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const effectiveFiles = prefilledFiles ?? files;
   const hasPrefilled = (prefilledFiles?.length ?? 0) > 0;
@@ -57,6 +60,7 @@ export function BrandUploadModal({
       setFiles([]);
       setErrors({});
       setIsSubmitting(false);
+      setIsDragging(false);
     }
   }, [open]);
 
@@ -218,14 +222,54 @@ export function BrandUploadModal({
                   Brand documents (.md, ≤ {MAX_FILE_BYTES / 1000}KB each, max{' '}
                   {MAX_FILES})
                 </label>
+                {/* Visual drop-zone: click triggers the hidden input below;
+                    drag-and-drop populates files directly. The input is
+                    label-associated via id so screen-readers and tests can
+                    still find it by `Brand documents`. */}
+                {/* biome-ignore lint/a11y/useKeyWithClickEvents: the hidden <input type="file"> is keyboard-focusable via the label association above and acts as the accessible primary control */}
+                <div
+                  data-testid="brand-files-dropzone"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    const dropped = Array.from(e.dataTransfer.files);
+                    if (dropped.length > 0) setFiles(dropped);
+                  }}
+                  className={`mt-1 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed px-3 py-5 text-center text-xs transition-colors ${
+                    isDragging
+                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                      : 'border-gray-300 text-gray-600 hover:border-gray-400 hover:bg-gray-50'
+                  }`}
+                >
+                  <Upload className="h-4 w-4" aria-hidden="true" />
+                  <span>
+                    {files.length > 0
+                      ? `${files.length} file${files.length === 1 ? '' : 's'} selected`
+                      : 'Drag .md files here, or click to choose'}
+                  </span>
+                </div>
                 <input
+                  ref={fileInputRef}
                   id="brand-files"
                   type="file"
                   accept=".md,text/markdown,text/plain"
                   multiple
                   onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-                  className="mt-1 w-full text-xs"
+                  className="sr-only"
                 />
+                {files.length > 0 && (
+                  <ul className="mt-1 space-y-0.5 text-xs text-gray-600">
+                    {files.map((f) => (
+                      <li key={f.name}>{f.name}</li>
+                    ))}
+                  </ul>
+                )}
               </>
             )}
             {errors.files && (

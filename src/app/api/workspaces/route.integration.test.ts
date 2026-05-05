@@ -1,3 +1,4 @@
+import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/rag/embed', () => ({
@@ -26,8 +27,8 @@ function makeFormData(opts: {
   return fd;
 }
 
-function makeRequest(formData: FormData): Request {
-  return new Request('http://localhost:3000/api/workspaces', {
+function makeRequest(formData: FormData): NextRequest {
+  return new NextRequest('http://localhost:3000/api/workspaces', {
     method: 'POST',
     body: formData,
   });

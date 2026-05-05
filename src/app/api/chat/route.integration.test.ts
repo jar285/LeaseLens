@@ -83,6 +83,7 @@ async function makeSessionRequest(
   // Sprint 11 — chat route requires a workspace cookie. Default to sample.
   const workspaceToken = await encodeWorkspace({
     workspace_id: SAMPLE_WORKSPACE.id,
+    created_workspace_ids: [],
   });
   req.cookies.set(WORKSPACE_COOKIE_NAME, workspaceToken);
   return req;
@@ -272,6 +273,7 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
     });
     const ghostWorkspaceToken = await encodeWorkspace({
       workspace_id: '00000000-0000-0000-0000-deadbeefffff',
+      created_workspace_ids: [],
     });
     const req = new NextRequest(new URL('/api/chat', BASE_URL), {
       method: 'POST',

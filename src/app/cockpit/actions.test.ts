@@ -37,6 +37,7 @@ async function mockSessionFor(
   });
   const workspaceToken = await encodeWorkspace({
     workspace_id: SAMPLE_WORKSPACE.id,
+    created_workspace_ids: [],
   });
   (cookies as ReturnType<typeof vi.fn>).mockResolvedValue({
     get: (name: string) => {

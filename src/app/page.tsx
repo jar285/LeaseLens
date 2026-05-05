@@ -14,7 +14,10 @@ import {
   decodeWorkspace,
   WORKSPACE_COOKIE_NAME,
 } from '@/lib/workspaces/cookie';
-import { getActiveWorkspace } from '@/lib/workspaces/queries';
+import {
+  getActiveWorkspace,
+  listVisitorBrands,
+} from '@/lib/workspaces/queries';
 
 export const runtime = 'nodejs';
 
@@ -46,6 +49,14 @@ export default async function Home() {
       expires_at: null,
     };
   }
+
+  const otherBrands = workspacePayload
+    ? listVisitorBrands(
+        db,
+        workspacePayload.created_workspace_ids,
+        workspace.id,
+      )
+    : [];
 
   const sessionCookie = cookieStore.get('contentops_session');
 
@@ -111,7 +122,7 @@ export default async function Home() {
             </span>
             ContentOps Studio
           </Link>
-          <WorkspaceHeader workspace={workspace} />
+          <WorkspaceHeader workspace={workspace} otherBrands={otherBrands} />
           {currentRole !== 'Creator' && (
             <Link
               href="/cockpit"
@@ -126,6 +137,7 @@ export default async function Home() {
       <div className="flex min-h-0 w-full justify-center overflow-hidden">
         <div className="relative flex h-full w-full max-w-[52rem] flex-col border-x border-gray-100 bg-white">
           <ChatUI
+            key={workspace.id}
             initialMessages={initialMessages}
             conversationId={conversationId}
             workspaceName={workspace.name}

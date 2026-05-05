@@ -22,7 +22,10 @@ import {
   decodeWorkspace,
   WORKSPACE_COOKIE_NAME,
 } from '@/lib/workspaces/cookie';
-import { getActiveWorkspace } from '@/lib/workspaces/queries';
+import {
+  getActiveWorkspace,
+  listVisitorBrands,
+} from '@/lib/workspaces/queries';
 
 export const runtime = 'nodejs';
 
@@ -60,6 +63,14 @@ export default async function CockpitPage() {
       expires_at: null,
     };
   }
+
+  const otherBrands = workspacePayload
+    ? listVisitorBrands(
+        db,
+        workspacePayload.created_workspace_ids,
+        workspace.id,
+      )
+    : [];
 
   const isAdmin = role === 'Admin';
   const actorFilter = isAdmin ? undefined : userId;
@@ -108,7 +119,7 @@ export default async function CockpitPage() {
             </span>
             Operator Cockpit
           </span>
-          <WorkspaceHeader workspace={workspace} />
+          <WorkspaceHeader workspace={workspace} otherBrands={otherBrands} />
         </div>
       </header>
       <div className="mx-auto max-w-6xl px-6 py-8">

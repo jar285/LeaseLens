@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, SquarePen } from 'lucide-react';
+import { AlertCircle, RotateCcw, SquarePen } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { BrandUploadModal } from '@/components/workspaces/BrandUploadModal';
@@ -34,6 +34,16 @@ export function ChatUI({
     string | null
   >(conversationId);
 
+  // One-click undo for "New conversation" misclicks. Stashed when the user
+  // clicks New; cleared when they send a message in the new thread or click
+  // Continue previous. Empty / null = no undo available.
+  const [previousConversationId, setPreviousConversationId] = useState<
+    string | null
+  >(null);
+  const [previousMessages, setPreviousMessages] = useState<ChatMessageProps[]>(
+    [],
+  );
+
   // Sprint 11 (revised) — files dropped on the chat surface or attached
   // via the paperclip button. When non-null, the BrandUploadModal opens
   // with these files prefilled. On modal success the route refreshes so
@@ -42,6 +52,10 @@ export function ChatUI({
   const router = useRouter();
 
   const handleNewConversation = () => {
+    if (activeConversationId !== null || messages.length > 0) {
+      setPreviousConversationId(activeConversationId);
+      setPreviousMessages(messages);
+    }
     setMessages([]);
     setActiveConversationId(null);
     setStatus('idle');
@@ -49,9 +63,25 @@ export function ChatUI({
     setQuotaRemaining(null);
   };
 
+  const handleContinuePrevious = () => {
+    setActiveConversationId(previousConversationId);
+    setMessages(previousMessages);
+    setPreviousConversationId(null);
+    setPreviousMessages([]);
+    setStatus('idle');
+    setErrorMsg('');
+  };
+
   const handleSubmit = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || status === 'streaming') return;
+
+    // Sending a message commits to the new thread — drop the undo-stash
+    // so "Continue previous" doesn't reappear later.
+    if (previousConversationId !== null) {
+      setPreviousConversationId(null);
+      setPreviousMessages([]);
+    }
 
     const userMessage: ChatMessageProps = {
       id: crypto.randomUUID(),
@@ -186,27 +216,43 @@ export function ChatUI({
   };
 
   const hasMessages = messages.length > 0;
+  const hasPreviousStash = previousConversationId !== null;
+  const showContinuePrevious = !hasMessages && hasPreviousStash;
+  const showToolbar = hasMessages || hasPreviousStash;
 
   return (
     <FileDropZone onFiles={(files) => setPendingFiles(files)}>
       <div className="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto]">
-        {/* Conversation toolbar — only visible when a conversation is active */}
+        {/* Conversation toolbar — visible when there's an active thread or
+            a stashed previous one (one-click undo for misclicked New). */}
         <div
           data-testid="conversation-toolbar"
           className={`flex shrink-0 items-center justify-end border-b border-gray-100 px-4 py-1.5 ${
-            hasMessages ? '' : 'invisible'
+            showToolbar ? '' : 'invisible'
           }`}
         >
-          <button
-            type="button"
-            data-testid="new-conversation-btn"
-            onClick={handleNewConversation}
-            disabled={status === 'streaming'}
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40"
-          >
-            <SquarePen className="h-3.5 w-3.5" aria-hidden="true" />
-            New conversation
-          </button>
+          {showContinuePrevious ? (
+            <button
+              type="button"
+              data-testid="continue-previous-btn"
+              onClick={handleContinuePrevious}
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              Continue previous
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="new-conversation-btn"
+              onClick={handleNewConversation}
+              disabled={status === 'streaming'}
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40"
+            >
+              <SquarePen className="h-3.5 w-3.5" aria-hidden="true" />
+              New conversation
+            </button>
+          )}
         </div>
 
         <div role="status" aria-live="polite" className="sr-only">

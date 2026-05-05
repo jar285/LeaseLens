@@ -147,6 +147,61 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ---
 
+## Trying It Out
+
+The chat at `/` opens grounded in the seeded Side Quest Syndicate brand. Switch roles via the bottom-right role switcher — each role unlocks a different tool surface and tells a different operator story.
+
+### As Creator (default role)
+
+Read-only. The assistant can search the brand corpus explicitly via `search_corpus` and ground every answer in retrieved chunks. No mutations possible.
+
+Try:
+
+- *"What is Side Quest Syndicate's brand voice?"*
+- *"Summarize our content pillars in three sentences."*
+- *"What does our audience profile say about target reader age?"*
+- *"Walk me through our editorial style guide for headlines."*
+
+What to notice: every answer is grounded in retrieved chunks (the assistant doesn't invent brand specifics). The composer offers no scheduling or approval affordances.
+
+### As Editor
+
+Adds inspect-and-act capabilities: `get_document_summary` and `schedule_content_item`. Editors can read deeper into documents and queue items onto the content calendar.
+
+Try:
+
+- *"Give me a summary of the brand-identity document."*
+- *"Schedule a Twitter post for tomorrow at 2pm about our new content-calendar doc."*
+- *"Plan three calendar items across Twitter, newsletter, and blog for next week."*
+
+What to notice: each `schedule_content_item` call writes an `audit_log` row AND a `content_calendar` row in one transaction. The ToolCard renders with an **Undo** button. Open `/cockpit` → the Schedule panel shows your queued items. Click Undo on the chat bubble → the calendar row vanishes and the audit row's status flips to `rolled_back`.
+
+> **About scheduling:** the `schedule_content_item` tool writes a local SQLite row — it does **not** publish to Twitter, a CMS, or any external destination. The feature exists to demonstrate the auditable-mutation + rollback pattern (every state-changing AI action is logged, reversible, and role-gated). A production deployment would integrate the same audit pattern with real publishing backends.
+
+### As Admin
+
+Full operator role: adds `list_documents` and `approve_draft`, plus full audit-log visibility. Admins see and can roll back anyone's actions.
+
+Try:
+
+- *"List every document in the corpus with its slug and a one-line summary."*
+- *"Approve the latest scheduled blog post."*
+- *"Show me what's been scheduled in the last 24 hours."* (then open `/cockpit` → Audit panel)
+
+What to notice: same audit/rollback pattern as Editor, but cross-actor. The cockpit's Audit panel shows rows from every actor (Editor, Admin, even MCP-originated). Click Undo on someone else's mutation — it works (Admin override). Approval rows live in their own table and surface in the cockpit's Approvals panel.
+
+### Switching brands
+
+The default workspace is Side Quest Syndicate. Click the workspace label in the header (next to "ContentOps Studio") to open the switcher. From there you can:
+
+- **Use sample brand** — return to Side Quest.
+- **Start a new brand…** — drag-and-drop your own markdown files (up to 5, ≤100KB each), or click to choose. The assistant grounds its answers in your uploaded brand instead. The chat thread resets so prior-brand questions don't bleed across.
+- **Switch to a previously-uploaded brand** — your browser remembers every brand you've uploaded in this session; click any of them in the menu to flip the active workspace. (The list is per-cookie, so each visitor only sees their own uploads.)
+
+For a quick test with content the model definitely wasn't trained on as your specific brand corpus, grab a few markdown sections from the [GitLab Handbook](https://gitlab.com/gitlab-com/content-sites/handbook/-/tree/main/content/handbook), save them locally, and upload via the brand-switcher. Then ask brand-specific questions and watch retrieval grounding work on a real brand's voice.
+
+---
+
 ## Features
 
 ### Role-Based Access (Creator / Editor / Admin)
@@ -156,7 +211,7 @@ Use the role switcher in the top-right corner of the chat UI. Each role unlocks 
 | Role | Tools available | Access |
 |------|----------------|--------|
 | Creator | `search_corpus` | Ask the AI to search the brand corpus explicitly |
-| Editor | + `get_document_summary`, `schedule_content_item` | Inspect documents, schedule items to the content calendar |
+| Editor | + `get_document_summary`, `schedule_content_item` | Inspect documents, queue items to the calendar table (auditable + reversible — see *Trying It Out* for the no-real-publishing caveat) |
 | Admin | + `list_documents`, `approve_draft` | Full corpus inventory, draft approvals, full audit-log visibility |
 
 The same registry that filters the prompt's tool manifest also gates execution — if a role can't see a tool in its manifest, it can't invoke it at runtime.

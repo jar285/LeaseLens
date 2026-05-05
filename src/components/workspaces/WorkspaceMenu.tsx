@@ -10,14 +10,25 @@
 import { Edit2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import type { Workspace } from '@/lib/workspaces/types';
 import { BrandUploadModal } from './BrandUploadModal';
 
 export interface WorkspaceMenuProps {
   workspaceName: string;
   isSample: boolean;
+  /**
+   * Visitor's previously-uploaded brands, excluding the active workspace
+   * and the sample. Resolved server-side from the workspace cookie's
+   * created_workspace_ids list, then filtered for non-expired rows.
+   */
+  otherBrands: Workspace[];
 }
 
-export function WorkspaceMenu({ workspaceName, isSample }: WorkspaceMenuProps) {
+export function WorkspaceMenu({
+  workspaceName,
+  isSample,
+  otherBrands,
+}: WorkspaceMenuProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
@@ -64,6 +75,25 @@ export function WorkspaceMenu({ workspaceName, isSample }: WorkspaceMenuProps) {
     }
   }
 
+  async function selectBrand(workspaceId: string) {
+    setIsSwitching(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/workspaces/select', {
+        method: 'POST',
+        body: JSON.stringify({ workspace_id: workspaceId }),
+      });
+      if (!res.ok) {
+        setError('Could not switch brand. Try again.');
+        return;
+      }
+      setOpen(false);
+      router.refresh();
+    } finally {
+      setIsSwitching(false);
+    }
+  }
+
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -89,6 +119,25 @@ export function WorkspaceMenu({ workspaceName, isSample }: WorkspaceMenuProps) {
           <p className="px-2 pb-3 text-sm font-semibold text-gray-800">
             {workspaceName}
           </p>
+          {otherBrands.length > 0 && (
+            <div className="border-t border-gray-100 pt-2 pb-1">
+              <p className="px-2 pb-1 text-xs uppercase tracking-wider text-gray-400">
+                Your brands
+              </p>
+              {otherBrands.map((brand) => (
+                <button
+                  key={brand.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => selectBrand(brand.id)}
+                  disabled={isSwitching}
+                  className="block w-full truncate rounded-md px-2 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-default disabled:opacity-50"
+                >
+                  {brand.name}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="border-t border-gray-100 pt-2">
             {/* Round 4 — when the active workspace IS the sample, the popover
                 header above ("Active brand: …") already conveys it; a

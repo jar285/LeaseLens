@@ -13,6 +13,9 @@ const db = new Database(env.CONTENTOPS_DB_PATH);
 
 db.pragma('busy_timeout = 5000');
 db.pragma('journal_mode = WAL');
+// Lock FK enforcement explicitly — schema declares REFERENCES clauses that
+// require this pragma. Don't rely on the library default.
+db.pragma('foreign_keys = ON');
 db.exec(SCHEMA);
 migrate(db); // Sprint 11 — patches pre-Sprint-11 dev DBs idempotently.
 

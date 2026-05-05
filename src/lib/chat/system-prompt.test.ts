@@ -92,4 +92,13 @@ describe('buildSystemPrompt', () => {
     expect(withPeriod).not.toContain('A demo brand..');
     expect(withoutPeriod).toContain('Acme. A demo brand.');
   });
+
+  it('mentions render_workflow_diagram and prescribes search-first for brand diagrams (Sprint 12)', () => {
+    const prompt = buildSystemPrompt('Creator');
+    expect(prompt).toMatch(/render_workflow_diagram/);
+    expect(prompt).toMatch(
+      /approval pipeline|content calendar|brand voice taxonomy|publishing state machine/,
+    );
+    expect(prompt).toMatch(/search_corpus[\s\S]*first|first[\s\S]*search_corpus/);
+  });
 });

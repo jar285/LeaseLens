@@ -75,6 +75,7 @@ export function buildSystemPrompt(
     // Tool-usage guidance (Sprint 8 follow-up, Issue 2 in dev-server feedback):
     'When using tools that take a `document_slug`, prefer to call `list_documents` (or `search_corpus`) first to find the exact slug rather than guessing — guessed slugs trigger validation errors and waste a turn.',
     'When invoking `schedule_content_item`, pass the `scheduled_for` time as an ISO 8601 string (e.g. "2026-05-02T09:00:00Z") — the server parses it. In your conversational reply, phrase scheduled times in human-friendly form (e.g. "Tomorrow at 9:00 AM UTC"); never expose Unix timestamps or raw numeric values.',
+    "When asked to draw, visualize, map, or diagram a workflow, taxonomy, state machine, or relationship — call `render_workflow_diagram` with Mermaid source code. Common topics: approval pipeline, content calendar layout, brand voice taxonomy, publishing state machine. When the diagram describes the active brand's content, call `search_corpus` first to ground the diagram nodes in real brand material.",
   ].join(' ');
 
   if (!ragChunks || ragChunks.length === 0) return base;

@@ -19,7 +19,7 @@ describe('MCP Server Contract', () => {
   });
 
   describe('Tool Parity', () => {
-    it('should expose the three read-only tools plus the two new mutating tools', () => {
+    it('should expose the read-only, mutating, and visualization tools', () => {
       const registry = createToolRegistry(db);
       const toolNames = registry.getToolNames();
 
@@ -28,7 +28,9 @@ describe('MCP Server Contract', () => {
       expect(toolNames).toContain('list_documents');
       expect(toolNames).toContain('schedule_content_item');
       expect(toolNames).toContain('approve_draft');
-      expect(toolNames).toHaveLength(5);
+      // Sprint 12: visualization tool added.
+      expect(toolNames).toContain('render_workflow_diagram');
+      expect(toolNames).toHaveLength(6);
     });
 
     it('should return envelope-shaped results from registry.execute', async () => {
@@ -102,6 +104,47 @@ describe('MCP Server Contract', () => {
         'schedule_content_item',
       );
       expect(creatorTools.map((t) => t.name)).not.toContain('approve_draft');
+    });
+
+    it('should expose render_workflow_diagram for all three roles', () => {
+      const registry = createToolRegistry(db);
+      for (const role of ['Creator', 'Editor', 'Admin'] as const) {
+        const names = registry.getToolsForRole(role).map((t) => t.name);
+        expect(names).toContain('render_workflow_diagram');
+      }
+    });
+
+    it('render_workflow_diagram executes via registry as a read-only tool (no audit row)', async () => {
+      const registry = createToolRegistry(db);
+      const beforeRow = db
+        .prepare('SELECT COUNT(*) as n FROM audit_log')
+        .get() as { n: number };
+
+      const { result, audit_id } = await registry.execute(
+        'render_workflow_diagram',
+        {
+          code: 'flowchart TD\nA-->B',
+          title: 'MCP smoke',
+        },
+        {
+          role: 'Creator',
+          userId: 'mcp-server',
+          conversationId: 'mcp-session',
+          workspaceId: SAMPLE_WORKSPACE.id,
+        },
+      );
+
+      expect(audit_id).toBeUndefined();
+      expect(result).toMatchObject({
+        code: 'flowchart TD\nA-->B',
+        diagram_type: 'flowchart',
+        title: 'MCP smoke',
+      });
+
+      const afterRow = db
+        .prepare('SELECT COUNT(*) as n FROM audit_log')
+        .get() as { n: number };
+      expect(afterRow.n).toBe(beforeRow.n);
     });
   });
 

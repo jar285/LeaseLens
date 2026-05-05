@@ -1,26 +1,57 @@
 'use client';
 
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
-import { useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { useEffect, useState } from 'react';
 import { useRollback } from '@/lib/audit/use-rollback';
 import type { ToolInvocation } from './ChatMessage';
+import { MermaidDiagram } from './MermaidDiagram';
 
 interface ToolCardProps {
   invocation: ToolInvocation;
+}
+
+interface DiagramResult {
+  code: string;
+  diagram_type?: string;
+  title?: string;
+  caption?: string;
 }
 
 function formatJson(obj: unknown): string {
   return JSON.stringify(obj, null, 2);
 }
 
+function isDiagramResult(result: unknown): result is DiagramResult {
+  return (
+    typeof result === 'object' &&
+    result !== null &&
+    typeof (result as { code?: unknown }).code === 'string'
+  );
+}
+
 export function ToolCard({ invocation }: ToolCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const reduced = useReducedMotion();
+  const animate = mounted && !reduced;
+
   const { status: rollbackState, rollback: handleUndo } = useRollback(
     invocation.audit_id,
   );
   const hasResult = invocation.result !== undefined;
   const hasError = invocation.error !== undefined;
   const isPending = !hasResult && !hasError;
+
+  const isDiagramInvocation =
+    invocation.name === 'render_workflow_diagram' &&
+    hasResult &&
+    !hasError &&
+    isDiagramResult(invocation.result);
+  const diagramResult = isDiagramInvocation
+    ? (invocation.result as DiagramResult)
+    : null;
 
   const canUndo =
     invocation.compensating_available &&
@@ -119,38 +150,95 @@ export function ToolCard({ invocation }: ToolCardProps) {
         </div>
       )}
 
-      {/* Expanded content */}
-      {isExpanded && (
+      {/* Sprint 12: render the diagram inline above the collapsible
+          details when the tool result carries Mermaid code. */}
+      {diagramResult && (
         <div className="border-t border-gray-100 px-3 py-2">
-          {/* Input */}
-          <div className="mb-3">
-            <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
-              Input
-            </div>
-            <pre className="max-h-32 overflow-auto rounded bg-gray-50 p-2 text-xs text-gray-700">
-              {formatJson(invocation.input)}
-            </pre>
-          </div>
-
-          {/* Result or Error */}
-          {hasResult && (
-            <div>
-              <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
-                Result
-              </div>
-              <pre
-                className={`max-h-48 overflow-auto rounded p-2 text-xs ${
-                  hasError
-                    ? 'bg-red-50 text-red-700'
-                    : 'bg-gray-50 text-gray-700'
-                }`}
-              >
-                {formatJson(invocation.result)}
-              </pre>
-            </div>
-          )}
+          <MermaidDiagram
+            code={diagramResult.code}
+            title={diagramResult.title}
+            caption={diagramResult.caption}
+          />
         </div>
       )}
+
+      {/* Expanded content — `AnimatePresence` smooths the height
+          transition. Reduced-motion drops to a plain div with no
+          animation props (data-motion="off"). */}
+      <AnimatePresence initial={false}>
+        {isExpanded &&
+          (animate ? (
+            <motion.div
+              key="body"
+              data-testid="expanded-body"
+              data-motion="on"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              style={{ overflow: 'hidden' }}
+            >
+              <div className="border-t border-gray-100 px-3 py-2">
+                {/* Input */}
+                <div className="mb-3">
+                  <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
+                    Input
+                  </div>
+                  <pre className="max-h-32 overflow-auto rounded bg-gray-50 p-2 text-xs text-gray-700">
+                    {formatJson(invocation.input)}
+                  </pre>
+                </div>
+
+                {/* Result or Error */}
+                {hasResult && (
+                  <div>
+                    <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
+                      Result
+                    </div>
+                    <pre
+                      className={`max-h-48 overflow-auto rounded p-2 text-xs ${
+                        hasError
+                          ? 'bg-red-50 text-red-700'
+                          : 'bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      {formatJson(invocation.result)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          ) : (
+            <div key="body" data-testid="expanded-body" data-motion="off">
+              <div className="border-t border-gray-100 px-3 py-2">
+                <div className="mb-3">
+                  <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
+                    Input
+                  </div>
+                  <pre className="max-h-32 overflow-auto rounded bg-gray-50 p-2 text-xs text-gray-700">
+                    {formatJson(invocation.input)}
+                  </pre>
+                </div>
+                {hasResult && (
+                  <div>
+                    <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
+                      Result
+                    </div>
+                    <pre
+                      className={`max-h-48 overflow-auto rounded p-2 text-xs ${
+                        hasError
+                          ? 'bg-red-50 text-red-700'
+                          : 'bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      {formatJson(invocation.result)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+      </AnimatePresence>
     </div>
   );
 }

@@ -161,4 +161,62 @@ describe('ingestMarkdownFile cross-workspace (Round 5)', () => {
     // Same content → same chunk count in each workspace.
     expect(byWs['ws-b']).toBe(byWs['ws-a']);
   });
+
+  it('Sprint 12 — uses forceDocumentId verbatim as document.id and chunk-id prefix when provided', async () => {
+    const db = createTestDb();
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES ('ws-seed', 'seed', 'd', 1, 0, NULL)`,
+    ).run();
+
+    const result = await ingestMarkdownFile(db, {
+      slug: 'brand-identity',
+      content: DOC_CONTENT,
+      workspaceId: 'ws-seed',
+      forceDocumentId: 'brand-identity',
+    });
+
+    expect(result.documentId).toBe('brand-identity');
+    const docs = db
+      .prepare('SELECT id, slug FROM documents WHERE slug = ?')
+      .all('brand-identity') as { id: string; slug: string }[];
+    expect(docs).toHaveLength(1);
+    expect(docs[0].id).toBe('brand-identity');
+
+    const chunkIds = db
+      .prepare('SELECT id FROM chunks WHERE document_id = ?')
+      .all('brand-identity') as { id: string }[];
+    expect(chunkIds.length).toBeGreaterThan(0);
+    for (const row of chunkIds) {
+      expect(row.id).toMatch(/^brand-identity#(document|section|passage):\d+$/);
+    }
+  });
+
+  it('Sprint 12 — omits forceDocumentId → randomUUID for upload safety (no cross-workspace collision)', async () => {
+    const db = createTestDb();
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES ('ws-1', 'a', 'd', 0, 0, 9999999999)`,
+    ).run();
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES ('ws-2', 'b', 'd', 0, 0, 9999999999)`,
+    ).run();
+
+    const r1 = await ingestMarkdownFile(db, {
+      slug: 'brand-identity',
+      content: DOC_CONTENT,
+      workspaceId: 'ws-1',
+    });
+    const r2 = await ingestMarkdownFile(db, {
+      slug: 'brand-identity',
+      content: DOC_CONTENT,
+      workspaceId: 'ws-2',
+    });
+
+    expect(r1.documentId).not.toBe(r2.documentId);
+    // Both should be UUID-shaped, not slug-shaped.
+    expect(r1.documentId).not.toBe('brand-identity');
+    expect(r2.documentId).not.toBe('brand-identity');
+  });
 });

@@ -6,6 +6,7 @@ import {
   createListDocumentsTool,
   createSearchCorpusTool,
 } from './corpus-tools';
+import { createRenderWorkflowDiagramTool } from './diagram-tools';
 import {
   createApproveDraftTool,
   createScheduleContentItemTool,
@@ -29,6 +30,9 @@ export function createToolRegistry(db: Database.Database): ToolRegistry {
   // Register mutating tools (Sprint 8)
   registry.register(createScheduleContentItemTool(db));
   registry.register(createApproveDraftTool(db));
+
+  // Register visualization tools (Sprint 12)
+  registry.register(createRenderWorkflowDiagramTool(db));
 
   return registry;
 }

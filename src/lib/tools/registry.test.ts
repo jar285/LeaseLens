@@ -345,4 +345,16 @@ describe('ToolRegistry', () => {
       expect(aud.n).toBe(0);
     });
   });
+
+  describe('createToolRegistry factory', () => {
+    it('registers render_workflow_diagram for all roles', async () => {
+      const { createToolRegistry } = await import('./create-registry');
+      const db = createTestDb();
+      const registry = createToolRegistry(db);
+      for (const role of ['Creator', 'Editor', 'Admin'] as const) {
+        const names = registry.getToolsForRole(role).map((t) => t.name);
+        expect(names).toContain('render_workflow_diagram');
+      }
+    });
+  });
 });

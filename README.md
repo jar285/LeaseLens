@@ -51,6 +51,7 @@ This project is a portfolio piece targeting Forward Deployed, AI Product, and Ap
             │              list_documents              │
             │  Mutating:   schedule_content_item       │
             │              approve_draft               │
+            │  Visual:     render_workflow_diagram     │
             │  Mutating tools execute in a sync        │
             │  better-sqlite3 transaction with a       │
             │  paired audit_log row insert.            │
@@ -70,7 +71,7 @@ This project is a portfolio piece targeting Forward Deployed, AI Product, and Ap
             └──────────────────────────────────────────┘
 ```
 
-**Custom MCP server** at `mcp/contentops-server.ts` exposes all 5 tools (3 read-only + 2 mutating) over stdio transport — consumable by Claude Desktop, Cursor, or any MCP client. Mutating MCP calls produce audit rows attributed to actor `mcp-server`.
+**Custom MCP server** at `mcp/contentops-server.ts` exposes all 6 tools (3 read-only + 2 mutating + 1 visualization) over stdio transport — consumable by Claude Desktop, Cursor, or any MCP client. Mutating MCP calls produce audit rows attributed to actor `mcp-server`. The diagram tool returns validated Mermaid source; clients without a Mermaid renderer can read or render the source themselves.
 
 **Audit + rollback invariants.** Every successful mutating-tool call writes one `audit_log` row inside the same SQLite transaction as the mutation — if either write fails, both roll back. The `ToolCard` UI renders an Undo button for mutating-tool results; clicking it issues `POST /api/audit/[id]/rollback`, which runs the descriptor's compensating action and updates the audit row's status atomically. Admins see the full audit log; non-admins see only their own entries.
 
@@ -86,6 +87,8 @@ This project is a portfolio piece targeting Forward Deployed, AI Product, and Ap
 | Database | SQLite via `better-sqlite3` |
 | LLM | Anthropic Claude (`claude-haiku-4-5` default) |
 | Embeddings | `@huggingface/transformers` (WASM, local, no API key) |
+| Diagrams | `mermaid@^11` (client-side render, `securityLevel: 'strict'`) |
+| Animation | `motion@^12` (formerly `framer-motion`) — three scoped surfaces |
 | MCP | `@modelcontextprotocol/sdk` (stdio transport) |
 | Testing (unit + integration) | Vitest 4 |
 | Testing (E2E) | `@playwright/test` |
@@ -190,6 +193,20 @@ Try:
 
 What to notice: same audit/rollback pattern as Editor, but cross-actor. The cockpit's Audit panel shows rows from every actor (Editor, Admin, even MCP-originated). Click Undo on someone else's mutation — it works (Admin override). Approval rows live in their own table and surface in the cockpit's Approvals panel.
 
+### Diagrams (any role)
+
+`render_workflow_diagram` is available to every role. The assistant emits Mermaid source for the chat to render client-side; the diagram fades and scales in over ~350ms. Click the chevron on the ToolCard to inspect the validated source.
+
+Try:
+
+- *"Draw the approval pipeline for our content as a flowchart."*
+- *"Map our content pillars as a mindmap."*
+- *"Show the publishing state machine as a stateDiagram-v2."*
+- *"Draw a sequence diagram of how a draft moves from Creator to Editor to Admin."*
+- *"Diagram the brand voice taxonomy for Side Quest Syndicate."* — the assistant calls `search_corpus` first when the diagram describes brand content, so the nodes reference real pillars from the seeded corpus.
+
+What to notice: the tool is read-only, so no audit row, no Undo affordance. Eight Mermaid diagram families are accepted (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`, `mindmap`, `journey`, `classDiagram`, `erDiagram`). Parse errors surface as a `<pre>` block with the raw code and the error message — you can ask the model conversationally to fix it. The animation respects `prefers-reduced-motion`: turn it on in your OS accessibility settings to see the diagram appear instantly with no entry animation.
+
 ### Switching brands
 
 The default workspace is Side Quest Syndicate. Click the workspace label in the header (next to "ContentOps Studio") to open the switcher. From there you can:
@@ -210,9 +227,11 @@ Use the role switcher in the top-right corner of the chat UI. Each role unlocks 
 
 | Role | Tools available | Access |
 |------|----------------|--------|
-| Creator | `search_corpus` | Ask the AI to search the brand corpus explicitly |
+| Creator | `search_corpus`, `render_workflow_diagram` | Ask the AI to search the brand corpus explicitly; render Mermaid diagrams of workflows, taxonomies, or state machines |
 | Editor | + `get_document_summary`, `schedule_content_item` | Inspect documents, queue items to the calendar table (auditable + reversible — see *Trying It Out* for the no-real-publishing caveat) |
 | Admin | + `list_documents`, `approve_draft` | Full corpus inventory, draft approvals, full audit-log visibility |
+
+`render_workflow_diagram` is `roles: 'ALL'` (Creator, Editor, and Admin can invoke it). It's read-only, so no audit row or Undo button.
 
 The same registry that filters the prompt's tool manifest also gates execution — if a role can't see a tool in its manifest, it can't invoke it at runtime.
 
@@ -233,9 +252,15 @@ The chat interface at `/` provides grounded answers about the Side Quest Syndica
 - **Implicit RAG** — automatic hybrid retrieval (vector + BM25 + RRF) injected as context on every turn.
 - **Explicit tool calls** — the assistant can invoke `search_corpus` mid-conversation when the user's query warrants a fresh search.
 
+### Diagrams (Mermaid)
+
+`render_workflow_diagram` accepts raw Mermaid source for any of eight diagram families — `flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`, `mindmap`, `journey`, `classDiagram`, `erDiagram`. The tool runs server-side validation only (prefix regex, length cap, init-directive + line-comment skip); the actual rendering happens client-side via `mermaid@^11` with `securityLevel: 'strict'` and `htmlLabels: false`. Parse errors fall back to a `<pre>` block of the raw code with the error inline — no white-screen, no console error.
+
+The diagram entry, assistant `ChatMessage` entry, and `ToolCard` expand/collapse are animated via `motion@^12` (Framer Motion's renamed package). All three surfaces honor `prefers-reduced-motion`: when the OS preference is set, animations are skipped entirely (not slowed) and the DOM renders the plain equivalents. The `mermaid` bundle is dynamic-imported, so the cost is paid only on the first render of a diagram, not on the initial chat page load.
+
 ### MCP Server
 
-All 5 tools (3 read-only + 2 mutating) are exposed over the Model Context Protocol for use in Claude Desktop, Cursor, or any MCP-compatible client. MCP-originated mutations produce audit rows attributed to actor `mcp-server`:
+All 6 tools (3 read-only + 2 mutating + 1 visualization) are exposed over the Model Context Protocol for use in Claude Desktop, Cursor, or any MCP-compatible client. MCP-originated mutations produce audit rows attributed to actor `mcp-server`:
 
 ```bash
 npm run mcp:server
@@ -293,9 +318,14 @@ npm run build
 | Auth, sessions, middleware | `src/lib/auth/*.test.ts`, `src/middleware.test.ts` | ~20 |
 | DB schema and helpers | `src/lib/db/*.test.ts` | ~10 |
 | Eval scoring + runner | `src/lib/evals/*.test.ts` | 9 |
-| MCP contract (read-only + mutating-tool parity) | `mcp/contentops-server.test.ts` | 6 |
-| UI components | `src/app/page.test.tsx` | ~25 |
+| MCP contract (read-only + mutating + visualization parity) | `mcp/contentops-server.test.ts` | 8 |
+| Diagram tool (prefix validation, 8 diagram families, comment-skip, length cap) | `src/lib/tools/diagram-tools.test.ts` | 15 |
+| `MermaidDiagram` component (render path, parse-error fallback, reduced-motion branch) | `src/components/chat/MermaidDiagram.test.tsx` | 6 |
+| Chat-route diagram-tool integration (NDJSON tool_use + tool_result, no audit row) | `src/app/api/chat/diagram-tool.integration.test.ts` | 3 |
+| UI components | `src/app/page.test.tsx`, ToolCard, ChatMessage, etc. | ~30 |
 | **E2E smoke** — chat → tool_use → ToolCard → Undo, cockpit dashboard smoke (Playwright) | `tests/e2e/*.spec.ts` | 2 specs |
+
+**Total:** 317 vitest tests across 59 files, 5 golden eval cases (5/5 passing at 17.0/20.0 points), 2 Playwright specs.
 
 ### Golden eval
 
@@ -327,8 +357,9 @@ ContentOps/
 │   │   └── page.tsx                  # Chat homepage
 │   ├── components/chat/
 │   │   ├── ChatUI.tsx                # Stream reader + message state
-│   │   ├── ChatMessage.tsx           # Individual message renderer
-│   │   └── ToolCard.tsx              # Inline tool card + Undo button
+│   │   ├── ChatMessage.tsx           # Individual message renderer (Motion entry)
+│   │   ├── MermaidDiagram.tsx        # Client-side Mermaid render (Sprint 12)
+│   │   └── ToolCard.tsx              # Inline tool card + Undo + diagram embed
 │   ├── corpus/                       # Side Quest Syndicate markdown documents
 │   ├── lib/
 │   │   ├── anthropic/
@@ -345,8 +376,9 @@ ContentOps/
 │   │       ├── registry.ts           # ToolRegistry — RBAC + audit + transactional mutate
 │   │       ├── corpus-tools.ts       # search_corpus, get_document_summary, list_documents
 │   │       ├── mutating-tools.ts     # schedule_content_item, approve_draft
+│   │       ├── diagram-tools.ts      # render_workflow_diagram (Sprint 12)
 │   │       ├── audit-log.ts          # write/read/markRolledBack helpers
-│   │       └── create-registry.ts    # Factory wiring db → registry with all 5 tools
+│   │       └── create-registry.ts    # Factory wiring db → registry with all 6 tools
 │   └── middleware.ts                 # RBAC route enforcement
 └── docs/
     ├── _meta/agent-charter.md        # Engineering constraints and delivery rules
@@ -371,8 +403,10 @@ ContentOps is built sprint-by-sprint with a spec → QA → sprint plan → impl
 | 7 | Tool registry + read-only MCP tools | Complete |
 | 8 | Mutating tools + audit log + rollback + test consolidation + first Playwright E2E | Complete |
 | 9 | Operator cockpit dashboard + typing indicator | Complete |
-| 10 | UI polish pass | Planned |
-| 11 | Vercel deployment + README + Loom | Planned |
+| 10 | UI polish pass | Complete |
+| 11 | Workspaces & brand onboarding | Complete |
+| 12 | Diagram tool (Mermaid) + Motion polish | Complete |
+| 13 | Vercel deployment + README + Loom | Planned |
 
 ---
 

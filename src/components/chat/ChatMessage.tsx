@@ -1,4 +1,8 @@
+'use client';
+
 import { PenTool, User } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
+import { useEffect, useState } from 'react';
 import { renderMarkdown } from '@/lib/chat/render-markdown';
 import { ToolCard } from './ToolCard';
 import { TypingIndicator } from './TypingIndicator';
@@ -39,10 +43,18 @@ export function ChatMessage({
     !content &&
     (toolInvocations === undefined || toolInvocations.length === 0);
 
-  return (
-    <li
-      className={`flex gap-3.5 py-4 ${isUser ? '' : 'rounded-xl bg-gray-50 px-4'}`}
-    >
+  // Mounted-state guard: SSR + first client paint render the plain
+  // <li>. The motion variant appears on the second paint to prevent
+  // a reduced-motion flash.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const reduced = useReducedMotion();
+  const animate = mounted && !reduced && role === 'assistant';
+
+  const className = `flex gap-3.5 py-4 ${isUser ? '' : 'rounded-xl bg-gray-50 px-4'}`;
+
+  const inner = (
+    <>
       <div
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
           isUser
@@ -83,6 +95,22 @@ export function ChatMessage({
           )
         )}
       </div>
+    </>
+  );
+
+  return animate ? (
+    <motion.li
+      data-motion="on"
+      className={className}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
+    >
+      {inner}
+    </motion.li>
+  ) : (
+    <li data-motion="off" className={className}>
+      {inner}
     </li>
   );
 }

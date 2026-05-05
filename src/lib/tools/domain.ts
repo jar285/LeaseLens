@@ -4,7 +4,7 @@
 
 import type { Role } from '@/lib/auth/types';
 
-export type ToolCategory = 'corpus' | 'system';
+export type ToolCategory = 'corpus' | 'system' | 'visualization';
 
 export interface ToolDescriptor {
   /** Unique tool name — must match the Anthropic tool name exactly */

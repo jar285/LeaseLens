@@ -18,6 +18,16 @@ export interface IngestFileInput {
   slug: string;
   content: string;
   workspaceId: string;
+  /**
+   * Sprint 12 — optional override for the document's primary key.
+   * When provided, used verbatim as the row id (and therefore as the
+   * prefix on every chunk id). Used by the corpus seed path to keep
+   * deterministic, slug-prefixed chunk ids that match the eval
+   * golden set. Upload paths must NOT pass this — they need
+   * randomUUID() so identical slugs in different workspaces never
+   * collide on the chunks PRIMARY KEY (Sprint 11 round 5).
+   */
+  forceDocumentId?: string;
 }
 
 export interface IngestFileResult {
@@ -37,7 +47,7 @@ export async function ingestMarkdownFile(
   db: Database.Database,
   input: IngestFileInput,
 ): Promise<IngestFileResult> {
-  const { slug, content, workspaceId } = input;
+  const { slug, content, workspaceId, forceDocumentId } = input;
   const contentHash = createHash('sha256').update(content).digest('hex');
 
   const existing = db
@@ -51,10 +61,12 @@ export async function ingestMarkdownFile(
   }
 
   const title = extractTitle(content, slug);
-  // Round 5 — computed before chunking. Chunk IDs are namespaced by
-  // documentId so identical slug+content in distinct workspaces don't
-  // collide on the chunks PRIMARY KEY. Spec §22.
-  const documentId = existing?.id ?? randomUUID();
+  // Round 5 — chunk IDs are namespaced by documentId so identical
+  // slug+content in distinct workspaces don't collide on the chunks
+  // PRIMARY KEY. Spec §22. Sprint 12 — the seed path passes a
+  // deterministic `forceDocumentId` (the slug) so the eval golden
+  // set's slug-prefixed chunk IDs continue to resolve.
+  const documentId = existing?.id ?? forceDocumentId ?? randomUUID();
   const chunks = chunkDocument(documentId, title, content);
   const vectors = await embedBatch(chunks.map((c) => c.embeddingInput));
 
@@ -117,7 +129,16 @@ export async function ingestCorpus(
   for (const file of files) {
     const slug = file.replace(/\.md$/, '');
     const content = readFileSync(join(corpusDir, file), 'utf-8');
-    const result = await ingestMarkdownFile(db, { slug, content, workspaceId });
+    // Seed path uses slug-as-id so chunk IDs are deterministic
+    // (`brand-identity#section:N`). The eval golden set keys on this
+    // shape. Upload paths intentionally omit `forceDocumentId` so
+    // they get randomUUID() and avoid cross-workspace collisions.
+    const result = await ingestMarkdownFile(db, {
+      slug,
+      content,
+      workspaceId,
+      forceDocumentId: slug,
+    });
     if (result.chunkCount === 0) {
       console.log(`${slug}: unchanged, skipping`);
     } else {

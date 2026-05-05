@@ -1,6 +1,6 @@
 # Architecture — ContentOps
 
-**Snapshot date:** 2026-05-05 (post-Sprint 11, between sprints, before Sprint 12).
+**Snapshot date:** 2026-05-05 (post-Sprint 12, between sprints, before Sprint 13).
 
 This document describes ContentOps as it exists in the codebase today. It is **descriptive** (what is), not **prescriptive** (what should be). For planned changes see [`docs/_specs/`](../_specs/) and the most-recent sprint folder. For *how to write code*, see [`agent-guidelines.md`](agent-guidelines.md). For governance, see [`agent-charter.md`](agent-charter.md).
 
@@ -13,7 +13,7 @@ ContentOps is a workspace-based, AI-assisted content-operations cockpit for medi
 1. Operator visits `/`. If they have no workspace cookie, the middleware issues one for the sample workspace ("Side Quest Syndicate").
 2. The chat opens grounded in the active workspace's brand corpus (voice, audience, content pillars, calendar, style guide).
 3. Operator can switch role (Creator / Editor / Admin) via the role switcher; the available tool surface changes accordingly.
-4. Operator types into the composer; on send, the assistant streams a response that may use one or more tools (`search_corpus`, `get_document_summary`, `list_documents`, `schedule_content_item`, `approve_draft`).
+4. Operator types into the composer; on send, the assistant streams a response that may use one or more tools (`search_corpus`, `get_document_summary`, `list_documents`, `schedule_content_item`, `approve_draft`, `render_workflow_diagram`).
 5. Mutating tool calls (Editor+ for schedule, Admin for approve) write an audit row in the same transaction as the mutation. Each tool result in the UI surfaces an Undo button while it's not yet rolled back.
 6. Operator (Editor+) opens `/cockpit` to see audit log, scheduled items, approvals, today's spend, and eval health. Creators are redirected home.
 7. Operator (Admin or owner) clicks Undo → `POST /api/audit/{id}/rollback` runs the compensating action atomically; the row's status flips to `rolled_back`.
@@ -111,13 +111,14 @@ There is no background worker, no cron, no message queue. Mutations are synchron
 | [`chat/parse-stream-line.ts`](../../src/lib/chat/parse-stream-line.ts) | Client-side NDJSON line parser. |
 | [`tools/domain.ts`](../../src/lib/tools/domain.ts) | `ToolDescriptor`, `MutationOutcome`, `ToolExecutionContext`, `ToolExecutionResult`. |
 | [`tools/registry.ts`](../../src/lib/tools/registry.ts) | RBAC dispatch + sync-transaction wrapping for mutating tools. |
-| [`tools/create-registry.ts`](../../src/lib/tools/create-registry.ts) | Wires the 5 tools to the DB handle. |
+| [`tools/create-registry.ts`](../../src/lib/tools/create-registry.ts) | Wires the 6 tools to the DB handle. |
 | [`tools/corpus-tools.ts`](../../src/lib/tools/corpus-tools.ts) | Read-only: `search_corpus`, `get_document_summary`, `list_documents`. |
 | [`tools/mutating-tools.ts`](../../src/lib/tools/mutating-tools.ts) | `schedule_content_item`, `approve_draft` with compensating actions. |
+| [`tools/diagram-tools.ts`](../../src/lib/tools/diagram-tools.ts) | Visualization: `render_workflow_diagram`. Pure server-side validation (prefix regex over 8 Mermaid diagram families, length cap, init-directive + line-comment skip). Returns the validated source for client-side rendering. |
 | [`tools/audit-log.ts`](../../src/lib/tools/audit-log.ts) | `writeAuditRow`, `getAuditRow`, `listAuditRows`, `markRolledBack`. |
 | [`rag/embed.ts`](../../src/lib/rag/embed.ts) | Lazy Xenova `all-MiniLM-L6-v2` pipeline; L2-normalized Float32 output. |
 | [`rag/chunk-document.ts`](../../src/lib/rag/chunk-document.ts) | Hierarchical chunking (document / section / passage). IDs namespaced by `documentId`. |
-| [`rag/ingest.ts`](../../src/lib/rag/ingest.ts) | `ingestMarkdownFile`, `ingestCorpus`. Hash-based idempotency. |
+| [`rag/ingest.ts`](../../src/lib/rag/ingest.ts) | `ingestMarkdownFile`, `ingestCorpus`. Hash-based idempotency. Optional `forceDocumentId` for the seed path so corpus chunk IDs stay slug-prefixed (Sprint 12 eval-stability fix); upload paths omit it and get `randomUUID()` for cross-workspace collision safety. |
 | [`rag/retrieve.ts`](../../src/lib/rag/retrieve.ts) | Hybrid retrieval: vector + BM25 + RRF, workspace-scoped. |
 | [`rag/bm25.ts`](../../src/lib/rag/bm25.ts) | Tokenization + BM25 scoring. |
 | [`workspaces/constants.ts`](../../src/lib/workspaces/constants.ts) | `SAMPLE_WORKSPACE`, `WORKSPACE_TTL_SECONDS = 86400`. |
@@ -139,9 +140,10 @@ There is no background worker, no cron, no message queue. Mutations are synchron
 | Path | Purpose |
 |---|---|
 | [`chat/ChatUI.tsx`](../../src/components/chat/ChatUI.tsx) | Top-level client chat view. |
-| [`chat/ChatMessage.tsx`](../../src/components/chat/ChatMessage.tsx) | Per-turn message renderer. |
+| [`chat/ChatMessage.tsx`](../../src/components/chat/ChatMessage.tsx) | Per-turn message renderer. Sprint 12: assistant messages animate in (fade + 8px slide-up, 250ms) via Motion when not reduced; user messages render plain `<li>`. Mounted-state guard prevents SSR flash. |
 | [`chat/ChatEmptyState.tsx`](../../src/components/chat/ChatEmptyState.tsx) | Workspace-aware suggestion prompts (required `workspaceName` prop). |
-| [`chat/ToolCard.tsx`](../../src/components/chat/ToolCard.tsx) | Tool-result card with Undo button when `audit_id` is present. |
+| [`chat/ToolCard.tsx`](../../src/components/chat/ToolCard.tsx) | Tool-result card with Undo button when `audit_id` is present. Sprint 12: branches to `MermaidDiagram` when `invocation.name === 'render_workflow_diagram'`; expand/collapse body wrapped in `AnimatePresence` + `motion.div` with `height: 0 ↔ 'auto'` (220ms). |
+| [`chat/MermaidDiagram.tsx`](../../src/components/chat/MermaidDiagram.tsx) | Sprint 12 — client-only Mermaid renderer. Dynamic-imports `mermaid` (kept off SSR), initializes with `securityLevel: 'strict'` + `htmlLabels: false`, calls `render(useId, code)`, injects sanitized SVG via `dangerouslySetInnerHTML`. Parse errors fall back to a `<pre>` block with the raw code. First-paint fade+scale via Motion (350ms); reduced motion + mounted-state guard for SSR safety. `data-motion="on"\|"off"` is the test hook. |
 | [`chat/TypingIndicator.tsx`](../../src/components/chat/TypingIndicator.tsx) | Pre-first-token pulse. |
 | [`chat/AttachButton.tsx`](../../src/components/chat/AttachButton.tsx) | Brand-upload affordance in chat. |
 | [`auth/RoleSwitcher.tsx`](../../src/components/auth/RoleSwitcher.tsx) | Role swap → updates session cookie. |
@@ -347,6 +349,46 @@ POST /api/workspaces (multipart form)
 
 `chunkDocument` produces a hierarchical chunk set: one `document` chunk (full content + headings outline), plus `section` chunks per H2 ≤400 words (split into `passage` chunks if larger). Chunk IDs are `${documentId}#${level}:${index}` so collisions are impossible across workspaces.
 
+The seed path passes `forceDocumentId: slug` to `ingestMarkdownFile` so the sample-workspace corpus carries deterministic, slug-prefixed chunk IDs (`brand-identity#section:3`) — matching the eval golden set. Upload paths omit `forceDocumentId`, getting `randomUUID()` so two visitors uploading the same slug to different workspaces never collide on the chunks PRIMARY KEY.
+
+### E. Diagram tool render flow
+
+```
+user message: "Draw the approval pipeline"
+   │
+   ▼
+chat route — Anthropic create() returns tool_use(render_workflow_diagram, {code, title?, caption?})
+   │
+   ▼
+toolRegistry.execute('render_workflow_diagram', input, ctx)
+   │ assert canExecute (roles: 'ALL' → all three roles pass)
+   │ no compensatingAction → read-only path → no audit row
+   │ descriptor.execute(input, _ctx):
+   │   strip leading whitespace + %%{init:...}%% directives + %% line comments
+   │   match against 8-keyword DIAGRAM_PREFIX_REGEX
+   │   throw on miss; throw if length > 4000
+   │   return { code, diagram_type, title?, caption? }
+   │
+   ▼
+NDJSON tool_use + tool_result events streamed to client
+   │
+   ▼
+ChatUI.tsx — appends to assistant message's toolInvocations array
+   │
+   ▼
+ChatMessage → ToolCard (name === 'render_workflow_diagram' && result is diagram-shaped)
+   │
+   ▼
+MermaidDiagram (client-only)
+   │ useEffect: dynamic-import mermaid → initialize once (securityLevel: 'strict')
+   │ mermaid.render(useId(), code) → { svg, diagramType }
+   │ inject SVG via dangerouslySetInnerHTML
+   │ on parse error: render <pre> fallback with raw code + error message
+   │ wrapper carries data-motion="on" (motion.div fade+scale) or "off" (plain div)
+```
+
+The diagram tool is read-only and does not call Anthropic. The decision to call it consumes one Anthropic round-trip (the LLM's tool_use turn), the same as any other tool. No audit row, no rollback. RBAC is enforced via `roles: 'ALL'` in the descriptor.
+
 ---
 
 ## 6. CSS architecture
@@ -383,7 +425,7 @@ This is intentional — the project is small enough that a separate token system
 | MCP contract | Vitest | `mcp/contentops-server.test.ts` — registry parity with chat route. |
 | Schema regression | Vitest | `migrate.test.ts` includes a Round-5 FK guard (rebuild succeeds with `foreign_keys = ON`). |
 
-**Counts as of 2026-05-05:** 262 vitest tests (55 files), 2 Playwright specs, 5 golden eval cases. The 262nd test is a boot-state regression added in this inter-sprint pass: schema.test.ts asserts `foreign_keys = 1` at boot.
+**Counts as of 2026-05-05 (post-Sprint 12):** 317 vitest tests (59 files), 2 Playwright specs, 5 golden eval cases (5/5 passing at 17.0/20.0 points). Sprint 12 added 38 net-new tests across 8 phases plus the eval-stability fix.
 
 In-memory SQLite ([`src/lib/test/db.ts`](../../src/lib/test/db.ts)) is the standard test fixture. Real-DB tests are limited to `mcp/contentops-server.test.ts` and `src/lib/tools/corpus-tools.test.ts`, which assume `./data/contentops.db` is seeded.
 
@@ -417,11 +459,17 @@ In-memory SQLite ([`src/lib/test/db.ts`](../../src/lib/test/db.ts)) is the stand
 
 13. **Required props beat silent defaults in components.** `ChatEmptyState` declares `workspaceName: string`, not `workspaceName?: string` with a fallback. Sprint 11 Round 3 was a bug because a default leaked Side Quest copy into a non-Side-Quest workspace.
 
+14. **Diagrams render client-side, not server-side.** Sprint 12 considered the reference (`docs/_references/ai_mcp_chat_ordo`)'s server-side worker-thread + JSDOM approach and rejected it. Reference uses it for media-asset persistence (caching SVGs in `UserFileSystem`); ContentOps doesn't persist diagrams, so client-side `mermaid.render()` is sufficient and removes ~150 LOC plus the `node:worker_threads` + JSDOM polyfill surface. Trade-off: parse errors surface only on the client. Acceptable — the operator can ask the model to fix the diagram conversationally.
+
+15. **Motion is scoped to three surfaces, not a global polish pass.** `MermaidDiagram` first-paint, `ChatMessage` assistant entry, `ToolCard` expand/collapse. Each animation conveys a state change that was previously abrupt. User messages, composer, modal, hover, header, typing indicator, and empty-state cards stay un-animated by design. `useReducedMotion()` is honored via *conditional render* (plain DOM equivalents) plus a mounted-state guard, not via `transition: { duration: 0 }`. The `data-motion="on"|"off"` attribute is a stable test hook that avoids depending on Motion runtime style attributes.
+
+16. **Seed path uses deterministic document IDs; upload path uses random.** `IngestFileInput.forceDocumentId` is the override. The corpus seed (`ingestCorpus`) passes `slug`, so the eval golden set's slug-prefixed chunk IDs continue to resolve. Upload paths omit it, preserving Sprint 11 round 5's cross-workspace collision protection. Two well-named branches in one function — the alternative (a separate seed-only ingestion path) would duplicate hash-idempotency logic.
+
 ---
 
 ## 9. Deployment shape
 
-**Intended target:** Vercel (Sprint 12 will exercise this; not yet deployed).
+**Intended target:** Vercel (Sprint 13 will exercise this; not yet deployed).
 
 `next.config.ts` is Vercel-aware:
 - `serverExternalPackages: ['better-sqlite3']` — keeps the native module on the Node runtime.
@@ -476,4 +524,4 @@ In-memory SQLite ([`src/lib/test/db.ts`](../../src/lib/test/db.ts)) is the stand
 
 **End of architecture snapshot.**
 
-This document is dated 2026-05-05 and pinned to the post-Sprint-11 codebase. Refresh discipline: update this file at every sprint boundary, in the same commit as the sprint's documentation amendments. If any section here drifts from the code, the code is the source of truth — fix the doc.
+This document is dated 2026-05-05 and pinned to the post-Sprint-12 codebase. Refresh discipline: update this file at every sprint boundary, in the same commit as the sprint's documentation amendments. If any section here drifts from the code, the code is the source of truth — fix the doc.

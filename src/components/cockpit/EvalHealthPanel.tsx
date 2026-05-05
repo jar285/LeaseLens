@@ -42,7 +42,14 @@ export function EvalHealthPanel({ initialSnapshot }: EvalHealthPanelProps) {
   return (
     <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-        <h2 className="text-sm font-semibold text-gray-800">Eval health</h2>
+        <div>
+          <h2 className="text-sm font-semibold text-gray-800">
+            Is retrieval grounded?
+          </h2>
+          <p className="mt-0.5 text-[11px] text-gray-500">
+            Golden eval against the sample brand
+          </p>
+        </div>
         <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
       </header>
       {snapshot === null ? (

@@ -35,7 +35,7 @@ export function createSearchCorpusTool(db: Database.Database): ToolDescriptor {
     } as const,
     roles: 'ALL',
     category: 'corpus',
-    execute: async (input) => {
+    execute: async (input, ctx) => {
       const query = String(input.query ?? '');
       const maxResults = Math.min(Number(input.max_results ?? 5), 10);
 
@@ -44,7 +44,10 @@ export function createSearchCorpusTool(db: Database.Database): ToolDescriptor {
       }
 
       try {
-        const chunks = await retrieve(query, db, { maxResults });
+        const chunks = await retrieve(query, db, {
+          workspaceId: ctx.workspaceId,
+          maxResults,
+        });
 
         return {
           query,
@@ -92,7 +95,7 @@ export function createGetDocumentSummaryTool(
     } as const,
     roles: ['Editor', 'Admin'],
     category: 'corpus',
-    execute: async (input) => {
+    execute: async (input, ctx) => {
       const slug = String(input.slug ?? '');
 
       if (!slug.trim()) {
@@ -100,14 +103,14 @@ export function createGetDocumentSummaryTool(
       }
 
       try {
-        // Get document
+        // Get document — workspace-scoped lookup (Sprint 11).
         const doc = db
           .prepare(`
           SELECT id, slug, title, content
           FROM documents
-          WHERE slug = ?
+          WHERE slug = ? AND workspace_id = ?
         `)
-          .get(slug) as
+          .get(slug, ctx.workspaceId) as
           | { id: string; slug: string; title: string; content: string }
           | undefined;
 
@@ -162,7 +165,7 @@ export function createListDocumentsTool(db: Database.Database): ToolDescriptor {
     } as const,
     roles: ['Admin'],
     category: 'corpus',
-    execute: async () => {
+    execute: async (_input, ctx) => {
       try {
         const docs = db
           .prepare(`
@@ -170,10 +173,11 @@ export function createListDocumentsTool(db: Database.Database): ToolDescriptor {
                  COUNT(c.id) as chunk_count
           FROM documents d
           LEFT JOIN chunks c ON c.document_id = d.id
+          WHERE d.workspace_id = ?
           GROUP BY d.id
           ORDER BY d.title
         `)
-          .all() as {
+          .all(ctx.workspaceId) as {
           id: string;
           slug: string;
           title: string;

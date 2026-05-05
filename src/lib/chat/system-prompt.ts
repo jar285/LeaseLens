@@ -1,5 +1,7 @@
 import type { Role } from '@/lib/auth/types';
 import type { RetrievedChunk } from '@/lib/rag/retrieve';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import type { Workspace } from '@/lib/workspaces/types';
 
 const MAX_PASSAGE_CHARS = 400;
 
@@ -7,9 +9,21 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-function formatContextBlock(chunks: RetrievedChunk[]): string {
+/**
+ * Strip a single trailing period from the workspace description so the
+ * brand-identity sentence in the system prompt always reads cleanly,
+ * regardless of operator input. Spec §4.7 / spec-QA L1.
+ */
+function normalizeDescription(d: string): string {
+  return d.trim().replace(/\.$/, '');
+}
+
+function formatContextBlock(
+  workspace: Workspace,
+  chunks: RetrievedChunk[],
+): string {
   const header =
-    'The following passages are from the Side Quest Syndicate brand documents.\n' +
+    `The following passages are from the ${workspace.name} brand documents.\n` +
     'Use them to ground your response. Cite the source heading when relevant.';
 
   const entries = chunks.map((chunk, i) => {
@@ -21,15 +35,40 @@ function formatContextBlock(chunks: RetrievedChunk[]): string {
   return `<context>\n${header}\n\n${entries.join('\n\n')}\n</context>`;
 }
 
+/**
+ * Sprint 11: parameterized on the active workspace. The first argument
+ * accepts either the legacy Role-only signature or the new options object
+ * for backwards compatibility with existing call sites that haven't
+ * migrated yet. The test suite uses both shapes.
+ *
+ * Preferred shape: buildSystemPrompt({ role, workspace, context }).
+ * Legacy shape:    buildSystemPrompt(role, context?) — uses sample workspace.
+ */
 export function buildSystemPrompt(
-  role: Role,
+  arg: Role | { role: Role; workspace?: Workspace; context?: RetrievedChunk[] },
   context?: RetrievedChunk[],
 ): string {
+  const role = typeof arg === 'string' ? arg : arg.role;
+  const workspace: Workspace =
+    typeof arg === 'string' || !arg.workspace
+      ? {
+          id: SAMPLE_WORKSPACE.id,
+          name: SAMPLE_WORKSPACE.name,
+          description: SAMPLE_WORKSPACE.description,
+          is_sample: 1,
+          created_at: 0,
+          expires_at: null,
+        }
+      : arg.workspace;
+  const ragChunks =
+    typeof arg === 'string' ? context : (arg.context ?? context);
+
   const utcDate = new Date().toISOString().slice(0, 10);
+  const desc = normalizeDescription(workspace.description);
 
   const base = [
-    'You are an AI assistant for Side Quest Syndicate, a gaming content brand.',
-    'You help the content team with content operations: brainstorming, drafting, reviewing, and scheduling gaming content.',
+    `You are an AI assistant for ${workspace.name}. ${desc}.`,
+    'You help the content team with content operations: brainstorming, drafting, reviewing, and scheduling content for this brand.',
     `The operator's role is ${role}.`,
     `Today's date: ${utcDate}.`,
     'Be concise and practical.',
@@ -38,7 +77,7 @@ export function buildSystemPrompt(
     'When invoking `schedule_content_item`, pass the `scheduled_for` time as an ISO 8601 string (e.g. "2026-05-02T09:00:00Z") — the server parses it. In your conversational reply, phrase scheduled times in human-friendly form (e.g. "Tomorrow at 9:00 AM UTC"); never expose Unix timestamps or raw numeric values.',
   ].join(' ');
 
-  if (!context || context.length === 0) return base;
+  if (!ragChunks || ragChunks.length === 0) return base;
 
-  return `${base}\n\n${formatContextBlock(context)}`;
+  return `${base}\n\n${formatContextBlock(workspace, ragChunks)}`;
 }

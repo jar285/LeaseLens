@@ -18,6 +18,11 @@ import { env } from '@/lib/env';
 import { retrieve } from '@/lib/rag/retrieve';
 import { createToolRegistry } from '@/lib/tools/create-registry';
 import type { AnthropicTool } from '@/lib/tools/domain';
+import {
+  decodeWorkspace,
+  WORKSPACE_COOKIE_NAME,
+} from '@/lib/workspaces/cookie';
+import { getActiveWorkspace } from '@/lib/workspaces/queries';
 
 export const runtime = 'nodejs';
 
@@ -123,6 +128,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Sprint 11 (revised) — workspace cookie. If missing or expired,
+    // return 401 with a redirect hint so the client can navigate home,
+    // where middleware re-issues the sample cookie. /onboarding no
+    // longer exists; the home page is the recovery surface.
+    const workspaceCookie = req.cookies.get(WORKSPACE_COOKIE_NAME);
+    const workspacePayload = workspaceCookie
+      ? await decodeWorkspace(workspaceCookie.value)
+      : null;
+    if (!workspacePayload) {
+      return NextResponse.json(
+        { error: 'No workspace selected', redirect: '/' },
+        { status: 401 },
+      );
+    }
+    const workspace = getActiveWorkspace(db, workspacePayload.workspace_id);
+    if (!workspace) {
+      const res = NextResponse.json(
+        { error: 'Workspace expired', redirect: '/' },
+        { status: 401 },
+      );
+      res.cookies.delete(WORKSPACE_COOKIE_NAME);
+      return res;
+    }
+
     // Ensure known demo identities exist before writing (fresh-DB guard)
     const userExists = db
       .prepare('SELECT 1 FROM users WHERE id = ?')
@@ -173,22 +202,31 @@ export async function POST(req: NextRequest) {
 
     const now = Math.floor(Date.now() / 1000);
 
-    // Persist user message and resolve/create conversation atomically
+    // Persist user message and resolve/create conversation atomically.
+    // Round 3 — conversation lookup AND insert are scoped to workspace_id
+    // so a conversationId from a foreign workspace falls through to a fresh
+    // conversation in the current workspace. Spec §20.
     let activeConversationId = conversationId ?? null;
     db.transaction(() => {
       const existingConv = activeConversationId
         ? db
             .prepare(
-              'SELECT id FROM conversations WHERE id = ? AND user_id = ?',
+              'SELECT id FROM conversations WHERE id = ? AND user_id = ? AND workspace_id = ?',
             )
-            .get(activeConversationId, userId)
+            .get(activeConversationId, userId, workspace.id)
         : null;
 
       if (!activeConversationId || !existingConv) {
         activeConversationId = crypto.randomUUID();
         db.prepare(
-          'INSERT INTO conversations (id, user_id, title, created_at) VALUES (?, ?, ?, ?)',
-        ).run(activeConversationId, userId, 'New Conversation', now);
+          'INSERT INTO conversations (id, user_id, workspace_id, title, created_at) VALUES (?, ?, ?, ?, ?)',
+        ).run(
+          activeConversationId,
+          userId,
+          workspace.id,
+          'New Conversation',
+          now,
+        );
       }
 
       db.prepare(
@@ -208,12 +246,16 @@ export async function POST(req: NextRequest) {
     // RAG retrieval for implicit grounding (still used alongside explicit tools)
     let ragContext: Awaited<ReturnType<typeof retrieve>> = [];
     try {
-      ragContext = await retrieve(message, db);
+      ragContext = await retrieve(message, db, { workspaceId: workspace.id });
     } catch (err) {
       console.error('RAG retrieval failed, proceeding without context:', err);
     }
 
-    const systemPrompt = buildSystemPrompt(role, ragContext);
+    const systemPrompt = buildSystemPrompt({
+      role,
+      workspace,
+      context: ragContext,
+    });
     const encoder = new TextEncoder();
 
     const responseStream = new ReadableStream({
@@ -303,6 +345,7 @@ export async function POST(req: NextRequest) {
                     resolvedConversationId,
                     userId,
                     role,
+                    workspace.id,
                     toolRegistry,
                     controller,
                     encoder,
@@ -351,6 +394,7 @@ export async function POST(req: NextRequest) {
                     resolvedConversationId,
                     userId,
                     role,
+                    workspace.id,
                     toolRegistry,
                     controller,
                     encoder,
@@ -428,6 +472,7 @@ async function executeToolAndPersist(
   conversationId: string,
   userId: string,
   role: Role,
+  workspaceId: string,
   toolRegistry: ReturnType<typeof createToolRegistry>,
   controller: ReadableStreamDefaultController,
   encoder: TextEncoder,
@@ -456,7 +501,7 @@ async function executeToolAndPersist(
     const envelope = await toolRegistry.execute(
       toolUse.name,
       toolUse.input as Record<string, unknown>,
-      { role, userId, conversationId, toolUseId: toolId },
+      { role, userId, conversationId, toolUseId: toolId, workspaceId },
     );
     toolResult = envelope.result;
     auditId = envelope.audit_id;

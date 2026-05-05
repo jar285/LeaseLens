@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { recordSpend } from '@/lib/db/spend';
 import { createTestDb } from '@/lib/test/db';
 import { seedUser } from '@/lib/test/seed';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   getTodaySpend,
   listRecentApprovals,
@@ -18,19 +19,22 @@ function insertAuditRow(
     actorRole: 'Creator' | 'Editor' | 'Admin';
     toolName?: string;
     createdAt?: number;
+    workspaceId?: string;
   },
 ): string {
   const id = randomUUID();
   db.prepare(
     `INSERT INTO audit_log (
        id, tool_name, tool_use_id, actor_user_id, actor_role, conversation_id,
+       workspace_id,
        input_json, output_json, compensating_action_json, status, created_at
-     ) VALUES (?, ?, NULL, ?, ?, NULL, ?, ?, ?, 'executed', ?)`,
+     ) VALUES (?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, 'executed', ?)`,
   ).run(
     id,
     opts.toolName ?? 'schedule_content_item',
     opts.actorUserId,
     opts.actorRole,
+    opts.workspaceId ?? SAMPLE_WORKSPACE.id,
     JSON.stringify({ document_slug: 'brand-identity' }),
     JSON.stringify({ id: 'sched-1' }),
     JSON.stringify({ schedule_id: 'sched-1' }),
@@ -61,7 +65,7 @@ describe('cockpit queries', () => {
         createdAt: 2000,
       });
 
-      const rows = listRecentAuditRows(db, { limit: 10 });
+      const rows = listRecentAuditRows(db, { workspaceId: SAMPLE_WORKSPACE.id, limit: 10 });
       expect(rows).toHaveLength(2);
       // DESC by created_at — mcp-server (2000) comes first
       expect(rows[0].actor_user_id).toBe('mcp-server');
@@ -76,11 +80,34 @@ describe('cockpit queries', () => {
       insertAuditRow(db, { actorUserId: 'mcp-server', actorRole: 'Admin' });
 
       const rows = listRecentAuditRows(db, {
+        workspaceId: SAMPLE_WORKSPACE.id,
         actorUserId: editor.id,
         limit: 10,
       });
       expect(rows).toHaveLength(1);
       expect(rows[0].actor_user_id).toBe(editor.id);
+    });
+
+    it('cross-workspace isolation: Sprint 11 / sprint-QA M1', () => {
+      const editor = seedUser(db, 'Editor');
+      const wsA = '00000000-0000-0000-0000-0000000000aa';
+      const wsB = '00000000-0000-0000-0000-0000000000bb';
+      insertAuditRow(db, {
+        actorUserId: editor.id,
+        actorRole: 'Editor',
+        workspaceId: wsA,
+      });
+      insertAuditRow(db, {
+        actorUserId: editor.id,
+        actorRole: 'Editor',
+        workspaceId: wsB,
+      });
+
+      const rowsA = listRecentAuditRows(db, { workspaceId: wsA, limit: 10 });
+      expect(rowsA).toHaveLength(1);
+      const rowsB = listRecentAuditRows(db, { workspaceId: wsB, limit: 10 });
+      expect(rowsB).toHaveLength(1);
+      expect(rowsA[0].id).not.toBe(rowsB[0].id);
     });
   });
 
@@ -89,16 +116,32 @@ describe('cockpit queries', () => {
       const insert = (id: string, scheduledFor: number) =>
         db
           .prepare(
-            `INSERT INTO content_calendar (id, document_slug, scheduled_for, channel, scheduled_by, created_at)
-             VALUES (?, 'brand-identity', ?, 'twitter', 'editor-id', ?)`,
+            `INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at)
+             VALUES (?, 'brand-identity', ?, ?, 'twitter', 'editor-id', ?)`,
           )
-          .run(id, scheduledFor, Math.floor(Date.now() / 1000));
+          .run(id, SAMPLE_WORKSPACE.id, scheduledFor, Math.floor(Date.now() / 1000));
       insert('s2', 2000);
       insert('s1', 1000);
       insert('s3', 3000);
 
-      const items = listScheduledItems(db, { limit: 10 });
+      const items = listScheduledItems(db, { workspaceId: SAMPLE_WORKSPACE.id, limit: 10 });
       expect(items.map((i) => i.id)).toEqual(['s1', 's2', 's3']);
+    });
+
+    it('cross-workspace isolation: Sprint 11 / sprint-QA M1', () => {
+      const wsA = '00000000-0000-0000-0000-0000000000aa';
+      const wsB = '00000000-0000-0000-0000-0000000000bb';
+      const stmt = db.prepare(
+        `INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at)
+         VALUES (?, 'brand-identity', ?, ?, 'twitter', 'editor-id', ?)`,
+      );
+      stmt.run('a-item', wsA, 1000, 0);
+      stmt.run('b-item', wsB, 2000, 0);
+
+      const itemsA = listScheduledItems(db, { workspaceId: wsA, limit: 10 });
+      expect(itemsA.map((i) => i.id)).toEqual(['a-item']);
+      const itemsB = listScheduledItems(db, { workspaceId: wsB, limit: 10 });
+      expect(itemsB.map((i) => i.id)).toEqual(['b-item']);
     });
   });
 
@@ -107,16 +150,32 @@ describe('cockpit queries', () => {
       const insert = (id: string, createdAt: number) =>
         db
           .prepare(
-            `INSERT INTO approvals (id, document_slug, approved_by, notes, created_at)
-             VALUES (?, 'brand-identity', 'admin-id', NULL, ?)`,
+            `INSERT INTO approvals (id, document_slug, workspace_id, approved_by, notes, created_at)
+             VALUES (?, 'brand-identity', ?, 'admin-id', NULL, ?)`,
           )
-          .run(id, createdAt);
+          .run(id, SAMPLE_WORKSPACE.id, createdAt);
       insert('a1', 1000);
       insert('a2', 2000);
       insert('a3', 3000);
 
-      const items = listRecentApprovals(db, { limit: 10 });
+      const items = listRecentApprovals(db, { workspaceId: SAMPLE_WORKSPACE.id, limit: 10 });
       expect(items.map((i) => i.id)).toEqual(['a3', 'a2', 'a1']);
+    });
+
+    it('cross-workspace isolation: Sprint 11 / sprint-QA M1', () => {
+      const wsA = '00000000-0000-0000-0000-0000000000aa';
+      const wsB = '00000000-0000-0000-0000-0000000000bb';
+      const stmt = db.prepare(
+        `INSERT INTO approvals (id, document_slug, workspace_id, approved_by, notes, created_at)
+         VALUES (?, 'brand-identity', ?, 'admin-id', NULL, ?)`,
+      );
+      stmt.run('a-appr', wsA, 1000);
+      stmt.run('b-appr', wsB, 2000);
+
+      const itemsA = listRecentApprovals(db, { workspaceId: wsA, limit: 10 });
+      expect(itemsA.map((i) => i.id)).toEqual(['a-appr']);
+      const itemsB = listRecentApprovals(db, { workspaceId: wsB, limit: 10 });
+      expect(itemsB.map((i) => i.id)).toEqual(['b-appr']);
     });
   });
 

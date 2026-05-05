@@ -10,15 +10,20 @@ import { join } from 'path';
 import { z } from 'zod';
 import type { Role } from '../src/lib/auth/types';
 import { createToolRegistry } from '../src/lib/tools/create-registry';
+import { SAMPLE_WORKSPACE } from '../src/lib/workspaces/constants';
 
 // Database path - uses same DB as the main app
 const DB_PATH = join(process.cwd(), 'data', 'contentops.db');
 
-// MCP context (no real auth in stdio mode, assume Admin for broadest access)
+// MCP context (no real auth in stdio mode, assume Admin for broadest access).
+// Sprint 11: hardcoded to the SAMPLE_WORKSPACE — per-caller MCP workspace
+// selection is Sprint 13+ (Spec §4.10). Audit rows from MCP-originated tool
+// calls are attributed to actor 'mcp-server' inside the sample workspace.
 const MCP_CONTEXT = {
   role: 'Admin' as Role,
   userId: 'mcp-server',
   conversationId: 'mcp-session',
+  workspaceId: SAMPLE_WORKSPACE.id,
 };
 
 async function main() {

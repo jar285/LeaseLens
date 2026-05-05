@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { encrypt } from '@/lib/auth/session';
 import { db } from '@/lib/db';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import { encodeWorkspace } from '@/lib/workspaces/cookie';
 
 function seedExecutedAuditRow(actorUserId: string): string {
   const now = Math.floor(Date.now() / 1000);
@@ -23,11 +25,12 @@ function seedExecutedAuditRow(actorUserId: string): string {
   db.transaction(() => {
     db.prepare(
       `INSERT INTO content_calendar (
-         id, document_slug, scheduled_for, channel, scheduled_by, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?)`,
+         id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       scheduleId,
       input.document_slug,
+      SAMPLE_WORKSPACE.id,
       Math.floor(Date.now() / 1000) + 86_400,
       input.channel,
       actorUserId,
@@ -37,8 +40,9 @@ function seedExecutedAuditRow(actorUserId: string): string {
     db.prepare(
       `INSERT INTO audit_log (
          id, tool_name, tool_use_id, actor_user_id, actor_role, conversation_id,
+         workspace_id,
          input_json, output_json, compensating_action_json, status, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       auditId,
       'schedule_content_item',
@@ -46,6 +50,7 @@ function seedExecutedAuditRow(actorUserId: string): string {
       actorUserId,
       'Admin',
       null,
+      SAMPLE_WORKSPACE.id,
       JSON.stringify(input),
       JSON.stringify(output),
       JSON.stringify({ schedule_id: scheduleId }),
@@ -67,10 +72,22 @@ test.beforeEach(async ({ context, page }) => {
     role: 'Admin',
     displayName: admin.display_name,
   });
+  // Sprint 11: workspace cookie required by chat / cockpit routes.
+  const workspaceToken = await encodeWorkspace({
+    workspace_id: SAMPLE_WORKSPACE.id,
+  });
   await context.addCookies([
     {
       name: 'contentops_session',
       value: token,
+      domain: 'localhost',
+      path: '/',
+      httpOnly: true,
+      sameSite: 'Lax',
+    },
+    {
+      name: 'contentops_workspace',
+      value: workspaceToken,
       domain: 'localhost',
       path: '/',
       httpOnly: true,

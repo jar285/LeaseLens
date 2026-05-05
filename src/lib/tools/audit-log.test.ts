@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '@/lib/test/db';
 import { seedUser } from '@/lib/test/seed';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   getAuditRow,
   listAuditRows,
@@ -17,7 +18,12 @@ describe('audit-log', () => {
   beforeEach(() => {
     db = createTestDb();
     const admin = seedUser(db, 'Admin');
-    ctx = { role: 'Admin', userId: admin.id, conversationId: 'conv-test' };
+    ctx = {
+      role: 'Admin',
+      userId: admin.id,
+      conversationId: 'conv-test',
+      workspaceId: SAMPLE_WORKSPACE.id,
+    };
   });
 
   it('round-trips JSON columns through write + read', () => {
@@ -82,7 +88,12 @@ describe('audit-log', () => {
     });
     const id2 = writeAuditRow(db, {
       tool_name: 'approve_draft',
-      context: { role: 'Editor', userId: editor.id, conversationId: 'c' },
+      context: {
+        role: 'Editor',
+        userId: editor.id,
+        conversationId: 'c',
+        workspaceId: SAMPLE_WORKSPACE.id,
+      },
       input: {},
       output: {},
       compensatingActionPayload: {},

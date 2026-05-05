@@ -6,12 +6,14 @@ export interface ChatTranscriptProps {
   messages: ChatMessageProps[];
   isStreaming?: boolean;
   onSelectPrompt?: (prompt: string) => void;
+  workspaceName: string;
 }
 
 export function ChatTranscript({
   messages,
   isStreaming = false,
   onSelectPrompt,
+  workspaceName,
 }: ChatTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
@@ -53,7 +55,10 @@ export function ChatTranscript({
         data-testid="chat-transcript-scroll"
         className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
       >
-        <ChatEmptyState onSelectPrompt={onSelectPrompt} />
+        <ChatEmptyState
+          onSelectPrompt={onSelectPrompt}
+          workspaceName={workspaceName}
+        />
       </div>
     );
   }

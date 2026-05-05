@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Role } from '@/lib/auth/types';
 import { createTestDb } from '@/lib/test/db';
 import { seedUser } from '@/lib/test/seed';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import type { MutationOutcome, ToolDescriptor } from './domain';
 import { ToolAccessDeniedError, UnknownToolError } from './errors';
 import { ToolRegistry } from './registry';
@@ -112,7 +113,7 @@ describe('ToolRegistry', () => {
       const { result, audit_id } = await registry.execute(
         'adder',
         { a: 1, b: 2 },
-        { role: 'Creator', userId: 'user-1', conversationId: 'conv-1' },
+        { role: 'Creator', userId: 'user-1', conversationId: 'conv-1', workspaceId: SAMPLE_WORKSPACE.id },
       );
 
       expect(result).toEqual({ result: 'adder' });
@@ -126,7 +127,7 @@ describe('ToolRegistry', () => {
         registry.execute(
           'missing',
           {},
-          { role: 'Creator', userId: 'user-1', conversationId: 'conv-1' },
+          { role: 'Creator', userId: 'user-1', conversationId: 'conv-1', workspaceId: SAMPLE_WORKSPACE.id },
         ),
       ).rejects.toThrow(UnknownToolError);
     });
@@ -139,7 +140,7 @@ describe('ToolRegistry', () => {
         registry.execute(
           'admin_only',
           {},
-          { role: 'Creator', userId: 'user-1', conversationId: 'conv-1' },
+          { role: 'Creator', userId: 'user-1', conversationId: 'conv-1', workspaceId: SAMPLE_WORKSPACE.id },
         ),
       ).rejects.toThrow(ToolAccessDeniedError);
     });
@@ -151,7 +152,7 @@ describe('ToolRegistry', () => {
       const { result } = await registry.execute(
         'admin_only',
         {},
-        { role: 'Admin', userId: 'user-1', conversationId: 'conv-1' },
+        { role: 'Admin', userId: 'user-1', conversationId: 'conv-1', workspaceId: SAMPLE_WORKSPACE.id },
       );
 
       expect(result).toEqual({ result: 'admin_only' });
@@ -188,8 +189,16 @@ describe('ToolRegistry', () => {
       // with a synthetic descriptor so the test is independent of those tools.
       seedUser(db, 'Admin');
       db.prepare(
-        'INSERT INTO documents (id, slug, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run('doc-1', 'doc-slug', 'Doc', 'content', 'hash', Date.now());
+        'INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(
+        'doc-1',
+        'doc-slug',
+        SAMPLE_WORKSPACE.id,
+        'Doc',
+        'content',
+        'hash',
+        Date.now(),
+      );
     });
 
     function buildMutatingTool(opts?: {
@@ -204,13 +213,13 @@ describe('ToolRegistry', () => {
         execute: (): MutationOutcome => {
           if (opts?.throwInExecute) {
             db.prepare(
-              'INSERT INTO content_calendar (id, document_slug, scheduled_for, channel, scheduled_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-            ).run('halfway', 'doc-slug', 0, 'x', 'u', 0);
+              'INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            ).run('halfway', 'doc-slug', SAMPLE_WORKSPACE.id, 0, 'x', 'u', 0);
             throw new Error('mutation failed');
           }
           db.prepare(
-            'INSERT INTO content_calendar (id, document_slug, scheduled_for, channel, scheduled_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          ).run('row-1', 'doc-slug', 0, 'x', 'u', 0);
+            'INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          ).run('row-1', 'doc-slug', SAMPLE_WORKSPACE.id, 0, 'x', 'u', 0);
           return {
             result: { schedule_id: 'row-1' },
             compensatingActionPayload: { schedule_id: 'row-1' },
@@ -234,6 +243,7 @@ describe('ToolRegistry', () => {
           userId: 'admin-id',
           conversationId: 'conv-1',
           toolUseId: 'toolu_1',
+          workspaceId: SAMPLE_WORKSPACE.id,
         },
       );
 
@@ -262,7 +272,7 @@ describe('ToolRegistry', () => {
         registry.execute(
           'mut_tool',
           {},
-          { role: 'Admin', userId: 'u', conversationId: 'c' },
+          { role: 'Admin', userId: 'u', conversationId: 'c', workspaceId: SAMPLE_WORKSPACE.id },
         ),
       ).rejects.toThrow('mutation failed');
 
@@ -283,7 +293,7 @@ describe('ToolRegistry', () => {
       await registry.execute(
         'readonly',
         {},
-        { role: 'Admin', userId: 'u', conversationId: 'c' },
+        { role: 'Admin', userId: 'u', conversationId: 'c', workspaceId: SAMPLE_WORKSPACE.id },
       );
 
       const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
@@ -300,7 +310,7 @@ describe('ToolRegistry', () => {
         registry.execute(
           'mut_tool',
           {},
-          { role: 'Admin', userId: 'u', conversationId: 'c' },
+          { role: 'Admin', userId: 'u', conversationId: 'c', workspaceId: SAMPLE_WORKSPACE.id },
         ),
       ).rejects.toThrow(/has no db to write the audit row/);
     });
@@ -325,7 +335,7 @@ describe('ToolRegistry', () => {
         registry.execute(
           'validating_tool',
           {},
-          { role: 'Admin', userId: 'u', conversationId: 'c' },
+          { role: 'Admin', userId: 'u', conversationId: 'c', workspaceId: SAMPLE_WORKSPACE.id },
         ),
       ).rejects.toThrow('missing required_field');
 

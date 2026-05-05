@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb } from '@/lib/test/db';
-import { ingestCorpus } from './ingest';
+import { ingestCorpus, ingestMarkdownFile } from './ingest';
 
 vi.mock('./embed', async () => {
   const m = await import('@/lib/test/embed-mock');
@@ -119,5 +119,46 @@ describe('ingestCorpus', () => {
       expect(row.embedding).not.toBeNull();
       expect(row.embedding.byteLength).toBe(384 * 4);
     }
+  });
+});
+
+describe('ingestMarkdownFile cross-workspace (Round 5)', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+    vi.clearAllMocks();
+
+    // Two non-sample workspaces. The same slug + identical content should land
+    // in both without colliding on the chunks PRIMARY KEY.
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, ?, ?, 0, ?, ?)`,
+    ).run('ws-a', 'A', 'A', now, now + 3600);
+    db.prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, ?, ?, 0, ?, ?)`,
+    ).run('ws-b', 'B', 'B', now, now + 3600);
+  });
+
+  it('ingests the same slug+content into two workspaces without chunk-id collision', async () => {
+    const slug = 'brand-identity';
+    const content = DOC_CONTENT;
+
+    await ingestMarkdownFile(db, { slug, content, workspaceId: 'ws-a' });
+    await expect(
+      ingestMarkdownFile(db, { slug, content, workspaceId: 'ws-b' }),
+    ).resolves.toMatchObject({ chunkCount: expect.any(Number) });
+
+    const counts = db
+      .prepare(
+        'SELECT workspace_id, COUNT(*) as n FROM chunks GROUP BY workspace_id',
+      )
+      .all() as { workspace_id: string; n: number }[];
+    const byWs = Object.fromEntries(counts.map((r) => [r.workspace_id, r.n]));
+    expect(byWs['ws-a']).toBeGreaterThan(0);
+    // Same content → same chunk count in each workspace.
+    expect(byWs['ws-b']).toBe(byWs['ws-a']);
   });
 });

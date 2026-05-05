@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import { join } from 'path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createToolRegistry } from '../src/lib/tools/create-registry';
+import { SAMPLE_WORKSPACE } from '../src/lib/workspaces/constants';
 
 const DB_PATH = join(process.cwd(), 'data', 'contentops.db');
 
@@ -37,7 +38,7 @@ describe('MCP Server Contract', () => {
       const search = await registry.execute(
         'search_corpus',
         { query: 'brand voice', max_results: 3 },
-        { role: 'Admin', userId: 'test', conversationId: 'test' },
+        { role: 'Admin', userId: 'test', conversationId: 'test', workspaceId: SAMPLE_WORKSPACE.id },
       );
       expect(search.audit_id).toBeUndefined();
       expect(search.result).toHaveProperty('results');
@@ -49,7 +50,7 @@ describe('MCP Server Contract', () => {
       const summary = await registry.execute(
         'get_document_summary',
         { slug: 'brand-identity' },
-        { role: 'Admin', userId: 'test', conversationId: 'test' },
+        { role: 'Admin', userId: 'test', conversationId: 'test', workspaceId: SAMPLE_WORKSPACE.id },
       );
       expect(summary.audit_id).toBeUndefined();
       expect(summary.result).toHaveProperty('slug', 'brand-identity');
@@ -58,7 +59,7 @@ describe('MCP Server Contract', () => {
       const list = await registry.execute(
         'list_documents',
         {},
-        { role: 'Admin', userId: 'test', conversationId: 'test' },
+        { role: 'Admin', userId: 'test', conversationId: 'test', workspaceId: SAMPLE_WORKSPACE.id },
       );
       expect(list.audit_id).toBeUndefined();
       expect(list.result).toHaveProperty('document_count', 5);
@@ -127,7 +128,12 @@ describe('MCP Server Contract', () => {
           scheduled_for: new Date(Date.now() + 86_400_000).toISOString(),
           channel: 'twitter',
         },
-        { role: 'Admin', userId: 'mcp-server', conversationId: 'mcp-session' },
+        {
+          role: 'Admin',
+          userId: 'mcp-server',
+          conversationId: 'mcp-session',
+          workspaceId: SAMPLE_WORKSPACE.id,
+        },
       );
 
       expect(audit_id).toBeTruthy();

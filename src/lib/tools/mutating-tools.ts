@@ -60,20 +60,22 @@ export function createScheduleContentItemTool(
       // transaction never opens for a bad input.
       const scheduledForUnix = parseIsoToUnixSeconds(scheduledForRaw);
 
+      // Workspace-scoped slug existence check (Sprint 11).
       const exists = db
-        .prepare('SELECT 1 FROM documents WHERE slug = ?')
-        .get(slug);
+        .prepare('SELECT 1 FROM documents WHERE slug = ? AND workspace_id = ?')
+        .get(slug, ctx.workspaceId);
       if (!exists) {
         throw new Error(`Unknown document_slug: ${slug}`);
       }
 
       const id = randomUUID();
       db.prepare(
-        `INSERT INTO content_calendar (id, document_slug, scheduled_for, channel, scheduled_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         slug,
+        ctx.workspaceId,
         scheduledForUnix,
         channel,
         ctx.userId,
@@ -127,18 +129,26 @@ export function createApproveDraftTool(db: Database.Database): ToolDescriptor {
       const slug = input.document_slug as string;
       const notes = (input.notes ?? null) as string | null;
 
+      // Workspace-scoped slug existence check (Sprint 11).
       const exists = db
-        .prepare('SELECT 1 FROM documents WHERE slug = ?')
-        .get(slug);
+        .prepare('SELECT 1 FROM documents WHERE slug = ? AND workspace_id = ?')
+        .get(slug, ctx.workspaceId);
       if (!exists) {
         throw new Error(`Unknown document_slug: ${slug}`);
       }
 
       const id = randomUUID();
       db.prepare(
-        `INSERT INTO approvals (id, document_slug, approved_by, notes, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-      ).run(id, slug, ctx.userId, notes, Math.floor(Date.now() / 1000));
+        `INSERT INTO approvals (id, document_slug, workspace_id, approved_by, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        slug,
+        ctx.workspaceId,
+        ctx.userId,
+        notes,
+        Math.floor(Date.now() / 1000),
+      );
 
       return {
         result: { approval_id: id, document_slug: slug, notes },

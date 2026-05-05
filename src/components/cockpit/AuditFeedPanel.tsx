@@ -98,6 +98,8 @@ function AuditRowItem({
   );
 }
 
+const COLLAPSED_LIMIT = 5;
+
 export function AuditFeedPanel({
   initialRows,
   viewerRole,
@@ -105,6 +107,7 @@ export function AuditFeedPanel({
 }: AuditFeedPanelProps) {
   const [rows, setRows] = useState<CockpitAuditRow[]>(initialRows);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   async function refresh() {
     setIsRefreshing(true);
@@ -116,10 +119,20 @@ export function AuditFeedPanel({
     }
   }
 
+  const visibleRows = expanded ? rows : rows.slice(0, COLLAPSED_LIMIT);
+  const hiddenCount = rows.length - visibleRows.length;
+
   return (
     <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-        <h2 className="text-sm font-semibold text-gray-800">Recent actions</h2>
+        <div>
+          <h2 className="text-sm font-semibold text-gray-800">
+            What has the AI done?
+          </h2>
+          <p className="mt-0.5 text-[11px] text-gray-500">
+            Tool actions logged on this brand · {rows.length} entries
+          </p>
+        </div>
         <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
       </header>
       {rows.length === 0 ? (
@@ -129,7 +142,7 @@ export function AuditFeedPanel({
       ) : (
         <div className="overflow-x-auto">
           <ul className="m-0 list-none p-0">
-            {rows.map((row) => (
+            {visibleRows.map((row) => (
               <AuditRowItem
                 key={row.id}
                 row={row}
@@ -138,6 +151,17 @@ export function AuditFeedPanel({
               />
             ))}
           </ul>
+          {(hiddenCount > 0 || expanded) && (
+            <div className="border-t border-gray-100 px-4 py-2 text-right">
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="text-xs font-medium text-indigo-600 transition-colors hover:text-indigo-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+              >
+                {expanded ? 'Show fewer' : `View all (${rows.length})`}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </section>

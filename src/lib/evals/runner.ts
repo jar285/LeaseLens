@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { retrieve } from '@/lib/rag/retrieve';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import type {
   EvalCaseResult,
   EvalRunReport,
@@ -33,15 +34,23 @@ function aggregateScorecard(caseResults: EvalCaseResult[]): EvalScorecard {
   };
 }
 
+export interface RunGoldenEvalOptions {
+  /** Sprint 11: workspace to run retrieval against. Default: SAMPLE_WORKSPACE.id. */
+  workspaceId?: string;
+}
+
 export async function runGoldenEval(
   db: Database.Database,
   goldenSet: GoldenCase[] = GOLDEN_SET,
+  opts: RunGoldenEvalOptions = {},
 ): Promise<EvalRunReport> {
+  const workspaceId = opts.workspaceId ?? SAMPLE_WORKSPACE.id;
   const startedAt = new Date().toISOString();
   const caseResults: EvalCaseResult[] = [];
 
   for (const goldenCase of goldenSet) {
     const chunks = await retrieve(goldenCase.query, db, {
+      workspaceId,
       maxResults: goldenCase.k,
     });
     const scorecard = scoreGoldenCase(goldenCase, chunks);

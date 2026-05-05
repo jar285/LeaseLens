@@ -44,6 +44,13 @@ export interface ToolExecutionContext {
   userId: string;
   conversationId: string;
   /**
+   * Sprint 11: required — every tool execution is workspace-scoped.
+   * Set by the chat route from the workspace cookie; the MCP server
+   * hardcodes SAMPLE_WORKSPACE.id (per-caller MCP workspace selection
+   * is Sprint 13+).
+   */
+  workspaceId: string;
+  /**
    * LLM-issued tool_use id from the Anthropic response, when applicable.
    * The chat route sets this; MCP-originated calls leave it undefined.
    * Persisted as audit_log.tool_use_id when set.
@@ -75,6 +82,7 @@ export interface AuditLogEntry {
   actor_user_id: string;
   actor_role: Role;
   conversation_id: string | null;
+  workspace_id: string;
   input_json: string;
   output_json: string;
   compensating_action_json: string;

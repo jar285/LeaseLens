@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { encrypt } from '@/lib/auth/session';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import { encodeWorkspace } from '@/lib/workspaces/cookie';
 
 async function startFreshConversation(page: import('@playwright/test').Page) {
   const newConversation = page.getByTestId('new-conversation-btn');
@@ -20,7 +22,21 @@ test.beforeEach(async ({ context }) => {
     displayName: admin.display_name,
   });
 
+  // Sprint 11: also set the workspace cookie so the chat route doesn't
+  // redirect to /onboarding before the test prompt fires.
+  const workspaceToken = await encodeWorkspace({
+    workspace_id: SAMPLE_WORKSPACE.id,
+  });
+
   await context.addCookies([
+    {
+      name: 'contentops_workspace',
+      value: workspaceToken,
+      domain: 'localhost',
+      path: '/',
+      httpOnly: true,
+      sameSite: 'Lax',
+    },
     {
       name: 'contentops_session',
       value: token,

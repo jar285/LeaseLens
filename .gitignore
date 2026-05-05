@@ -24,6 +24,7 @@ test-results/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+docs/_personal
 
 # OS
 .DS_Store

@@ -44,7 +44,9 @@ describe('ChatTranscript', () => {
   });
 
   it('scrolls to the bottom when pinned and content updates', () => {
-    const { rerender } = render(<ChatTranscript messages={baseMessages} />);
+    const { rerender } = render(
+      <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+    );
     const scrollContainer = screen.getByTestId('chat-transcript-scroll');
     setScrollMetrics(scrollContainer, {
       scrollTop: 200,
@@ -60,6 +62,7 @@ describe('ChatTranscript', () => {
           baseMessages[0],
           { ...baseMessages[1], content: 'First response plus more text' },
         ]}
+        workspaceName="Test"
       />,
     );
 
@@ -70,7 +73,9 @@ describe('ChatTranscript', () => {
   });
 
   it('does not scroll streamed content when the user has scrolled away', () => {
-    const { rerender } = render(<ChatTranscript messages={baseMessages} />);
+    const { rerender } = render(
+      <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+    );
     const scrollContainer = screen.getByTestId('chat-transcript-scroll');
     setScrollMetrics(scrollContainer, {
       scrollTop: 25,
@@ -86,6 +91,7 @@ describe('ChatTranscript', () => {
           baseMessages[0],
           { ...baseMessages[1], content: 'First response plus more text' },
         ]}
+        workspaceName="Test"
       />,
     );
 
@@ -93,7 +99,9 @@ describe('ChatTranscript', () => {
   });
 
   it('resets to pinned and scrolls when message count increases', () => {
-    const { rerender } = render(<ChatTranscript messages={baseMessages} />);
+    const { rerender } = render(
+      <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+    );
     const scrollContainer = screen.getByTestId('chat-transcript-scroll');
     setScrollMetrics(scrollContainer, {
       scrollTop: 25,
@@ -109,6 +117,7 @@ describe('ChatTranscript', () => {
           ...baseMessages,
           { id: 'assistant-2', role: 'assistant', content: 'New response' },
         ]}
+        workspaceName="Test"
       />,
     );
 
@@ -119,11 +128,32 @@ describe('ChatTranscript', () => {
   });
 
   it('renders empty-state suggestion controls', () => {
-    render(<ChatTranscript messages={[]} onSelectPrompt={vi.fn()} />);
+    render(
+      <ChatTranscript
+        messages={[]}
+        onSelectPrompt={vi.fn()}
+        workspaceName="Side Quest Syndicate"
+      />,
+    );
 
     expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /Define Brand Voice/i }),
     ).toBeInTheDocument();
+  });
+
+  it('Round 3 — propagates workspaceName to the rendered empty state', () => {
+    render(
+      <ChatTranscript
+        messages={[]}
+        onSelectPrompt={vi.fn()}
+        workspaceName="Acme"
+      />,
+    );
+    // Heading uses workspaceName, not the hardcoded sample brand.
+    expect(screen.getByRole('heading', { name: 'Acme' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: /Side Quest Syndicate/i }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { encrypt } from '@/lib/auth/session';
+import { db } from '@/lib/db';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import { encodeWorkspace } from '@/lib/workspaces/cookie';
 
 vi.mock('next/navigation', () => ({
   redirect: vi.fn(() => {
@@ -35,24 +38,46 @@ async function mockCookieFor(
   if (role === null) {
     (cookies as ReturnType<typeof vi.fn>).mockResolvedValue({
       get: () => undefined,
+      delete: () => {},
     });
     return;
   }
   const user = DEMO_USERS.find((u) => u.role === role);
   if (!user) throw new Error(`No demo user with role ${role}`);
-  const token = await encrypt({
+  const sessionToken = await encrypt({
     userId: user.id,
     role,
     displayName: user.display_name,
   });
-  (cookies as ReturnType<typeof vi.fn>).mockResolvedValue({
-    get: () => ({ value: token }),
+  const workspaceToken = await encodeWorkspace({
+    workspace_id: SAMPLE_WORKSPACE.id,
   });
+  (cookies as ReturnType<typeof vi.fn>).mockResolvedValue({
+    get: (name: string) => {
+      if (name === 'contentops_session') return { value: sessionToken };
+      if (name === 'contentops_workspace') return { value: workspaceToken };
+      return undefined;
+    },
+    delete: () => {},
+  });
+}
+
+function ensureSampleWorkspace(): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+     VALUES (?, ?, ?, 1, ?, NULL)`,
+  ).run(
+    SAMPLE_WORKSPACE.id,
+    SAMPLE_WORKSPACE.name,
+    SAMPLE_WORKSPACE.description,
+    0,
+  );
 }
 
 describe('CockpitPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    ensureSampleWorkspace();
   });
 
   it('redirects to / when there is no cookie', async () => {

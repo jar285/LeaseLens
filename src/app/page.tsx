@@ -4,14 +4,49 @@ import Link from 'next/link';
 import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
 import { ChatUI } from '@/components/chat/ChatUI';
+import { WorkspaceHeader } from '@/components/cockpit/WorkspaceHeader';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
+import { getLatestConversationForWorkspace } from '@/lib/chat/conversations';
 import { db } from '@/lib/db';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import {
+  decodeWorkspace,
+  WORKSPACE_COOKIE_NAME,
+} from '@/lib/workspaces/cookie';
+import { getActiveWorkspace } from '@/lib/workspaces/queries';
 
 export const runtime = 'nodejs';
 
 export default async function Home() {
   const cookieStore = await cookies();
+
+  // Sprint 11 (revised) — middleware always issues a sample-workspace
+  // cookie when none exists, so the cookie should be present on every
+  // request. The remaining null cases are: (a) an extremely brief race
+  // where the cookie fails decode (treated as fresh visit — fall through
+  // to sample), and (b) a previously-valid custom workspace that's been
+  // TTL-purged while its cookie remains valid (rare; fall back to sample
+  // and clear cookie so middleware re-issues on the next request).
+  const workspaceCookie = cookieStore.get(WORKSPACE_COOKIE_NAME);
+  const workspacePayload = workspaceCookie
+    ? await decodeWorkspace(workspaceCookie.value)
+    : null;
+  let workspace = workspacePayload
+    ? getActiveWorkspace(db, workspacePayload.workspace_id)
+    : null;
+  if (!workspace) {
+    if (workspaceCookie) cookieStore.delete(WORKSPACE_COOKIE_NAME);
+    workspace = {
+      id: SAMPLE_WORKSPACE.id,
+      name: SAMPLE_WORKSPACE.name,
+      description: SAMPLE_WORKSPACE.description,
+      is_sample: 1,
+      created_at: 0,
+      expires_at: null,
+    };
+  }
+
   const sessionCookie = cookieStore.get('contentops_session');
 
   let currentRole: 'Creator' | 'Editor' | 'Admin' = 'Creator';
@@ -37,11 +72,12 @@ export default async function Home() {
   let initialMessages: ChatMessageProps[] = [];
 
   if (currentUserId) {
-    const conv = db
-      .prepare(
-        'SELECT id FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
-      )
-      .get(currentUserId) as { id: string } | undefined;
+    // Round 3 — filter by workspace_id so previous-workspace history doesn't
+    // bleed across after the user uploads a new brand. Spec §20.
+    const conv = getLatestConversationForWorkspace(db, {
+      userId: currentUserId,
+      workspaceId: workspace.id,
+    });
 
     if (conv) {
       conversationId = conv.id;
@@ -75,6 +111,7 @@ export default async function Home() {
             </span>
             ContentOps Studio
           </Link>
+          <WorkspaceHeader workspace={workspace} />
           {currentRole !== 'Creator' && (
             <Link
               href="/cockpit"
@@ -91,6 +128,7 @@ export default async function Home() {
           <ChatUI
             initialMessages={initialMessages}
             conversationId={conversationId}
+            workspaceName={workspace.name}
           />
         </div>
       </div>

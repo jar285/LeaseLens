@@ -12,23 +12,30 @@
 import type Database from 'better-sqlite3';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import type { Role } from '@/lib/auth/types';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { mockEmbedding } from './embed-mock';
 
 /**
- * Inserts a documents row using the same shape as the existing local
- * helpers in retrieve.test.ts and runner.test.ts.
+ * Inserts a documents row scoped to a workspace. Default workspace is
+ * SAMPLE_WORKSPACE.id so existing test sites work without code changes
+ * (Sprint 11 sweep — sprint-QA H3 / Task 23).
  */
-export function seedDocument(db: Database.Database, slug: string): string {
-  const docId = `doc-${slug}`;
+export function seedDocument(
+  db: Database.Database,
+  slug: string,
+  workspaceId: string = SAMPLE_WORKSPACE.id,
+): string {
+  const docId = `doc-${slug}-${workspaceId.slice(-6)}`;
   db.prepare(
-    'INSERT INTO documents (id, slug, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(docId, slug, slug, 'full doc content', 'hash', Date.now());
+    `INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(docId, slug, workspaceId, slug, 'full doc content', 'hash', Date.now());
   return docId;
 }
 
 /**
- * Inserts a chunks row using the same shape as the existing local helpers.
- * Note: signature is (db, docId, overrides) — matches the existing files.
+ * Inserts a chunks row. Default workspace is SAMPLE_WORKSPACE.id; pass
+ * `overrides.workspaceId` for cross-workspace fixtures.
  */
 export function seedChunk(
   db: Database.Database,
@@ -39,19 +46,22 @@ export function seedChunk(
     level?: 'document' | 'section' | 'passage';
     heading?: string | null;
     index?: number;
+    workspaceId?: string;
   },
 ): void {
   const level = overrides.level ?? 'section';
   const heading = overrides.heading ?? null;
   const chunkIndex = overrides.index ?? 0;
+  const workspaceId = overrides.workspaceId ?? SAMPLE_WORKSPACE.id;
   const embedding = mockEmbedding(overrides.content);
 
   db.prepare(
-    `INSERT INTO chunks (id, document_id, chunk_index, chunk_level, heading, content, embedding, embedding_model, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO chunks (id, document_id, workspace_id, chunk_index, chunk_level, heading, content, embedding, embedding_model, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     overrides.id,
     docId,
+    workspaceId,
     chunkIndex,
     level,
     heading,

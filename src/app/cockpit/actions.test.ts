@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { encrypt } from '@/lib/auth/session';
+import { db } from '@/lib/db';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import { encodeWorkspace } from '@/lib/workspaces/cookie';
 
 vi.mock('next/headers', () => ({
   cookies: vi.fn(),
@@ -27,19 +30,39 @@ async function mockSessionFor(
   const user = DEMO_USERS.find((u) => u.role === role);
   if (!user) throw new Error(`No demo user with role ${role}`);
   const userInfo = user;
-  const token = await encrypt({
+  const sessionToken = await encrypt({
     userId: userInfo.id,
     role,
     displayName: userInfo.display_name,
   });
-  (cookies as ReturnType<typeof vi.fn>).mockResolvedValue({
-    get: () => ({ value: token }),
+  const workspaceToken = await encodeWorkspace({
+    workspace_id: SAMPLE_WORKSPACE.id,
   });
+  (cookies as ReturnType<typeof vi.fn>).mockResolvedValue({
+    get: (name: string) => {
+      if (name === 'contentops_session') return { value: sessionToken };
+      if (name === 'contentops_workspace') return { value: workspaceToken };
+      return undefined;
+    },
+  });
+}
+
+function ensureSampleWorkspace(): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+     VALUES (?, ?, ?, 1, ?, NULL)`,
+  ).run(
+    SAMPLE_WORKSPACE.id,
+    SAMPLE_WORKSPACE.name,
+    SAMPLE_WORKSPACE.description,
+    0,
+  );
 }
 
 describe('cockpit server actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    ensureSampleWorkspace();
   });
   afterEach(() => {
     vi.restoreAllMocks();

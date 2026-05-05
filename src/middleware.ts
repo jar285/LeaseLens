@@ -2,6 +2,15 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt, encrypt } from '@/lib/auth/session';
+import {
+  SAMPLE_WORKSPACE,
+  WORKSPACE_TTL_SECONDS,
+} from '@/lib/workspaces/constants';
+import {
+  decodeWorkspace,
+  encodeWorkspace,
+  WORKSPACE_COOKIE_NAME,
+} from '@/lib/workspaces/cookie';
 
 /**
  * Routes that require an authenticated session.
@@ -52,7 +61,26 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // 4. Role-based authorization for API routes
+  // 4. Issue a default sample-workspace cookie when none exists or the
+  // existing one fails signature verification. The chat API still treats
+  // an absent/invalid workspace as 401 — this just keeps the home page
+  // from looping when a first-time visitor lands at /.
+  const workspaceCookie = request.cookies.get(WORKSPACE_COOKIE_NAME);
+  const workspacePayload = workspaceCookie
+    ? await decodeWorkspace(workspaceCookie.value)
+    : null;
+  if (!workspacePayload) {
+    const token = await encodeWorkspace({ workspace_id: SAMPLE_WORKSPACE.id });
+    response.cookies.set(WORKSPACE_COOKIE_NAME, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: WORKSPACE_TTL_SECONDS,
+    });
+  }
+
+  // 5. Role-based authorization for API routes
   if (session) {
     if (
       ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p)) &&

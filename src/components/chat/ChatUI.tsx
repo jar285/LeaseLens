@@ -1,11 +1,14 @@
 'use client';
 
 import { AlertCircle, SquarePen } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { BrandUploadModal } from '@/components/workspaces/BrandUploadModal';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
 import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps, ToolInvocation } from './ChatMessage';
 import { ChatTranscript } from './ChatTranscript';
+import { FileDropZone } from './FileDropZone';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to generate response';
@@ -14,11 +17,13 @@ function getErrorMessage(error: unknown): string {
 export interface ChatUIProps {
   initialMessages?: ChatMessageProps[];
   conversationId?: string | null;
+  workspaceName: string;
 }
 
 export function ChatUI({
   initialMessages = [],
   conversationId = null,
+  workspaceName,
 }: ChatUIProps) {
   const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
@@ -28,6 +33,13 @@ export function ChatUI({
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
   >(conversationId);
+
+  // Sprint 11 (revised) — files dropped on the chat surface or attached
+  // via the paperclip button. When non-null, the BrandUploadModal opens
+  // with these files prefilled. On modal success the route refreshes so
+  // the new workspace's cookie + sample chat reset take effect.
+  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
+  const router = useRouter();
 
   const handleNewConversation = () => {
     setMessages([]);
@@ -176,64 +188,77 @@ export function ChatUI({
   const hasMessages = messages.length > 0;
 
   return (
-    <div className="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto]">
-      {/* Conversation toolbar — only visible when a conversation is active */}
-      <div
-        data-testid="conversation-toolbar"
-        className={`flex shrink-0 items-center justify-end border-b border-gray-100 px-4 py-1.5 ${
-          hasMessages ? '' : 'invisible'
-        }`}
-      >
-        <button
-          type="button"
-          data-testid="new-conversation-btn"
-          onClick={handleNewConversation}
-          disabled={status === 'streaming'}
-          className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40"
+    <FileDropZone onFiles={(files) => setPendingFiles(files)}>
+      <div className="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto]">
+        {/* Conversation toolbar — only visible when a conversation is active */}
+        <div
+          data-testid="conversation-toolbar"
+          className={`flex shrink-0 items-center justify-end border-b border-gray-100 px-4 py-1.5 ${
+            hasMessages ? '' : 'invisible'
+          }`}
         >
-          <SquarePen className="h-3.5 w-3.5" aria-hidden="true" />
-          New conversation
-        </button>
-      </div>
+          <button
+            type="button"
+            data-testid="new-conversation-btn"
+            onClick={handleNewConversation}
+            disabled={status === 'streaming'}
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40"
+          >
+            <SquarePen className="h-3.5 w-3.5" aria-hidden="true" />
+            New conversation
+          </button>
+        </div>
 
-      <div role="status" aria-live="polite" className="sr-only">
-        {status === 'streaming' && 'Assistant is typing...'}
-        {status === 'error' && `Error: ${errorMsg}`}
-      </div>
+        <div role="status" aria-live="polite" className="sr-only">
+          {status === 'streaming' && 'Assistant is typing...'}
+          {status === 'error' && `Error: ${errorMsg}`}
+        </div>
 
-      <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-        <ChatTranscript
-          messages={messages}
-          isStreaming={status === 'streaming'}
-          onSelectPrompt={handleSubmit}
-        />
-      </div>
+        <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+          <ChatTranscript
+            messages={messages}
+            isStreaming={status === 'streaming'}
+            onSelectPrompt={handleSubmit}
+            workspaceName={workspaceName}
+          />
+        </div>
 
-      <div className="flex flex-col">
-        {quotaRemaining !== null && quotaRemaining <= 2 && (
-          <div className="mx-6 mb-1 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-            Demo quota: {quotaRemaining} message
-            {quotaRemaining !== 1 ? 's' : ''} remaining this hour.
-          </div>
-        )}
-
-        {status === 'error' && (
-          <div className="mx-6 mb-2 mt-2 flex shrink-0 items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3.5 text-red-700">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <div className="flex-1">
-              <h3 className="text-sm font-semibold">
-                Failed to generate response
-              </h3>
-              <p className="mt-0.5 text-sm text-red-600/80">{errorMsg}</p>
+        <div className="flex flex-col">
+          {quotaRemaining !== null && quotaRemaining <= 2 && (
+            <div className="mx-6 mb-1 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              Demo quota: {quotaRemaining} message
+              {quotaRemaining !== 1 ? 's' : ''} remaining this hour.
             </div>
-          </div>
-        )}
+          )}
 
-        <ChatComposer
-          onSubmit={handleSubmit}
-          isLocked={status === 'streaming'}
-        />
+          {status === 'error' && (
+            <div className="mx-6 mb-2 mt-2 flex shrink-0 items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3.5 text-red-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold">
+                  Failed to generate response
+                </h3>
+                <p className="mt-0.5 text-sm text-red-600/80">{errorMsg}</p>
+              </div>
+            </div>
+          )}
+
+          <ChatComposer
+            onSubmit={handleSubmit}
+            isLocked={status === 'streaming'}
+            onAttachFiles={(files) => setPendingFiles(files)}
+          />
+        </div>
       </div>
-    </div>
+      <BrandUploadModal
+        open={pendingFiles !== null}
+        onClose={() => setPendingFiles(null)}
+        onSuccess={() => {
+          setPendingFiles(null);
+          router.refresh();
+        }}
+        prefilledFiles={pendingFiles ?? undefined}
+      />
+    </FileDropZone>
   );
 }

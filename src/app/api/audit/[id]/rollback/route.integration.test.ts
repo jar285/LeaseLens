@@ -5,6 +5,7 @@ import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
 import { writeAuditRow } from '@/lib/tools/audit-log';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   createGetDocumentSummaryTool,
   createListDocumentsTool,
@@ -99,8 +100,8 @@ describe('POST /api/audit/[id]/rollback', () => {
       insertUser.run(u.id, u.email, u.role, u.display_name, now);
     }
     db.prepare(
-      'INSERT INTO documents (id, slug, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).run('doc-1', 'sqs-launch', 'SQS Launch', 'content', 'hash', now);
+      'INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    ).run('doc-1', 'sqs-launch', SAMPLE_WORKSPACE.id, 'SQS Launch', 'content', 'hash', now);
   });
 
   afterEach(() => {
@@ -113,9 +114,17 @@ describe('POST /api/audit/[id]/rollback', () => {
   } {
     const scheduleId = `sched-${Math.random().toString(36).slice(2)}`;
     db.prepare(
-      `INSERT INTO content_calendar (id, document_slug, scheduled_for, channel, scheduled_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(scheduleId, 'sqs-launch', 1_700_000_000, 'twitter', actor.id, 0);
+      `INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      scheduleId,
+      'sqs-launch',
+      SAMPLE_WORKSPACE.id,
+      1_700_000_000,
+      'twitter',
+      actor.id,
+      0,
+    );
 
     const auditId = writeAuditRow(db, {
       tool_name: 'schedule_content_item',
@@ -123,6 +132,7 @@ describe('POST /api/audit/[id]/rollback', () => {
         role: actor.role,
         userId: actor.id,
         conversationId: 'conv-test',
+        workspaceId: SAMPLE_WORKSPACE.id,
       },
       input: {
         // Audit row's input_json now stores the ISO string the tool received,
@@ -225,7 +235,12 @@ describe('POST /api/audit/[id]/rollback', () => {
     // Seed an audit row pointing at the throwing tool.
     const auditId = writeAuditRow(db, {
       tool_name: 'throwing_tool',
-      context: { role: 'Admin', userId: ADMIN.id, conversationId: 'c' },
+      context: {
+        role: 'Admin',
+        userId: ADMIN.id,
+        conversationId: 'c',
+        workspaceId: SAMPLE_WORKSPACE.id,
+      },
       input: {},
       output: {},
       compensatingActionPayload: {},

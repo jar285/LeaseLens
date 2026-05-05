@@ -8,6 +8,8 @@ import type {
 } from './types';
 
 interface ListAuditOpts {
+  /** Sprint 11: required — every cockpit read filters by workspace. */
+  workspaceId: string;
   actorUserId?: string;
   limit: number;
 }
@@ -17,20 +19,23 @@ interface ListAuditOpts {
  * actor display name; the join yields NULL for actor_user_id values not
  * present in users (notably 'mcp-server' for MCP-originated rows). The
  * panel falls back to rendering the literal actor_user_id (Spec §6.2).
+ *
+ * Sprint 11: workspace-scoped — `WHERE a.workspace_id = ?`.
  */
 export function listRecentAuditRows(
   db: Database.Database,
   opts: ListAuditOpts,
 ): CockpitAuditRow[] {
-  const whereClauses: string[] = [];
-  const params: Record<string, unknown> = { limit: opts.limit };
+  const whereClauses: string[] = ['a.workspace_id = @workspace_id'];
+  const params: Record<string, unknown> = {
+    limit: opts.limit,
+    workspace_id: opts.workspaceId,
+  };
   if (opts.actorUserId !== undefined) {
     whereClauses.push('a.actor_user_id = @actor_user_id');
     params.actor_user_id = opts.actorUserId;
   }
-  const whereSql = whereClauses.length
-    ? `WHERE ${whereClauses.join(' AND ')}`
-    : '';
+  const whereSql = `WHERE ${whereClauses.join(' AND ')}`;
   return db
     .prepare(
       `SELECT a.*, u.display_name AS actor_display_name
@@ -44,6 +49,7 @@ export function listRecentAuditRows(
 }
 
 interface ListScheduledOpts {
+  workspaceId: string;
   scheduledBy?: string;
   limit: number;
 }
@@ -52,15 +58,16 @@ export function listScheduledItems(
   db: Database.Database,
   opts: ListScheduledOpts,
 ): ScheduledItem[] {
-  const whereClauses: string[] = [];
-  const params: Record<string, unknown> = { limit: opts.limit };
+  const whereClauses: string[] = ['workspace_id = @workspace_id'];
+  const params: Record<string, unknown> = {
+    limit: opts.limit,
+    workspace_id: opts.workspaceId,
+  };
   if (opts.scheduledBy !== undefined) {
     whereClauses.push('scheduled_by = @scheduled_by');
     params.scheduled_by = opts.scheduledBy;
   }
-  const whereSql = whereClauses.length
-    ? `WHERE ${whereClauses.join(' AND ')}`
-    : '';
+  const whereSql = `WHERE ${whereClauses.join(' AND ')}`;
   return db
     .prepare(
       `SELECT * FROM content_calendar ${whereSql}
@@ -70,6 +77,7 @@ export function listScheduledItems(
 }
 
 interface ListApprovalsOpts {
+  workspaceId: string;
   approvedBy?: string;
   limit: number;
 }
@@ -78,15 +86,16 @@ export function listRecentApprovals(
   db: Database.Database,
   opts: ListApprovalsOpts,
 ): ApprovalRecord[] {
-  const whereClauses: string[] = [];
-  const params: Record<string, unknown> = { limit: opts.limit };
+  const whereClauses: string[] = ['workspace_id = @workspace_id'];
+  const params: Record<string, unknown> = {
+    limit: opts.limit,
+    workspace_id: opts.workspaceId,
+  };
   if (opts.approvedBy !== undefined) {
     whereClauses.push('approved_by = @approved_by');
     params.approved_by = opts.approvedBy;
   }
-  const whereSql = whereClauses.length
-    ? `WHERE ${whereClauses.join(' AND ')}`
-    : '';
+  const whereSql = `WHERE ${whereClauses.join(' AND ')}`;
   return db
     .prepare(
       `SELECT * FROM approvals ${whereSql}

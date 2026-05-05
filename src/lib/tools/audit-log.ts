@@ -30,9 +30,11 @@ export function writeAuditRow(
   db.prepare(
     `INSERT INTO audit_log (
        id, tool_name, tool_use_id, actor_user_id, actor_role, conversation_id,
+       workspace_id,
        input_json, output_json, compensating_action_json, created_at
      ) VALUES (
        @id, @tool_name, @tool_use_id, @actor_user_id, @actor_role, @conversation_id,
+       @workspace_id,
        @input_json, @output_json, @compensating_action_json, @created_at
      )`,
   ).run({
@@ -42,6 +44,7 @@ export function writeAuditRow(
     actor_user_id: input.context.userId,
     actor_role: input.context.role,
     conversation_id: input.context.conversationId,
+    workspace_id: input.context.workspaceId,
     input_json: JSON.stringify(input.input),
     output_json: JSON.stringify(input.output),
     compensating_action_json: JSON.stringify(input.compensatingActionPayload),

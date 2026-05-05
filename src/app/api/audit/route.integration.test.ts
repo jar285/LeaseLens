@@ -5,6 +5,7 @@ import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
 import { writeAuditRow } from '@/lib/tools/audit-log';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import type { AuditLogEntry } from '@/lib/tools/domain';
 import { GET } from './route';
 
@@ -47,6 +48,7 @@ function seedAuditRow(
       role: actorRole,
       userId: actorUserId,
       conversationId: 'conv-test',
+      workspaceId: SAMPLE_WORKSPACE.id,
     },
     input: { foo: 'bar' },
     output: { id: 'x' },

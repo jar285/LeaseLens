@@ -15,6 +15,8 @@ export interface RetrievedChunk {
 }
 
 export interface RetrieveOptions {
+  /** Sprint 11: required — every retrieval is workspace-scoped. */
+  workspaceId: string;
   vectorTopN?: number;
   bm25TopN?: number;
   rrfK?: number;
@@ -34,6 +36,7 @@ const CHUNK_QUERY = `
   FROM chunks c
   JOIN documents d ON d.id = c.document_id
   WHERE c.chunk_level IN ('section', 'passage')
+    AND c.workspace_id = @workspace_id
 `;
 
 function bufferToFloat32(buf: Buffer): Float32Array {
@@ -64,14 +67,16 @@ function reciprocalRankFusion(
 export async function retrieve(
   query: string,
   db: Database.Database,
-  opts?: RetrieveOptions,
+  opts: RetrieveOptions,
 ): Promise<RetrievedChunk[]> {
-  const vectorTopN = opts?.vectorTopN ?? 20;
-  const bm25TopN = opts?.bm25TopN ?? 20;
-  const rrfK = opts?.rrfK ?? 60;
-  const maxResults = opts?.maxResults ?? 5;
+  const vectorTopN = opts.vectorTopN ?? 20;
+  const bm25TopN = opts.bm25TopN ?? 20;
+  const rrfK = opts.rrfK ?? 60;
+  const maxResults = opts.maxResults ?? 5;
 
-  const rows = db.prepare(CHUNK_QUERY).all() as ChunkRecord[];
+  const rows = db
+    .prepare(CHUNK_QUERY)
+    .all({ workspace_id: opts.workspaceId }) as ChunkRecord[];
   if (rows.length === 0) return [];
 
   const [rawQuery] = await embedBatch([query]);

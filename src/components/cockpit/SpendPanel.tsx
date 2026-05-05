@@ -26,9 +26,17 @@ export function SpendPanel({ initialSnapshot }: SpendPanelProps) {
   return (
     <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-        <h2 className="text-sm font-semibold text-gray-800">
-          Spend ({snapshot.date})
-        </h2>
+        <div>
+          <h2 className="text-sm font-semibold text-gray-800">
+            Today&rsquo;s spend
+          </h2>
+          <p className="mt-0.5 flex items-center gap-2 text-[11px] text-gray-500">
+            <span>{snapshot.date}</span>
+            <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-gray-500">
+              Global · all workspaces
+            </span>
+          </p>
+        </div>
         <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
       </header>
       <div className="grid grid-cols-1 gap-4 px-4 py-4 text-center sm:grid-cols-3">

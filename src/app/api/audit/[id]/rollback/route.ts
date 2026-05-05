@@ -72,6 +72,10 @@ export async function POST(
         role: row.actor_role,
         userId: row.actor_user_id,
         conversationId: row.conversation_id ?? '',
+        // Sprint 11: rebuild ctx from the audit row itself so the
+        // compensating action operates against the same workspace it
+        // mutated. workspace_id is stored on the audit row at write time.
+        workspaceId: row.workspace_id,
       });
       markRolledBack(db, id);
     })();

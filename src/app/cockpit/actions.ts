@@ -19,6 +19,11 @@ import type {
   SpendSnapshot,
 } from '@/lib/cockpit/types';
 import { db } from '@/lib/db';
+import {
+  decodeWorkspace,
+  WORKSPACE_COOKIE_NAME,
+} from '@/lib/workspaces/cookie';
+import { getActiveWorkspace } from '@/lib/workspaces/queries';
 
 // Note: Next.js 16 disallows non-async exports in `'use server'` modules.
 // `export const runtime = 'nodejs'` was specced (spec §16, sprint-QA L6) but
@@ -28,6 +33,8 @@ import { db } from '@/lib/db';
 interface SessionResult {
   userId: string;
   role: Role;
+  /** Sprint 11: every cockpit action requires an active workspace. */
+  workspaceId: string;
 }
 
 async function resolveSession(): Promise<SessionResult> {
@@ -45,7 +52,20 @@ async function resolveSession(): Promise<SessionResult> {
     }
   }
   if (!userId) throw new Error('Unauthorized: no demo Creator user seeded');
-  return { userId, role };
+
+  // Sprint 11 — workspace cookie. Each cockpit action requires it.
+  const workspaceCookie = cookieStore.get(WORKSPACE_COOKIE_NAME);
+  const workspacePayload = workspaceCookie
+    ? await decodeWorkspace(workspaceCookie.value)
+    : null;
+  if (!workspacePayload) {
+    throw new Error('Forbidden: no workspace selected');
+  }
+  const workspace = getActiveWorkspace(db, workspacePayload.workspace_id);
+  if (!workspace) {
+    throw new Error('Forbidden: workspace expired');
+  }
+  return { userId, role, workspaceId: workspace.id };
 }
 
 /**
@@ -77,6 +97,7 @@ export async function refreshAuditFeed(opts: {
   const session = requireOperator(await resolveSession());
   const limit = opts.limit ?? 50;
   const entries = listRecentAuditRows(db, {
+    workspaceId: session.workspaceId,
     actorUserId: session.role === 'Admin' ? undefined : session.userId,
     limit,
   });
@@ -91,6 +112,7 @@ export async function refreshSchedule(opts: {
   const session = requireOperator(await resolveSession());
   return {
     items: listScheduledItems(db, {
+      workspaceId: session.workspaceId,
       scheduledBy: session.role === 'Admin' ? undefined : session.userId,
       limit: opts.limit ?? 50,
     }),
@@ -102,9 +124,10 @@ export async function refreshApprovals(opts: {
 }): Promise<{ items: ApprovalRecord[] }> {
   // Admin-only — Spec §4.5. Editor calling this is UI drift or probe;
   // refuse rather than empty-array. requireAdmin throws for non-Admin.
-  requireAdmin(await resolveSession());
+  const session = requireAdmin(await resolveSession());
   return {
     items: listRecentApprovals(db, {
+      workspaceId: session.workspaceId,
       approvedBy: undefined,
       limit: opts.limit ?? 50,
     }),

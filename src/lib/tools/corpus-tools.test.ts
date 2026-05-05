@@ -4,6 +4,7 @@
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   createGetDocumentSummaryTool,
   createListDocumentsTool,
@@ -24,6 +25,7 @@ describe('Corpus Tools', () => {
       role: 'Admin',
       userId: 'test-user',
       conversationId: 'test-conv',
+      workspaceId: SAMPLE_WORKSPACE.id,
     };
   });
 

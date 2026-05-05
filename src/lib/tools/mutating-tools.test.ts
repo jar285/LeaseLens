@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '@/lib/test/db';
 import { seedDocument, seedUser } from '@/lib/test/seed';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import type { MutationOutcome, ToolExecutionContext } from './domain';
 import {
   createApproveDraftTool,
@@ -21,11 +22,13 @@ describe('mutating-tools', () => {
       role: 'Editor',
       userId: editor.id,
       conversationId: 'conv-edit',
+      workspaceId: SAMPLE_WORKSPACE.id,
     };
     adminCtx = {
       role: 'Admin',
       userId: admin.id,
       conversationId: 'conv-adm',
+      workspaceId: SAMPLE_WORKSPACE.id,
     };
     seedDocument(db, 'sqs-launch');
   });

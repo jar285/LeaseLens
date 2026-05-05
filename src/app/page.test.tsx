@@ -8,6 +8,10 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatUI } from '@/components/chat/ChatUI';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
+
 describe('Homepage Chat UI', () => {
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn();
@@ -84,7 +88,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('renders the initial empty state correctly', () => {
-    render(<ChatUI />);
+    render(<ChatUI workspaceName="Side Quest Syndicate" />);
     expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: /Side Quest Syndicate/i }),
@@ -94,7 +98,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('submits an empty-state suggested prompt', async () => {
-    render(<ChatUI />);
+    render(<ChatUI workspaceName="Side Quest Syndicate" />);
 
     fireEvent.click(
       screen.getByRole('button', { name: /Define Brand Voice/i }),
@@ -116,7 +120,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('allows typing and disables submit when empty', () => {
-    render(<ChatUI />);
+    render(<ChatUI workspaceName="Side Quest Syndicate" />);
 
     const input = screen.getByLabelText('Type a message');
     const submitBtn = screen.getByRole('button', { name: 'Send message' });
@@ -131,7 +135,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('ignores whitespace-only submissions', () => {
-    render(<ChatUI />);
+    render(<ChatUI workspaceName="Side Quest Syndicate" />);
 
     const input = screen.getByLabelText('Type a message');
     fireEvent.change(input, { target: { value: '   ' } });
@@ -144,7 +148,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('submits on Enter but not on Shift+Enter', () => {
-    render(<ChatUI />);
+    render(<ChatUI workspaceName="Side Quest Syndicate" />);
 
     const input = screen.getByLabelText('Type a message');
 
@@ -158,7 +162,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('streams the assistant response deterministically and locks composer', async () => {
-    render(<ChatUI />);
+    render(<ChatUI workspaceName="Side Quest Syndicate" />);
 
     const input = screen.getByLabelText('Type a message');
     const submitBtn = screen.getByRole('button', { name: 'Send message' });
@@ -195,7 +199,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('renders the error state upon "throw error" prompt', async () => {
-    render(<ChatUI />);
+    render(<ChatUI workspaceName="Side Quest Syndicate" />);
 
     const input = screen.getByLabelText('Type a message');
     const submitBtn = screen.getByRole('button', { name: 'Send message' });
@@ -218,7 +222,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('does not show the new conversation button on empty state', () => {
-    render(<ChatUI />);
+    render(<ChatUI workspaceName="Side Quest Syndicate" />);
     const toolbar = screen.getByTestId('conversation-toolbar');
     // The toolbar is kept in the DOM (to reserve layout space) but hidden via
     // the `invisible` class when there are no messages.
@@ -230,6 +234,7 @@ describe('Homepage Chat UI', () => {
       <ChatUI
         initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]}
         conversationId="conv-1"
+        workspaceName="Side Quest Syndicate"
       />,
     );
 

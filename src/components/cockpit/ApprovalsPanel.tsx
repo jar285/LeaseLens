@@ -37,9 +37,14 @@ export function ApprovalsPanel({ initialItems }: ApprovalsPanelProps) {
   return (
     <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
       <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-        <h2 className="text-sm font-semibold text-gray-800">
-          Recent approvals
-        </h2>
+        <div>
+          <h2 className="text-sm font-semibold text-gray-800">
+            Awaiting sign-off
+          </h2>
+          <p className="mt-0.5 text-[11px] text-gray-500">
+            Recent approvals · Admin only
+          </p>
+        </div>
         <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
       </header>
       {items.length === 0 ? (

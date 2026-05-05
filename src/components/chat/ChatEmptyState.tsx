@@ -13,42 +13,45 @@ interface SuggestedPrompt {
   Icon: typeof BookOpen;
 }
 
-const SUGGESTED_PROMPTS: SuggestedPrompt[] = [
-  {
-    label: 'Define Brand Voice',
-    description: 'Set tone, audience, and editorial guidelines.',
-    prompt:
-      'Summarize the Side Quest Syndicate brand voice and give me practical writing rules for creators.',
-    Icon: BookOpen,
-  },
-  {
-    label: 'Map Content Pillars',
-    description: 'Identify core themes and recurring topics.',
-    prompt:
-      'Map the core content pillars for Side Quest Syndicate and explain what each pillar is for.',
-    Icon: MapIcon,
-  },
-  {
-    label: 'Plan First Week',
-    description: 'Draft posts and schedule the rollout calendar.',
-    prompt:
-      'Create a first-week content plan for Side Quest Syndicate using the brand corpus.',
-    Icon: Calendar,
-  },
-  {
-    label: 'Review Approval Flow',
-    description: 'Configure review stages and sign-off rules.',
-    prompt:
-      'Explain the approval workflow for Side Quest Syndicate and what an Admin should review before publishing.',
-    Icon: CheckSquare,
-  },
-];
+function buildSuggestedPrompts(workspaceName: string): SuggestedPrompt[] {
+  return [
+    {
+      label: 'Define Brand Voice',
+      description: 'Set tone, audience, and editorial guidelines.',
+      prompt: `Summarize the ${workspaceName} brand voice and give me practical writing rules for creators.`,
+      Icon: BookOpen,
+    },
+    {
+      label: 'Map Content Pillars',
+      description: 'Identify core themes and recurring topics.',
+      prompt: `Map the core content pillars for ${workspaceName} and explain what each pillar is for.`,
+      Icon: MapIcon,
+    },
+    {
+      label: 'Plan First Week',
+      description: 'Draft posts and schedule the rollout calendar.',
+      prompt: `Create a first-week content plan for ${workspaceName} using the brand corpus.`,
+      Icon: Calendar,
+    },
+    {
+      label: 'Review Approval Flow',
+      description: 'Configure review stages and sign-off rules.',
+      prompt: `Explain the approval workflow for ${workspaceName} and what an Admin should review before publishing.`,
+      Icon: CheckSquare,
+    },
+  ];
+}
 
 interface ChatEmptyStateProps {
+  workspaceName: string;
   onSelectPrompt?: (prompt: string) => void;
 }
 
-export function ChatEmptyState({ onSelectPrompt }: ChatEmptyStateProps) {
+export function ChatEmptyState({
+  workspaceName,
+  onSelectPrompt,
+}: ChatEmptyStateProps) {
+  const prompts = buildSuggestedPrompts(workspaceName);
   return (
     <div
       className="flex min-h-[60vh] w-full flex-1 flex-col items-center justify-center px-6 py-12 text-center"
@@ -59,7 +62,7 @@ export function ChatEmptyState({ onSelectPrompt }: ChatEmptyStateProps) {
       </div>
 
       <h2 className="mb-2 text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">
-        Side Quest Syndicate
+        {workspaceName}
       </h2>
 
       <p className="mb-10 max-w-md text-[15px] leading-relaxed text-gray-500">
@@ -68,7 +71,7 @@ export function ChatEmptyState({ onSelectPrompt }: ChatEmptyStateProps) {
       </p>
 
       <div className="grid w-full max-w-lg grid-cols-1 gap-2.5 sm:grid-cols-2">
-        {SUGGESTED_PROMPTS.map(({ label, description, prompt, Icon }) => (
+        {prompts.map(({ label, description, prompt, Icon }) => (
           <button
             key={label}
             type="button"

@@ -11,17 +11,27 @@ const MIN_CHUNK_WORDS = 30;
 const DOCUMENT_CHAR_LIMIT = 2000;
 const DOCUMENT_EMBEDDING_CHAR_LIMIT = 500;
 
+/**
+ * Chunks a markdown document into document/section/passage records suitable
+ * for embedding + retrieval.
+ *
+ * Round 5 — chunk IDs are namespaced by `documentId` (not slug) so identical
+ * slug+content uploaded to distinct workspaces never collide on the chunks
+ * PRIMARY KEY. The caller (ingestMarkdownFile) owns documentId; it's
+ * `randomUUID()` for new docs and the existing per-workspace doc's id for
+ * upserts. Spec §22.
+ */
 export function chunkDocument(
-  slug: string,
+  documentId: string,
   title: string,
   content: string,
 ): ChunkInput[] {
   const chunks: ChunkInput[] = [];
 
-  chunks.push(buildDocumentChunk(slug, title, content));
+  chunks.push(buildDocumentChunk(documentId, title, content));
 
   const sections = splitOnH2Headings(content);
-  const sectionChunks = buildSectionChunks(slug, title, sections);
+  const sectionChunks = buildSectionChunks(documentId, title, sections);
 
   for (const chunk of sectionChunks) {
     chunks.push(chunk);
@@ -31,7 +41,7 @@ export function chunkDocument(
 }
 
 function buildDocumentChunk(
-  slug: string,
+  documentId: string,
   title: string,
   content: string,
 ): ChunkInput {
@@ -43,7 +53,7 @@ function buildDocumentChunk(
   );
 
   return {
-    id: `${slug}#document:0`,
+    id: `${documentId}#document:0`,
     level: 'document',
     heading: null,
     content: chunkContent,
@@ -52,7 +62,7 @@ function buildDocumentChunk(
 }
 
 function buildSectionChunks(
-  slug: string,
+  documentId: string,
   title: string,
   sections: Section[],
 ): ChunkInput[] {
@@ -66,7 +76,7 @@ function buildSectionChunks(
     if (wordCount <= MAX_SECTION_WORDS) {
       chunks.push(
         buildChunk(
-          slug,
+          documentId,
           title,
           'section',
           sectionIndex,
@@ -80,7 +90,7 @@ function buildSectionChunks(
       for (const passageContent of passages) {
         chunks.push(
           buildChunk(
-            slug,
+            documentId,
             title,
             'passage',
             passageIndex,
@@ -97,7 +107,7 @@ function buildSectionChunks(
 }
 
 function buildChunk(
-  slug: string,
+  documentId: string,
   title: string,
   level: 'section' | 'passage',
   index: number,
@@ -109,7 +119,7 @@ function buildChunk(
   const embeddingInput = `${title}: ${headingPart} > ${stripped}`;
 
   return {
-    id: `${slug}#${level}:${index}`,
+    id: `${documentId}#${level}:${index}`,
     level,
     heading,
     content: content.trim(),

@@ -18,7 +18,7 @@ describe('chunkDocument', () => {
       sectionBody,
     ].join('\n');
 
-    const chunks = chunkDocument('brand-guide', 'Brand Guide', content);
+    const chunks = chunkDocument('doc-test', 'Brand Guide', content);
 
     const documentChunks = chunks.filter((c) => c.level === 'document');
     const sectionChunks = chunks.filter((c) => c.level === 'section');
@@ -34,7 +34,7 @@ describe('chunkDocument', () => {
     );
     const content = ['## Big Section', '', manyWords].join('\n');
 
-    const chunks = chunkDocument('doc', 'Doc', content);
+    const chunks = chunkDocument('doc-test', 'Doc', content);
 
     const passageChunks = chunks.filter((c) => c.level === 'passage');
     expect(passageChunks.length).toBeGreaterThanOrEqual(1);
@@ -56,7 +56,7 @@ describe('chunkDocument', () => {
       tinyBody,
     ].join('\n');
 
-    const chunks = chunkDocument('doc', 'Doc', content);
+    const chunks = chunkDocument('doc-test', 'Doc', content);
 
     const sectionChunks = chunks.filter((c) => c.level === 'section');
     const tinyAsOwnChunk = sectionChunks.find(
@@ -79,7 +79,7 @@ describe('chunkDocument', () => {
       'More prose after the code block.',
     ].join('\n');
 
-    const chunks = chunkDocument('doc', 'Doc', content);
+    const chunks = chunkDocument('doc-test', 'Doc', content);
 
     const sectionChunks = chunks.filter((c) => c.level === 'section');
     const fakeSection = sectionChunks.find(
@@ -91,13 +91,13 @@ describe('chunkDocument', () => {
   });
 
   it('returns exactly one document-level chunk for empty content', () => {
-    const chunks = chunkDocument('empty', 'Empty Doc', '');
+    const chunks = chunkDocument('doc-test', 'Empty Doc', '');
 
     expect(chunks).toHaveLength(1);
     expect(chunks[0].level).toBe('document');
   });
 
-  it('gives all chunks IDs matching the pattern {slug}#{level}:{index}', () => {
+  it('Round 5 — gives all chunks IDs prefixed by documentId and matching {documentId}#{level}:{index}', () => {
     const content = [
       '## Section A',
       '',
@@ -108,8 +108,8 @@ describe('chunkDocument', () => {
       Array.from({ length: 40 }, (_, i) => `word${i}`).join(' '),
     ].join('\n');
 
-    const chunks = chunkDocument('my-slug', 'My Doc', content);
-    const pattern = /^my-slug#(document|section|passage):\d+$/;
+    const chunks = chunkDocument('doc-test', 'My Doc', content);
+    const pattern = /^doc-test#(document|section|passage):\d+$/;
 
     for (const chunk of chunks) {
       expect(chunk.id).toMatch(pattern);

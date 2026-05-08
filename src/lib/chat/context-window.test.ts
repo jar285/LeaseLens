@@ -170,6 +170,62 @@ describe('buildContextWindow', () => {
     expect(result.contextMessages[0].role).toBe('user');
   });
 
+  it('Sprint 14 follow-up — pins user-text anchor when scan tool history exceeds char budget', () => {
+    // Reproduces the 15-clause "standard scan" 400. The original
+    // drop-orphan loop guards `trimmed.length > 1`, so when the
+    // char-budget trim chops the kicking-off "Run the standard scan"
+    // anchor and the only remaining user messages are tool_result
+    // blocks, the drop loop reduces the window to a single orphan and
+    // sends it. The fix pins the most-recent clean user-text message
+    // so neither the count nor the char trim can cross it.
+    const bigToolResult = 'Y'.repeat(8_000);
+    const input: ContextMessage[] = [
+      { role: 'user', content: 'Run the standard scan' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'A', name: 'extract_clauses', input: {} },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'A', content: bigToolResult },
+        ],
+      },
+      // 6 grade_clause_severity rounds, each ~8 KB of tool_result —
+      // total well over the 40 KB budget so char-trim is forced to act.
+      ...Array.from({ length: 6 }, (_, i) => [
+        {
+          role: 'assistant' as const,
+          content: [
+            {
+              type: 'tool_use',
+              id: `G${i}`,
+              name: 'grade_clause_severity',
+              input: {},
+            },
+          ],
+        },
+        {
+          role: 'user' as const,
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: `G${i}`,
+              content: bigToolResult,
+            },
+          ],
+        },
+      ]).flat(),
+    ];
+
+    const result = buildContextWindow(input);
+    // The window must start with the anchor, not an orphan tool_result.
+    expect(result.contextMessages[0].role).toBe('user');
+    expect(result.contextMessages[0].content).toBe('Run the standard scan');
+  });
+
   it('keeps interior tool_result blocks (their tool_use is in the previous message)', () => {
     // tool_result is only an "orphan" at position 0. Mid-history
     // tool_results paired with the preceding assistant tool_use are

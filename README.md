@@ -1,79 +1,98 @@
-# ContentOps
+# LeaseLens
 
-An AI operator cockpit for onboarding a media brand into an AI-assisted content operations workflow. Built to demonstrate how LLMs, RAG, MCP tools, and structured engineering practices (RBAC, eval harnesses, audit-ready architecture) compose into a production-grade system — not just a chatbot.
+A NJ residential lease red-flag reviewer. Drop a lease PDF in, get a clause-by-clause severity grading grounded in NJ tenant-law statutes, and ask the assistant to draft a polite negotiation email back to the landlord — every grading carries a verifiable statute citation, every mutating action is auditable and reversible.
 
-**Demo brand:** Side Quest Syndicate — a fictional tabletop and board game media brand used as the seeded corpus throughout the project.
+Built to demonstrate how an LLM agent can deliver high-stakes domain judgement under engineering constraints: hybrid RAG against a curated NJ corpus, a tool-use loop with citation grounding enforced inside the tool, RBAC + audit + rollback on every mutation, and a deterministic two-tier eval harness that runs in CI.
 
-**Deployment status:** local demo is implemented; public Vercel deployment and Loom walkthrough are planned for the final closeout sprint.
+> **Not legal advice.** LeaseLens reviews NJ residential leases and grades clauses against NJ tenant-law sources. It is not a lawyer; its output is not legal advice. Before acting on any clause grading or draft email, consult a tenant attorney or your local NJ legal-aid clinic.
+
+**Deployment status:** local demo is implemented and runs end-to-end; public Vercel deployment + Loom walkthrough are planned for the closeout sprint.
 
 ---
 
 ## Why This Fits AI Product Engineering
 
-ContentOps is built around the kind of internal AI workflow Doing Things describes: reducing repetitive media-operations work while keeping human judgment, role permissions, and rollback controls visible. The demo shows how a content team can ask grounded brand questions, search onboarding materials, schedule content, approve drafts, inspect audit history, and monitor eval/spend health from one working product surface.
+Most chat demos avoid serious domains because grounding is hard. LeaseLens leans into one: NJ tenant law. The model never asserts a statute it cannot point to in the corpus, mutating tool calls are wrapped in compensating actions and an audit log, and a deterministic eval harness measures retrieval quality and severity-grading accuracy on every PR.
 
-The project emphasizes product judgment as much as model integration: every AI action is tied to an operator role, every mutation is auditable and undoable, and retrieval quality is measured with a deterministic eval harness rather than assumed.
+The project emphasises product judgement as much as model integration. Severity grading is grounded by construction — the tool throws if the cited `chunk_id` is not in the retrieved set, or if the statute string does not appear verbatim in that chunk. The negotiation-email tool runs the LLM call *before* opening the SQLite transaction, so a slow generation cannot block writers; the transaction wraps only the row insert and the audit log.
 
 ---
 
 ## What This Project Demonstrates
 
-This project is a portfolio piece targeting Forward Deployed, AI Product, and Applied AI engineering roles. It demonstrates, in order of priority:
+A portfolio piece targeting Forward Deployed, AI Product, and Applied AI engineering roles. In order of priority:
 
-1. **Full-stack TypeScript delivery** — Next.js 16 App Router, React 19, strict TypeScript, Tailwind CSS 4, SQLite, end-to-end from schema to streaming UI.
-2. **LLM + RAG + Tool composition** — Anthropic streaming chat, hybrid retrieval (vector + BM25 + reciprocal rank fusion), and an RBAC-aware tool registry wired into the Anthropic tool-use loop — not isolated API calls.
-3. **AI evaluation** — A deterministic golden eval harness measuring retrieval quality (Precision@K, Recall@K, MRR, Groundedness) against a curated golden set. It exits 0/1 and writes a machine-readable report for the cockpit.
-4. **Engineering constraints** — Role-based access control (Creator / Editor / Admin) enforced in middleware, at the API layer, and in the tool registry. The same registry that filters the prompt's tool manifest also enforces execution — prompt claims and runtime behavior cannot drift apart.
+1. **LLM + agent + RAG composition** — Anthropic streaming chat with a 3-iteration tool-use loop, hybrid retrieval (vector + BM25 + reciprocal rank fusion) against a 28-document NJ tenant-law corpus, and three lease-specific tools wired into the same registry that gates the prompt's tool manifest.
+2. **Citation discipline** — `grade_clause_severity` validates the model's chunk_id and statute string against the live corpus before returning. A failed citation throws and surfaces in the UI; the model has to retry or admit it cannot ground the claim.
+3. **AI evaluation, two tiers** — Tier 1 measures retrieval quality (Precision@K, Recall@K, MRR, Groundedness) on 12 NJ tenant-law golden cases. Tier 2 measures end-to-end severity-grading accuracy on 12 curated lease clauses. Both exit 0/1 and write machine-readable reports the cockpit displays side-by-side.
+4. **Engineering constraints** — Strict RBAC (Tenant / Reviewer / Admin) enforced at the registry filter and re-checked at execute time. Lease ownership is a separate axis (a Tenant only sees leases they uploaded). Mutating tools execute inside a `better-sqlite3` transaction with a paired audit-log insert; the `ToolCard` UI renders an Undo button that runs the compensating action atomically.
 
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  Next.js 16 App Router                                │
-│  ┌──────────────┐   ┌────────────────────────────┐    │
-│  │  Chat UI     │   │  /api/chat (POST)           │    │
-│  │  (streaming) │◄──│  Anthropic tool-use loop    │    │
-│  │  ToolCard +  │   │  (max 3 iters)              │    │
-│  │  Undo button │   └──────────┬─────────────────┘    │
-│  └──────────────┘              │                       │
-│  ┌─────────────────────────────▼──────────────────┐    │
-│  │  /api/audit (GET)        — RBAC-filtered list  │    │
-│  │  /api/audit/[id]/rollback (POST) — atomic undo │    │
-│  └─────────────────────────────┬──────────────────┘    │
-└────────────────────────────────┼───────────────────────┘
-                                 │
-            ┌────────────────────▼─────────────────────┐
-            │  ToolRegistry (RBAC-filtered, audited)   │
-            │  Read-only:  search_corpus               │
-            │              get_document_summary        │
-            │              list_documents              │
-            │  Mutating:   schedule_content_item       │
-            │              approve_draft               │
-            │  Visual:     render_workflow_diagram     │
-            │  Mutating tools execute in a sync        │
-            │  better-sqlite3 transaction with a       │
-            │  paired audit_log row insert.            │
-            └────────────────────┬─────────────────────┘
-                                 │
-        ┌────────────────────────▼────────────────────────┐
-        │  SQLite (better-sqlite3)                         │
-        │  users · sessions · conversations · messages     │
-        │  documents · chunks                              │
-        │  audit_log · content_calendar · approvals        │
-        └────────────────────────┬────────────────────────┘
-                                 │
-            ┌────────────────────▼────────────────────┐
-            │  RAG Pipeline                            │
-            │  Ingest → Chunk → Embed (WASM)           │
-            │  Retrieve: vector + BM25 + RRF           │
-            └──────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Next.js 16 App Router                                    │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  Three-pane workspace shell (/) — client component  │  │
+│  │  ┌───────────┐ ┌────────────┐ ┌──────────────────┐  │  │
+│  │  │ PdfViewer │ │  ChatUI    │ │  RedFlagReport   │  │  │
+│  │  │ react-pdf │ │ streaming  │ │ severity + cite  │  │  │
+│  │  └─────┬─────┘ └─────┬──────┘ └────────┬─────────┘  │  │
+│  └────────┼─────────────┼──────────────────┼───────────┘  │
+│           │             │                  │              │
+│   POST /api/leases  POST /api/chat    GET /api/leases/[id]│
+│   (multipart PDF →  (NDJSON stream    (clauses + draft    │
+│   parse + segment   + tool-use loop,  emails for the      │
+│   + classify)       max 3 iters)      report panel)       │
+└──────────────────────┬───────────────────────────────────┘
+                       │
+        ┌──────────────▼───────────────────────────────┐
+        │  ToolRegistry  (RBAC-filtered, audited)       │
+        │  Read-only:  search_corpus                    │
+        │              get_document_summary             │
+        │              list_documents (Admin)           │
+        │              extract_clauses                  │
+        │              grade_clause_severity            │
+        │  Visual:     render_workflow_diagram          │
+        │  Mutating:   draft_negotiation_email          │
+        │                                               │
+        │  Mutating tools: async `prepare` step (LLM    │
+        │  call) runs first, then a sync transaction    │
+        │  wraps the row insert + audit_log insert.     │
+        └──────────────────────┬───────────────────────┘
+                               │
+        ┌──────────────────────▼───────────────────────┐
+        │  SQLite (better-sqlite3, WAL)                 │
+        │  users · sessions · conversations · messages  │
+        │  documents · chunks      ← NJ tenant-law only │
+        │  leases · clauses        ← session input,     │
+        │                            never embedded     │
+        │  negotiation_emails · audit_log               │
+        │  workspaces                                   │
+        └──────────────────────┬───────────────────────┘
+                               │
+        ┌──────────────────────▼───────────────────────┐
+        │  RAG pipeline (corpus only)                   │
+        │  Ingest → Chunk → Embed (Xenova WASM)         │
+        │  Retrieve: vector + BM25 + RRF                │
+        └───────────────────────────────────────────────┘
+
+        ┌───────────────────────────────────────────────┐
+        │  Lease pipeline (input-only, never embedded)  │
+        │  parsePdf (pdfjs-dist) → segmentClauses       │
+        │     → classifyClause → INSERT clauses         │
+        └───────────────────────────────────────────────┘
 ```
 
-**Custom MCP server** at `mcp/contentops-server.ts` exposes all 6 tools (3 read-only + 2 mutating + 1 visualization) over stdio transport — consumable by Claude Desktop, Cursor, or any MCP client. Mutating MCP calls produce audit rows attributed to actor `mcp-server`. The diagram tool returns validated Mermaid source; clients without a Mermaid renderer can read or render the source themselves.
+**Corpus / lease distinction.** The NJ tenant-law corpus is the only thing in `documents` / `chunks`. Lease PDFs are session-scoped *input*: parsed server-side, segmented into numbered clauses, classified by type, and stored in `leases` / `clauses`. They are **never** embedded into the RAG index, so retrieval grounding always points to NJ statutes — not to the user's own document.
 
-**Audit + rollback invariants.** Every successful mutating-tool call writes one `audit_log` row inside the same SQLite transaction as the mutation — if either write fails, both roll back. The `ToolCard` UI renders an Undo button for mutating-tool results; clicking it issues `POST /api/audit/[id]/rollback`, which runs the descriptor's compensating action and updates the audit row's status atomically. Admins see the full audit log; non-admins see only their own entries.
+**Citation grounding.** `grade_clause_severity` runs `retrieve()` against the corpus, asks the model to cite both a `chunk_id` and a human-readable `statute_citation`, and validates both before returning: the chunk_id must be in the retrieved set, and the statute string must appear (case-insensitive, whitespace-collapsed) inside that chunk's text. Either failure throws.
+
+**Audit + rollback invariants.** `draft_negotiation_email` is the single mutating tool. The Anthropic `messages.create` call runs in an async `prepare` step *before* the transaction, so the SQLite write window is short. The transaction wraps the `negotiation_emails` insert and the `audit_log` insert — if either fails, both roll back. The `ToolCard` UI renders an Undo button; clicking it runs `POST /api/audit/[id]/rollback`, which executes the compensating action (`DELETE FROM negotiation_emails WHERE id = ?`) and updates the audit row's status atomically.
+
+**Custom MCP server** at [`mcp/leaselens-server.ts`](mcp/leaselens-server.ts) exposes the registry over stdio for Claude Desktop, Cursor, or any MCP client.
 
 ---
 
@@ -84,14 +103,14 @@ This project is a portfolio piece targeting Forward Deployed, AI Product, and Ap
 | Framework | Next.js 16 (App Router), React 19 |
 | Language | TypeScript (strict mode) |
 | Styling | Tailwind CSS 4 |
-| Database | SQLite via `better-sqlite3` |
+| Database | SQLite via `better-sqlite3` (WAL mode) |
 | LLM | Anthropic Claude (`claude-haiku-4-5` default) |
 | Embeddings | `@huggingface/transformers` (WASM, local, no API key) |
-| Diagrams | `mermaid@^11` (client-side render, `securityLevel: 'strict'`) |
-| Animation | `motion@^12` (formerly `framer-motion`) — three scoped surfaces |
+| PDF | `pdfjs-dist` (server parse) + `react-pdf` (client viewer) |
+| Diagrams | `mermaid@^11` (client-side, `securityLevel: 'strict'`) |
+| Animation | `motion@^12` (formerly `framer-motion`) |
 | MCP | `@modelcontextprotocol/sdk` (stdio transport) |
-| Testing (unit + integration) | Vitest 4 |
-| Testing (E2E) | `@playwright/test` |
+| Testing | Vitest 4 (unit + integration), Playwright (E2E) |
 | Linting | Biome |
 | Validation | Zod 3 |
 
@@ -124,212 +143,159 @@ cp .env.example .env.local
 Open `.env.local` and set:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...          # required — your Anthropic API key
-CONTENTOPS_SESSION_SECRET=<32+ chars> # required — any random string ≥ 32 characters
-CONTENTOPS_DB_PATH=./data/contentops.db
-CONTENTOPS_DEMO_MODE=false
-CONTENTOPS_ANTHROPIC_MODEL=claude-haiku-4-5
-CONTENTOPS_DAILY_SPEND_CEILING_USD=2
+ANTHROPIC_API_KEY=sk-ant-...                 # required — your Anthropic API key
+LEASELENS_SESSION_SECRET=<32+ chars>         # required — any random string ≥ 32 characters
+LEASELENS_DB_PATH=./data/leaselens.db
+LEASELENS_DEMO_MODE=false
+LEASELENS_ANTHROPIC_MODEL=claude-haiku-4-5
+LEASELENS_DAILY_SPEND_CEILING_USD=2
+LEASELENS_LEASE_MAX_BYTES=1048576            # 1 MB upload cap
+LEASELENS_LEASE_MAX_PAGES=30
 ```
 
-### 3. Seed the database
-
-This ingests the Side Quest Syndicate corpus (5 markdown documents), chunks them, and generates embeddings locally via WASM. Takes ~30 seconds on first run.
-
-```bash
-npm run db:seed
-```
-
-### 4. Start the dev server
+### 3. Start the dev server
 
 ```bash
 npm run dev
 ```
 
+The first `npm run dev` automatically seeds the database (via `predev`). Seeding ingests the 28-document NJ tenant-law corpus, generates embeddings locally via WASM, and copies a sample NJ residential lease into `leases` / `clauses` so reviewers can try the workflow without uploading anything. Takes ~30 seconds on a cold run.
+
 Open [http://localhost:3000](http://localhost:3000).
+
+If you want to seed manually:
+
+```bash
+npm run db:seed
+```
+
+The seed script is idempotent — it skips work if `chunks` is already populated.
 
 ---
 
 ## Trying It Out
 
-The chat at `/` opens grounded in the seeded Side Quest Syndicate brand. Switch roles via the bottom-right role switcher — each role unlocks a different tool surface and tells a different operator story.
+The home page opens with a three-pane workspace: PDF viewer on the left, chat in the middle, red-flag report on the right. The default workspace is the seeded sample, so you have a lease to inspect immediately.
 
-### As Creator (default role)
+### As Tenant (default role)
 
-Read-only. The assistant can search the brand corpus explicitly via `search_corpus` and ground every answer in retrieved chunks. No mutations possible.
+The Tenant sees only leases they uploaded. The full lease toolset is available — `extract_clauses`, `grade_clause_severity`, `draft_negotiation_email` — plus read-only corpus search.
 
-Try:
+Try, in this order:
 
-- *"What is Side Quest Syndicate's brand voice?"*
-- *"Summarize our content pillars in three sentences."*
-- *"What does our audience profile say about target reader age?"*
-- *"Walk me through our editorial style guide for headlines."*
+- *"Run the standard scan."* — the assistant calls `extract_clauses`, then `grade_clause_severity` for each non-trivial clause in turn. The right-hand red-flag report fills in as gradings come back; each card shows the severity, a NJ statute citation, the assistant's plain-English reasoning, and a recommended action. Click a citation chip to scroll the PDF viewer to the cited clause.
+- *"What does NJ law say about security-deposit caps?"* — direct corpus search via `search_corpus`. Every answer is grounded in retrieved chunks.
+- *"Draft a polite email to my landlord about the security deposit clause."* — the assistant calls `draft_negotiation_email` with the most-recent grading's reasoning + statute citation as context. The result renders inline as a `ToolCard` with an Undo button.
 
-What to notice: every answer is grounded in retrieved chunks (the assistant doesn't invent brand specifics). The composer offers no scheduling or approval affordances.
+### As Reviewer / Admin
 
-### As Editor
+Reviewer (DB literal `Editor`) and Admin see every lease in the workspace, not just their own uploads. Admin additionally sees the full audit log — including MCP-originated mutations — and `list_documents` for corpus inventory.
 
-Adds inspect-and-act capabilities: `get_document_summary` and `schedule_content_item`. Editors can read deeper into documents and queue items onto the content calendar.
+Open `/cockpit` (Reviewer or Admin only) for the operator dashboard: today's spend vs the daily ceiling, the audit feed, scheduled negotiation emails, and a two-tier eval-health panel showing the most recent Tier 1 + Tier 2 runs side-by-side.
 
-Try:
+> **About negotiation emails:** the `draft_negotiation_email` tool writes a SQLite row — it does **not** send the email anywhere. The artifact is a JSON record in the audit trail. A production deployment would integrate the same audit pattern with a real SMTP/Mailgun backend.
 
-- *"Give me a summary of the brand-identity document."*
-- *"Schedule a Twitter post for tomorrow at 2pm about our new content-calendar doc."*
-- *"Plan three calendar items across Twitter, newsletter, and blog for next week."*
+### Switching workspaces
 
-What to notice: each `schedule_content_item` call writes an `audit_log` row AND a `content_calendar` row in one transaction. The ToolCard renders with an **Undo** button. Open `/cockpit` → the Schedule panel shows your queued items. Click Undo on the chat bubble → the calendar row vanishes and the audit row's status flips to `rolled_back`.
-
-> **About scheduling:** the `schedule_content_item` tool writes a local SQLite row — it does **not** publish to Twitter, a CMS, or any external destination. The feature exists to demonstrate the auditable-mutation + rollback pattern (every state-changing AI action is logged, reversible, and role-gated). A production deployment would integrate the same audit pattern with real publishing backends.
-
-### As Admin
-
-Full operator role: adds `list_documents` and `approve_draft`, plus full audit-log visibility. Admins see and can roll back anyone's actions.
-
-Try:
-
-- *"List every document in the corpus with its slug and a one-line summary."*
-- *"Approve the latest scheduled blog post."*
-- *"Show me what's been scheduled in the last 24 hours."* (then open `/cockpit` → Audit panel)
-
-What to notice: same audit/rollback pattern as Editor, but cross-actor. The cockpit's Audit panel shows rows from every actor (Editor, Admin, even MCP-originated). Click Undo on someone else's mutation — it works (Admin override). Approval rows live in their own table and surface in the cockpit's Approvals panel.
-
-### Diagrams (any role)
-
-`render_workflow_diagram` is available to every role. The assistant emits Mermaid source for the chat to render client-side; the diagram fades and scales in over ~350ms. Click the chevron on the ToolCard to inspect the validated source.
-
-Try:
-
-- *"Draw the approval pipeline for our content as a flowchart."*
-- *"Map our content pillars as a mindmap."*
-- *"Show the publishing state machine as a stateDiagram-v2."*
-- *"Draw a sequence diagram of how a draft moves from Creator to Editor to Admin."*
-- *"Diagram the brand voice taxonomy for Side Quest Syndicate."* — the assistant calls `search_corpus` first when the diagram describes brand content, so the nodes reference real pillars from the seeded corpus.
-
-What to notice: the tool is read-only, so no audit row, no Undo affordance. Eight Mermaid diagram families are accepted (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`, `mindmap`, `journey`, `classDiagram`, `erDiagram`). Parse errors surface as a `<pre>` block with the raw code and the error message — you can ask the model conversationally to fix it. The animation respects `prefers-reduced-motion`: turn it on in your OS accessibility settings to see the diagram appear instantly with no entry animation.
-
-### Switching brands
-
-The default workspace is Side Quest Syndicate. Click the workspace label in the header (next to "ContentOps Studio") to open the switcher. From there you can:
-
-- **Use sample brand** — return to Side Quest.
-- **Start a new brand…** — drag-and-drop your own markdown files (up to 5, ≤100KB each), or click to choose. The assistant grounds its answers in your uploaded brand instead. The chat thread resets so prior-brand questions don't bleed across.
-- **Switch to a previously-uploaded brand** — your browser remembers every brand you've uploaded in this session; click any of them in the menu to flip the active workspace. (The list is per-cookie, so each visitor only sees their own uploads.)
-
-For a quick test with content the model definitely wasn't trained on as your specific brand corpus, grab a few markdown sections from the [GitLab Handbook](https://gitlab.com/gitlab-com/content-sites/handbook/-/tree/main/content/handbook), save them locally, and upload via the brand-switcher. Then ask brand-specific questions and watch retrieval grounding work on a real brand's voice.
+Click the workspace label in the header to open the switcher. From there you can use the seeded sample, drag in your own lease PDF, or jump back to a previously-uploaded one. Each upload TTLs after 24 hours via lazy cleanup on the next upload.
 
 ---
 
 ## Features
 
-### Role-Based Access (Creator / Editor / Admin)
+### Role-Based Access (Tenant / Reviewer / Admin)
 
-Use the role switcher in the top-right corner of the chat UI. Each role unlocks different capabilities:
+| Role (UI) | DB literal | Tools available | Lease ownership |
+|---|---|---|---|
+| Tenant | `Creator` | `search_corpus`, `extract_clauses`, `grade_clause_severity`, `draft_negotiation_email`, `render_workflow_diagram` | Only leases the user uploaded |
+| Reviewer | `Editor` | + `get_document_summary` | All leases in workspace |
+| Admin | `Admin` | + `list_documents` | All leases + full audit log |
 
-| Role | Tools available | Access |
-|------|----------------|--------|
-| Creator | `search_corpus`, `render_workflow_diagram` | Ask the AI to search the brand corpus explicitly; render Mermaid diagrams of workflows, taxonomies, or state machines |
-| Editor | + `get_document_summary`, `schedule_content_item` | Inspect documents, queue items to the calendar table (auditable + reversible — see *Trying It Out* for the no-real-publishing caveat) |
-| Admin | + `list_documents`, `approve_draft` | Full corpus inventory, draft approvals, full audit-log visibility |
+The same registry that filters the prompt's tool manifest also gates execution — if a role can't see a tool in its manifest, it can't invoke it at runtime. Lease ownership is a second axis enforced by `assertLeaseOwnership(lease, ctx)`, called inside every lease tool and the `GET /api/leases/[id]` route guard.
 
-`render_workflow_diagram` is `roles: 'ALL'` (Creator, Editor, and Admin can invoke it). It's read-only, so no audit row or Undo button.
+### Citation-Grounded Severity Grading
 
-The same registry that filters the prompt's tool manifest also gates execution — if a role can't see a tool in its manifest, it can't invoke it at runtime.
+`grade_clause_severity` retrieves NJ tenant-law chunks for a clause, asks the model to grade severity (`high` / `medium` / `low` / `ok`) and cite a chunk + statute, and validates both before returning. The validator throws if the cited `chunk_id` is not in the retrieved set, or if the `statute_citation` string does not appear inside that chunk's text. The Tier 1 eval enforces a ≥ 0.90 groundedness rate in CI.
 
-### Mutating Tools, Audit, and Undo
+### Auditable Mutations + Undo
 
-`schedule_content_item` (Editor + Admin) and `approve_draft` (Admin only) write SQLite rows transactionally. Each successful mutation produces an `audit_log` row with a serializable compensating-action payload. The `ToolCard` UI renders an **Undo** button next to mutating-tool results; clicking it runs the compensating action and the audit-row status update atomically. Read-only tools produce no audit row and no Undo button.
-
-- `GET /api/audit` — Admin sees all rows; non-admins see only their own.
-- `POST /api/audit/[id]/rollback` — audit-ownership policy: Admin can roll back any row; non-admins only their own. Idempotent on already-rolled-back rows.
+`draft_negotiation_email` is the only mutating tool. The async LLM call runs in a `prepare` step *before* the SQLite transaction; the transaction wraps the `negotiation_emails` insert and the audit-row insert atomically. The `ToolCard` UI renders an Undo button; `POST /api/audit/[id]/rollback` runs the compensating action (`DELETE FROM negotiation_emails WHERE id = ?`) and the status flip in one transaction. Idempotent on already-rolled-back rows.
 
 ### Operator Cockpit
 
-Editors and Admins can open `/cockpit` from the header. The cockpit shows recent audited actions, scheduled content, approval history for Admins, today's demo spend, and the latest golden-eval health report. Panels use page-load state plus manual refresh, keeping the demo simple while still showing the operating surface behind the chat.
+`/cockpit` (Reviewer + Admin) shows recent audited actions, scheduled negotiation emails, today's demo spend, and a two-tier eval-health panel. The eval panel renders Tier 1 (retrieval) and Tier 2 (lease grading) side-by-side with a 6-metric grid so you can see retrieval quality and end-to-end accuracy at a glance.
 
-### Chat + RAG
+### PDF Pipeline
 
-The chat interface at `/` provides grounded answers about the Side Quest Syndicate brand. The assistant combines:
-- **Implicit RAG** — automatic hybrid retrieval (vector + BM25 + RRF) injected as context on every turn.
-- **Explicit tool calls** — the assistant can invoke `search_corpus` mid-conversation when the user's query warrants a fresh search.
+`POST /api/leases` accepts a `application/pdf` upload (max 1 MB, max 30 pages by default). The route runs `parsePdf(buffer)` from [`src/lib/lease/parse-pdf.ts`](src/lib/lease/parse-pdf.ts) using `pdfjs-dist`, segments each page on numbered-section prefixes (`1.`, `(a)`, `ARTICLE I`), classifies each clause by type (security_deposit, late_fee, early_termination, …), and inserts into `leases` / `clauses`. Scanned PDFs with no text layer return 422 with `error: 'pdf_no_text_layer'` — OCR is out of scope. The client viewer is `react-pdf` over the same `pdfjs-dist`, with a citation-chip hook that scrolls to the cited page.
 
-### Diagrams (Mermaid)
+### Two-Tier Eval Harness
 
-`render_workflow_diagram` accepts raw Mermaid source for any of eight diagram families — `flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`, `mindmap`, `journey`, `classDiagram`, `erDiagram`. The tool runs server-side validation only (prefix regex, length cap, init-directive + line-comment skip); the actual rendering happens client-side via `mermaid@^11` with `securityLevel: 'strict'` and `htmlLabels: false`. Parse errors fall back to a `<pre>` block of the raw code with the error inline — no white-screen, no console error.
+| Tier | What it measures | How to run | Cases | Baseline |
+|---|---|---|---|---|
+| 1 | Hybrid retrieval quality on NJ tenant-law queries (Precision@K, Recall@K, MRR, Groundedness) | `npm run eval:golden` | 12 | 10/12 pass at 40.4 / 48 pts ([baseline](data/eval-reports/baseline-sprint-14.json)) |
+| 2 | End-to-end `grade_clause_severity` accuracy on curated lease clauses (severity match, citation grounded, statute exact-string) | `npm run eval:leases` | 12 | tracked per-run in `data/eval-reports/` |
 
-The diagram entry, assistant `ChatMessage` entry, and `ToolCard` expand/collapse are animated via `motion@^12` (Framer Motion's renamed package). All three surfaces honor `prefers-reduced-motion`: when the OS preference is set, animations are skipped entirely (not slowed) and the DOM renders the plain equivalents. The `mermaid` bundle is dynamic-imported, so the cost is paid only on the first render of a diagram, not on the initial chat page load.
+Tier 1 makes no LLM calls — it uses the local WASM embedder and is hermetic. Tier 2 calls Anthropic; gate it on a spend ceiling before running on every PR.
 
 ### MCP Server
 
-All 6 tools (3 read-only + 2 mutating + 1 visualization) are exposed over the Model Context Protocol for use in Claude Desktop, Cursor, or any MCP-compatible client. MCP-originated mutations produce audit rows attributed to actor `mcp-server`:
+The same registry is exposed over the Model Context Protocol via stdio:
 
 ```bash
 npm run mcp:server
 ```
 
 Add to your MCP client config:
+
 ```json
 {
   "mcpServers": {
-    "contentops": {
+    "leaselens": {
       "command": "npx",
-      "args": ["tsx", "mcp/contentops-server.ts"],
+      "args": ["tsx", "mcp/leaselens-server.ts"],
       "cwd": "/path/to/ContentOps"
     }
   }
 }
 ```
 
+MCP-originated mutations produce audit rows attributed to actor `mcp-server` inside the sample workspace.
+
+### Diagrams (Mermaid)
+
+`render_workflow_diagram` accepts raw Mermaid source for any of eight diagram families (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`, `mindmap`, `journey`, `classDiagram`, `erDiagram`). Server-side validation only (prefix regex, length cap, init-directive + line-comment skip); rendering happens client-side via `mermaid@^11` with `securityLevel: 'strict'` and `htmlLabels: false`. Parse errors fall back to a `<pre>` block of the raw code with the error inline.
+
+The diagram entry, assistant message entry, and `ToolCard` expand/collapse are animated via `motion@^12`. All three surfaces honour `prefers-reduced-motion`: when set, animations are skipped entirely (not slowed) and the DOM renders the plain equivalents. The `mermaid` bundle is dynamic-imported, so the cost is paid only on the first render.
+
 ---
 
 ## Running the Tests
 
 ```bash
-# Unit + integration + contract tests
+# Unit + integration + contract tests (Vitest)
 npm run test
 
-# E2E smoke specs (Playwright; auto-launches dev server with the Anthropic mock)
+# E2E smoke specs (Playwright; auto-launches dev server with the deterministic Anthropic mock)
 npm run test:e2e
 
 # Type checking
 npm run typecheck
 
-# Linting
+# Linting (Biome)
 npm run lint
 
-# Golden retrieval eval (deterministic, exits 0/1, writes data/eval-reports/)
+# Tier 1 retrieval eval (no LLM calls; exits 0/1; writes data/eval-reports/)
 npm run eval:golden
+
+# Tier 2 lease-grading eval (calls Anthropic)
+npm run eval:leases
 
 # Production build check
 npm run build
 ```
 
-### What the tests cover
-
-| Area | Files | Count |
-|------|-------|-------|
-| Tool Registry (RBAC, dispatch, audit hook, validation throw) | `src/lib/tools/registry.test.ts` | 11 |
-| Mutating tools (schedule + approve, idempotent rollback, ISO validation) | `src/lib/tools/mutating-tools.test.ts` | 5 |
-| Audit-log helpers (round-trip, idempotent mark, RBAC filter) | `src/lib/tools/audit-log.test.ts` | 3 |
-| `GET /api/audit` (RBAC filtering, no-cookie default) | `src/app/api/audit/route.integration.test.ts` | 3 |
-| `POST /api/audit/[id]/rollback` (atomic compensating action, idempotent, throw → status preserved) | `src/app/api/audit/[id]/rollback/route.integration.test.ts` | 4 |
-| Corpus tools (search, summary, list) | `src/lib/tools/corpus-tools.test.ts` | 4 |
-| RAG retrieval pipeline | `src/lib/rag/*.test.ts` | ~20 |
-| Chat route (streaming, tool-use loop) | `src/app/api/chat/route.integration.test.ts` | ~10 |
-| Auth, sessions, middleware | `src/lib/auth/*.test.ts`, `src/middleware.test.ts` | ~20 |
-| DB schema and helpers | `src/lib/db/*.test.ts` | ~10 |
-| Eval scoring + runner | `src/lib/evals/*.test.ts` | 9 |
-| MCP contract (read-only + mutating + visualization parity) | `mcp/contentops-server.test.ts` | 8 |
-| Diagram tool (prefix validation, 8 diagram families, comment-skip, length cap) | `src/lib/tools/diagram-tools.test.ts` | 15 |
-| `MermaidDiagram` component (render path, parse-error fallback, reduced-motion branch) | `src/components/chat/MermaidDiagram.test.tsx` | 6 |
-| Chat-route diagram-tool integration (NDJSON tool_use + tool_result, no audit row) | `src/app/api/chat/diagram-tool.integration.test.ts` | 3 |
-| UI components | `src/app/page.test.tsx`, ToolCard, ChatMessage, etc. | ~30 |
-| **E2E smoke** — chat → tool_use → ToolCard → Undo, cockpit dashboard smoke (Playwright) | `tests/e2e/*.spec.ts` | 2 specs |
-
-**Total:** 317 vitest tests across 59 files, 5 golden eval cases (5/5 passing at 17.0/20.0 points), 2 Playwright specs.
-
-### Golden eval
-
-`npm run eval:golden` runs 5 curated retrieval cases against the seeded corpus (no LLM calls — uses the local WASM embedder). Each case measures Precision@K, Recall@K, MRR, and Groundedness. All 5 cases pass at the declared thresholds. Writes a JSON report to `data/eval-reports/`.
+The Playwright config sets `LEASELENS_E2E_MOCK=1` on the dev-server child, which swaps the Anthropic SDK for a deterministic mock at [`src/lib/anthropic/e2e-mock.ts`](src/lib/anthropic/e2e-mock.ts). Specs run against the lease toolset only.
 
 ---
 
@@ -337,76 +303,79 @@ npm run build
 
 ```
 ContentOps/
-├── mcp/                              # Custom MCP server (stdio transport)
-│   ├── contentops-server.ts          # Registers all 5 tools (read-only + mutating)
-│   └── contentops-server.test.ts
+├── mcp/                                  # Custom MCP server (stdio transport)
+│   ├── leaselens-server.ts
+│   └── leaselens-server.test.ts
 ├── scripts/
-│   └── eval-golden.ts                # Golden eval CLI entry point
-├── tests/
-│   └── e2e/                          # Playwright smoke tests
-│       ├── chat-tool-use.spec.ts
-│       └── cockpit-dashboard.spec.ts
-├── playwright.config.ts              # E2E config — webServer.env engages Anthropic mock
+│   ├── eval-golden.ts                    # Tier 1 CLI entry
+│   ├── eval-leases.ts                    # Tier 2 CLI entry
+│   ├── seed-if-empty.mjs                 # predev hook — seeds when empty
+│   └── copy-pdf-worker.mjs               # postinstall — pdfjs worker into public/
+├── tests/e2e/                            # Playwright smoke specs
+├── playwright.config.ts                  # webServer.env engages the Anthropic mock
 ├── src/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── chat/route.ts                 # Anthropic tool-use loop + streaming
-│   │   │   └── audit/
-│   │   │       ├── route.ts                  # GET — RBAC-filtered audit log
-│   │   │       └── [id]/rollback/route.ts    # POST — atomic compensating action
-│   │   └── page.tsx                  # Chat homepage
-│   ├── components/chat/
-│   │   ├── ChatUI.tsx                # Stream reader + message state
-│   │   ├── ChatMessage.tsx           # Individual message renderer (Motion entry)
-│   │   ├── MermaidDiagram.tsx        # Client-side Mermaid render (Sprint 12)
-│   │   └── ToolCard.tsx              # Inline tool card + Undo + diagram embed
-│   ├── corpus/                       # Side Quest Syndicate markdown documents
-│   ├── lib/
-│   │   ├── anthropic/
-│   │   │   ├── client.ts             # SDK construction (E2E-mock-flag-gated)
-│   │   │   └── e2e-mock.ts           # Deterministic mock for Playwright runs
-│   │   ├── auth/                     # Session cookies, RBAC types, constants
-│   │   ├── chat/                     # Stream line parser, history helpers, system prompt
-│   │   ├── db/                       # Schema, db singleton
-│   │   ├── evals/                    # Golden eval: domain, scoring, runner, reporter
-│   │   ├── rag/                      # Ingest, chunk, embed, retrieve (vector+BM25+RRF)
-│   │   ├── test/                     # Shared test helpers (db, seed, embed-mock)
-│   │   └── tools/
-│   │       ├── domain.ts             # ToolDescriptor, MutationOutcome, AuditLogEntry
-│   │       ├── registry.ts           # ToolRegistry — RBAC + audit + transactional mutate
-│   │       ├── corpus-tools.ts       # search_corpus, get_document_summary, list_documents
-│   │       ├── mutating-tools.ts     # schedule_content_item, approve_draft
-│   │       ├── diagram-tools.ts      # render_workflow_diagram (Sprint 12)
-│   │       ├── audit-log.ts          # write/read/markRolledBack helpers
-│   │       └── create-registry.ts    # Factory wiring db → registry with all 6 tools
-│   └── middleware.ts                 # RBAC route enforcement
+│   │   │   ├── chat/route.ts             # NDJSON streaming + tool-use loop (max 3 iters)
+│   │   │   ├── leases/                   # POST upload + GET [id] + clauses/emails
+│   │   │   ├── audit/                    # GET role-filtered list, POST [id]/rollback
+│   │   │   └── workspaces/               # multipart upload + select-sample
+│   │   ├── cockpit/                      # /cockpit dashboard (Reviewer + Admin)
+│   │   └── page.tsx                      # Home — three-pane workspace shell
+│   ├── components/
+│   │   ├── chat/                         # ChatUI, ChatMessage, ToolCard, MermaidDiagram
+│   │   ├── cockpit/                      # AuditFeed, Schedule, Spend, EvalHealth panels
+│   │   ├── lease/                        # PdfViewer, RedFlagReport, CitationChip, dropzone
+│   │   └── workspaces/                   # workspace switcher + onboarding
+│   ├── corpus/
+│   │   ├── nj-tenant-law/                # 28 NJ tenant-law markdown sources
+│   │   └── sample-lease/                 # seeded sample lease PDF + markdown
+│   ├── db/
+│   │   └── seed.ts                       # idempotent seed (corpus + sample lease)
+│   └── lib/
+│       ├── anthropic/                    # SDK singleton + E2E mock
+│       ├── auth/                         # session, RBAC types, demo users, role labels
+│       ├── chat/                         # system-prompt, context-window, conversations, parse-stream-line
+│       ├── db/                           # schema, migrate, spend, rate-limit
+│       ├── evals/                        # Tier 1 runner, Tier 2 runner, golden + lease cases
+│       ├── lease/                        # parse-pdf, segment-clauses, classify-clause,
+│       │                                 # validate-upload, queries, ownership, disclaimer
+│       ├── rag/                          # ingest, chunk, embed (Xenova WASM), retrieve
+│       ├── tools/                        # registry, lease-tools, corpus-tools, diagram-tools,
+│       │                                 # audit-log, create-registry
+│       └── workspaces/                   # cookie helpers + per-visitor brand list
 └── docs/
-    ├── _meta/agent-charter.md        # Engineering constraints and delivery rules
-    └── _specs/                       # Spec, QA, and sprint docs for each sprint
+    ├── _meta/                            # charter, guidelines, architecture snapshot
+    └── _specs/sprint-13-leaselens/       # spec, sprint plan, impl-qa
 ```
 
 ---
 
 ## Sprint History
 
-ContentOps is built sprint-by-sprint with a spec → QA → sprint plan → implementation → QA loop. All artifacts live in `docs/_specs/`.
+LeaseLens is built sprint-by-sprint with a spec → QA → sprint plan → implementation → QA loop. All artifacts live in [`docs/_specs/`](docs/_specs/).
+
+Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases while preserving every architectural invariant. Sprint 14 hardened the eval harness with Tier 2 lease grading, cleared lint, and shipped the cockpit two-tier display. Sprint 16 will deliver the Vercel deployment and a 90-second Loom walkthrough.
 
 | Sprint | Scope | Status |
 |--------|-------|--------|
 | 0 | Foundation (Next.js, SQLite, Zod, Vitest) | Complete |
-| 1 | Homepage Chat UI + streaming shell | Complete |
+| 1 | Homepage chat UI + streaming shell | Complete |
 | 2 | Sessions, message history, role overlay | Complete |
 | 3 | Anthropic streaming + cost guardrails | Complete |
 | 4 | Corpus ingestion + chunking + embeddings | Complete |
 | 5 | Hybrid RAG retrieval + grounded chat | Complete |
-| 6 | AI eval harness (golden retrieval eval) | Complete |
+| 6 | AI eval harness (Tier 1 retrieval) | Complete |
 | 7 | Tool registry + read-only MCP tools | Complete |
-| 8 | Mutating tools + audit log + rollback + test consolidation + first Playwright E2E | Complete |
-| 9 | Operator cockpit dashboard + typing indicator | Complete |
+| 8 | Mutating tools + audit log + rollback + first Playwright E2E | Complete |
+| 9 | Operator cockpit dashboard | Complete |
 | 10 | UI polish pass | Complete |
 | 11 | Workspaces & brand onboarding | Complete |
 | 12 | Diagram tool (Mermaid) + Motion polish | Complete |
-| 13 | Vercel deployment + README + Loom | Planned |
+| 13 | LeaseLens vertical pivot — NJ corpus, lease tools, three-pane shell | Complete |
+| 14 | Tier 2 lease-grading eval, cockpit two-tier display, lint cleanup, manual-smoke template | Complete |
+| 15 | Polish backlog (paste-text fallback, in-app Tier 2 button, sample-lease CTA) | Planned |
+| 16 | Vercel deployment + README polish + Loom | Planned |
 
 ---
 

@@ -163,9 +163,7 @@ describe('ChatTranscript', () => {
     fireEvent.click(draftBtn);
 
     expect(onSelectPrompt).toHaveBeenCalledTimes(1);
-    expect(onSelectPrompt.mock.calls[0][0]).toMatch(
-      /draft_negotiation_email/i,
-    );
+    expect(onSelectPrompt.mock.calls[0][0]).toMatch(/draft_negotiation_email/i);
   });
 
   it('renders a "what to fix first" chip that asks the agent to prioritize', () => {

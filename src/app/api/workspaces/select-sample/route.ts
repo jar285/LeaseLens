@@ -7,7 +7,10 @@
  */
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { SAMPLE_WORKSPACE, WORKSPACE_TTL_SECONDS } from '@/lib/workspaces/constants';
+import {
+  SAMPLE_WORKSPACE,
+  WORKSPACE_TTL_SECONDS,
+} from '@/lib/workspaces/constants';
 import {
   decodeWorkspace,
   encodeWorkspace,

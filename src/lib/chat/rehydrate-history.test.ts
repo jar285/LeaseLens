@@ -29,7 +29,8 @@ describe('rehydrateConversationMessages', () => {
       {
         id: 'm4',
         role: 'assistant',
-        content: 'Draft the first week around the platform vision and developer advocacy.',
+        content:
+          'Draft the first week around the platform vision and developer advocacy.',
       },
     ]);
 
@@ -38,7 +39,8 @@ describe('rehydrateConversationMessages', () => {
       {
         id: expect.any(String),
         role: 'assistant',
-        content: 'Draft the first week around the platform vision and developer advocacy.',
+        content:
+          'Draft the first week around the platform vision and developer advocacy.',
         toolInvocations: [
           {
             id: 'tool-1',

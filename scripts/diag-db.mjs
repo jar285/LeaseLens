@@ -4,7 +4,9 @@ const db = new Database('./data/leaselens.db', { readonly: true });
 
 console.log('=== documents table CREATE SQL ===');
 const tableSql = db
-  .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='documents'")
+  .prepare(
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name='documents'",
+  )
   .get();
 console.log(tableSql?.sql ?? '(no documents table)');
 

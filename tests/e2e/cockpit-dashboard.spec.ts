@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { expect, test } from '@playwright/test';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { encrypt } from '@/lib/auth/session';
 import { db } from '@/lib/db';
@@ -121,9 +121,7 @@ test('cockpit dashboard renders panels and supports Undo on audit row', async ({
   await expect(
     page.getByRole('heading', { name: 'Eval health' }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('heading', { name: 'Scheduled' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Scheduled' })).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Recent approvals' }),
   ).toBeVisible();
@@ -135,9 +133,9 @@ test('cockpit dashboard renders panels and supports Undo on audit row', async ({
   await expect(undo).toBeVisible();
   await undo.scrollIntoViewIfNeeded();
   await undo.click();
-  await expect(page.getByText('Rolled back', { exact: true }).first()).toBeVisible(
-    { timeout: 5000 },
-  );
+  await expect(
+    page.getByText('Rolled back', { exact: true }).first(),
+  ).toBeVisible({ timeout: 5000 });
 });
 
 test('cockpit dashboard keeps audit actions clickable on mobile width', async ({
@@ -155,9 +153,7 @@ test('cockpit dashboard keeps audit actions clickable on mobile width', async ({
   await expect(
     page.getByRole('heading', { name: 'Eval health' }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('heading', { name: 'Scheduled' }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Scheduled' })).toBeVisible();
   await expect(
     page.getByRole('heading', { name: 'Recent approvals' }),
   ).toBeVisible();
@@ -168,7 +164,7 @@ test('cockpit dashboard keeps audit actions clickable on mobile width', async ({
   await expect(undo).toBeVisible();
   await undo.scrollIntoViewIfNeeded();
   await undo.click();
-  await expect(page.getByText('Rolled back', { exact: true }).first()).toBeVisible(
-    { timeout: 5000 },
-  );
+  await expect(
+    page.getByText('Rolled back', { exact: true }).first(),
+  ).toBeVisible({ timeout: 5000 });
 });

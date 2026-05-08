@@ -39,10 +39,7 @@ const candidates = [
     repoRoot,
     'node_modules/react-pdf/node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs',
   ),
-  resolve(
-    repoRoot,
-    'node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs',
-  ),
+  resolve(repoRoot, 'node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs'),
 ];
 
 const src = candidates.find((p) => existsSync(p));

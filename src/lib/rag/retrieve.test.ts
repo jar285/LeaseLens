@@ -68,7 +68,10 @@ describe('retrieve', () => {
       });
     }
 
-    const results = await retrieve('alpha', db, { workspaceId: WS, maxResults: 2 });
+    const results = await retrieve('alpha', db, {
+      workspaceId: WS,
+      maxResults: 2,
+    });
     expect(results.length).toBe(2);
   });
 

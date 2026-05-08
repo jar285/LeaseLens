@@ -86,20 +86,45 @@ function isOrphanLeadingToolResult(msg: ContextMessage): boolean {
  * The resulting window always starts with a user message (Anthropic requirement)
  * AND that user message must NOT lead with a tool_result block whose tool_use
  * has been trimmed off (Sprint 14 regression fix).
+ *
+ * Sprint 14 follow-up — the original drop-orphan loop has an edge case: if
+ * char-budget trim chops the kicking-off user-text message off the front of
+ * a long tool-heavy turn (e.g. a 15-clause "standard scan"), the only user
+ * messages left are tool_result blocks. The drop loop then strips every pair
+ * until trimmed.length === 1, leaving a single orphan tool_result the loop's
+ * `trimmed.length > 1` guard refuses to drop — Anthropic returns 400. Fix:
+ * locate the most-recent clean user-text message and pin it as an "anchor"
+ * that neither the count nor the char trim is allowed to cross. Without
+ * the anchor, the assistant's pile of tool_results has no kicking-off turn
+ * to reference and the request is invalid by construction.
  */
 function trimToLimits(messages: ContextMessage[]): ContextMessage[] {
-  let trimmed =
-    messages.length > MAX_MESSAGES
-      ? messages.slice(messages.length - MAX_MESSAGES)
-      : [...messages];
+  // Locate the most-recent clean user-text message.
+  let anchorIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'user' && !isOrphanLeadingToolResult(m)) {
+      anchorIdx = i;
+      break;
+    }
+  }
 
+  // Cap by message count, never crossing the anchor.
+  const countCap = Math.max(0, messages.length - MAX_MESSAGES);
+  const startMin = anchorIdx >= 0 ? Math.min(countCap, anchorIdx) : countCap;
+  let trimmed = messages.slice(startMin);
+  let anchorInTrimmed = anchorIdx >= 0 ? anchorIdx - startMin : -1;
+
+  // Cap by char budget, stopping if the next slice would drop the anchor.
   let totalChars = trimmed.reduce(
     (sum, m) => sum + contentLength(m.content),
     0,
   );
   while (totalChars > MAX_CHARS && trimmed.length > 1) {
+    if (anchorInTrimmed === 0) break;
     totalChars -= contentLength(trimmed[0].content);
     trimmed = trimmed.slice(1);
+    if (anchorInTrimmed > 0) anchorInTrimmed--;
   }
 
   // Drop until the first message is a CLEAN user start: role 'user'

@@ -39,8 +39,10 @@ data/*.db-shm
 data/*.db-wal
 data/*.db-journal
 
-# Eval reports
+# Eval reports — timestamped run reports stay ignored; baseline files
+# are committed as the regression target CI compares against.
 data/eval-reports/
+!data/eval-reports/baseline-*.json
 
 # Keep env examples
 !.env.example

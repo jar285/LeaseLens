@@ -61,18 +61,18 @@ export function EvalHealthPanel({
   const allPassed =
     snapshot !== null && snapshot.passedCount === snapshot.totalCases;
   const tier1BadgeClass = allPassed
-    ? 'bg-green-100 text-green-700'
-    : 'bg-amber-100 text-amber-700';
+    ? 'bg-success-100 text-success-600 dark:bg-success-600/15 dark:text-success-100'
+    : 'bg-warning-100 text-warning-600 dark:bg-warning-600/15 dark:text-warning-100';
 
   return (
     <section
       data-testid="eval-health-panel"
-      className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"
+      className="overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline dark:border-neutral-800 dark:bg-neutral-900"
     >
-      <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+      <header className="flex items-center justify-between border-b border-neutral-100 px-4 py-3 dark:border-neutral-800">
         <div>
-          <h2 className="text-sm font-semibold text-gray-800">Eval health</h2>
-          <p className="mt-0.5 text-[11px] text-gray-500">
+          <h2 className="text-sm font-semibold text-fg-default">Eval health</h2>
+          <p className="mt-0.5 text-[11px] text-fg-muted">
             Tier 1 retrieval · Tier 2 lease grading
           </p>
         </div>
@@ -82,36 +82,36 @@ export function EvalHealthPanel({
       {/* Tier 1: retrieval golden eval */}
       <div
         data-testid="eval-tier1"
-        className="border-b border-gray-100 px-4 py-4"
+        className="border-b border-neutral-100 px-4 py-4 dark:border-neutral-800"
       >
         <div className="flex items-baseline justify-between">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
               Tier 1 · Retrieval
             </p>
-            <p className="mt-0.5 text-[11px] text-gray-400">
+            <p className="mt-0.5 text-[11px] text-fg-subtle">
               Golden eval against NJ tenant-law corpus
             </p>
           </div>
         </div>
         {snapshot === null ? (
-          <p className="mt-2 text-xs text-gray-500">
+          <p className="mt-2 text-xs text-fg-muted">
             No eval runs recorded yet — run <code>npm run eval:golden</code>.
           </p>
         ) : (
           <>
             <div className="mt-2 flex items-baseline gap-3">
               <div
-                className={`inline-block rounded-full px-3 py-1 text-sm font-semibold ${tier1BadgeClass}`}
+                className={`inline-block rounded-full px-3 py-1 text-sm font-semibold tabular ${tier1BadgeClass}`}
               >
                 {snapshot.passedCount} / {snapshot.totalCases} passed
               </div>
-              <span className="text-xs text-gray-600">
+              <span className="text-xs tabular text-fg-default">
                 {snapshot.totalScore.toFixed(1)} /{' '}
                 {snapshot.maxScore.toFixed(1)} pts
               </span>
             </div>
-            <p className="mt-1.5 text-[11px] text-gray-500">
+            <p className="mt-1.5 text-[11px] tabular text-fg-muted">
               {formatRelative(snapshot.lastRunAt)}
             </p>
           </>
@@ -122,16 +122,16 @@ export function EvalHealthPanel({
       <div data-testid="eval-tier2" className="px-4 py-4">
         <div className="flex items-baseline justify-between">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
               Tier 2 · Lease grading
             </p>
-            <p className="mt-0.5 text-[11px] text-gray-400">
+            <p className="mt-0.5 text-[11px] text-fg-subtle">
               Sample lease graded against NJ statutes
             </p>
           </div>
         </div>
         {leaseGrading === null ? (
-          <p className="mt-2 text-xs text-gray-500">
+          <p className="mt-2 text-xs text-fg-muted">
             No Tier 2 runs yet — run <code>npm run eval:leases</code> (real
             Anthropic; ~$0.10–0.50 per run).
           </p>
@@ -157,7 +157,7 @@ export function EvalHealthPanel({
                 value={pct(leaseGrading.exactMatch)}
               />
             </div>
-            <p className="mt-2 text-[11px] text-gray-500">
+            <p className="mt-2 text-[11px] tabular text-fg-muted">
               {leaseGrading.totalCases} cases · p50{' '}
               {leaseGrading.latencyP50Ms.toFixed(0)}ms · p95{' '}
               {leaseGrading.latencyP95Ms.toFixed(0)}ms ·{' '}
@@ -172,11 +172,13 @@ export function EvalHealthPanel({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border border-gray-100 bg-gray-50/60 px-2 py-1.5">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500">
+    <div className="rounded border border-neutral-100 bg-surface-muted/60 px-2 py-1.5 dark:border-neutral-800 dark:bg-neutral-800/40">
+      <p className="text-[10px] font-medium uppercase tracking-wider text-fg-muted">
         {label}
       </p>
-      <p className="mt-0.5 text-sm font-semibold text-gray-800">{value}</p>
+      <p className="mt-0.5 text-sm font-semibold tabular text-fg-default">
+        {value}
+      </p>
     </div>
   );
 }

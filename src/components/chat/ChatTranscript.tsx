@@ -69,7 +69,7 @@ export function ChatTranscript({
       ref={scrollRef}
       data-testid="chat-transcript-scroll"
       onScroll={handleScroll}
-      className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-6 md:px-8"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-5 md:px-8"
     >
       <div className="mx-auto w-full max-w-3xl shrink-0">
         <ul className="m-0 list-none space-y-1 p-0 pb-4">

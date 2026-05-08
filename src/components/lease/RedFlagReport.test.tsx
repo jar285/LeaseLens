@@ -260,7 +260,9 @@ describe('RedFlagReport', () => {
     // Active ring is applied via data-attr + ring classes.
     expect(card.getAttribute('data-active')).toBe('true');
     expect(card.className).toMatch(/ring-2/);
-    expect(card.className).toMatch(/border-indigo-300/);
+    // Sprint 15 Phase 8 — accent palette migrated from indigo-* to
+    // semantic accent-* tokens (keyed on #6E5CE6 in @theme).
+    expect(card.className).toMatch(/border-accent-300/);
   });
 
   it('"View on page N" inside the expanded body calls scrollToPage', () => {

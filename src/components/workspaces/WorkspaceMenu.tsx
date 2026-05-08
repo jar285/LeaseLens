@@ -99,7 +99,7 @@ export function WorkspaceMenu({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-md px-1 text-sm text-gray-500 transition-colors hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+        className="flex items-center gap-1.5 rounded-md px-1 text-sm text-fg-muted transition-colors hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -111,17 +111,17 @@ export function WorkspaceMenu({
         <div
           role="menu"
           aria-label="Workspace menu"
-          className="absolute left-0 top-full z-40 mt-2 w-72 rounded-lg border border-gray-200 bg-white p-3 shadow-lg"
+          className="absolute left-0 top-full z-40 mt-2 w-72 rounded-lg border border-neutral-200 bg-surface-card p-3 shadow-lift dark:border-neutral-800 dark:bg-neutral-900"
         >
-          <p className="px-2 pb-2 text-xs uppercase tracking-wider text-gray-400">
+          <p className="px-2 pb-2 text-xs uppercase tracking-wider text-fg-subtle">
             Active brand
           </p>
-          <p className="px-2 pb-3 text-sm font-semibold text-gray-800">
+          <p className="px-2 pb-3 text-sm font-semibold text-fg-default">
             {workspaceName}
           </p>
           {otherBrands.length > 0 && (
-            <div className="border-t border-gray-100 pt-2 pb-1">
-              <p className="px-2 pb-1 text-xs uppercase tracking-wider text-gray-400">
+            <div className="border-t border-neutral-100 pt-2 pb-1 dark:border-neutral-800">
+              <p className="px-2 pb-1 text-xs uppercase tracking-wider text-fg-subtle">
                 Your brands
               </p>
               {otherBrands.map((brand) => (
@@ -131,14 +131,14 @@ export function WorkspaceMenu({
                   role="menuitem"
                   onClick={() => selectBrand(brand.id)}
                   disabled={isSwitching}
-                  className="block w-full truncate rounded-md px-2 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-default disabled:opacity-50"
+                  className="block w-full truncate rounded-md px-2 py-1.5 text-left text-sm text-fg-default transition-colors hover:bg-surface-muted disabled:cursor-default disabled:opacity-50 dark:hover:bg-neutral-800"
                 >
                   {brand.name}
                 </button>
               ))}
             </div>
           )}
-          <div className="border-t border-gray-100 pt-2">
+          <div className="border-t border-neutral-100 pt-2 dark:border-neutral-800">
             {/* Round 4 — when the active workspace IS the sample, the popover
                 header above ("Active brand: …") already conveys it; a
                 disabled "Sample brand (active)" menu item would be redundant.
@@ -149,7 +149,7 @@ export function WorkspaceMenu({
                 role="menuitem"
                 onClick={selectSample}
                 disabled={isSwitching}
-                className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-default disabled:opacity-50"
+                className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-fg-default transition-colors hover:bg-surface-muted disabled:cursor-default disabled:opacity-50 dark:hover:bg-neutral-800"
               >
                 {isSwitching ? 'Loading sample…' : 'Use sample brand'}
               </button>
@@ -161,12 +161,16 @@ export function WorkspaceMenu({
                 setOpen(false);
                 setShowUpload(true);
               }}
-              className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
+              className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-fg-default transition-colors hover:bg-surface-muted dark:hover:bg-neutral-800"
             >
               Start a new brand…
             </button>
           </div>
-          {error && <p className="mt-2 px-2 text-xs text-red-600">{error}</p>}
+          {error && (
+            <p className="mt-2 px-2 text-xs text-danger-600 dark:text-danger-100">
+              {error}
+            </p>
+          )}
         </div>
       )}
       <BrandUploadModal

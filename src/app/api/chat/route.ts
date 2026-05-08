@@ -8,6 +8,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAnthropicClient } from '@/lib/anthropic/client';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { ensureDemoUsersExist } from '@/lib/auth/ensure-demo-users';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { buildContextWindow } from '@/lib/chat/context-window';
@@ -50,14 +51,19 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
-function ensureDemoUsersExist(): void {
-  const insertUser = db.prepare(
-    'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-  );
-  const now = Math.floor(Date.now() / 1000);
-  for (const user of DEMO_USERS) {
-    insertUser.run(user.id, user.email, user.role, user.display_name, now);
-  }
+/**
+ * Append `addition` to `existing`, inserting a paragraph separator between
+ * them so cross-iteration text blocks don't smush together (e.g.
+ * "...NJ tenant law.Good — 15 clauses extracted..."). Empty additions
+ * pass through unchanged so we don't leave trailing separators.
+ */
+function appendWithSeparator(
+  existing: string,
+  addition: string,
+  separator = '\n\n',
+): string {
+  if (!addition) return existing;
+  return existing ? `${existing}${separator}${addition}` : addition;
 }
 
 /**
@@ -195,7 +201,7 @@ export async function POST(req: NextRequest) {
       .prepare('SELECT 1 FROM users WHERE id = ?')
       .get(userId);
     if (!userExists) {
-      ensureDemoUsersExist();
+      ensureDemoUsersExist(db);
     }
 
     // Initialize tool registry and get role-scoped tools
@@ -412,7 +418,7 @@ export async function POST(req: NextRequest) {
               const finalMessage = await stream.finalMessage();
               tokensIn += finalMessage.usage.input_tokens;
               tokensOut += finalMessage.usage.output_tokens;
-              finalResponse += streamText;
+              finalResponse = appendWithSeparator(finalResponse, streamText);
 
               // Check for tool_use in streaming response (rare but possible)
               const toolUseBlocks = finalMessage.content.filter(
@@ -470,9 +476,10 @@ export async function POST(req: NextRequest) {
 
               // Accumulate text content
               for (const textBlock of textBlocks) {
-                if (textBlock.text) {
-                  finalResponse += textBlock.text;
-                }
+                finalResponse = appendWithSeparator(
+                  finalResponse,
+                  textBlock.text,
+                );
               }
 
               if (toolUseBlocks.length > 0) {

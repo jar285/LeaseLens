@@ -1,5 +1,14 @@
+'use client';
+
 import { ArrowUp } from 'lucide-react';
-import { type ChangeEvent, type KeyboardEvent, useRef, useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
+import {
+  type ChangeEvent,
+  type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { AttachButton } from './AttachButton';
 
 export interface ChatComposerProps {
@@ -24,6 +33,12 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const reduced = useReducedMotion();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const animate = mounted && !reduced;
 
   const handleSubmit = () => {
     if (isLocked) return;
@@ -62,12 +77,20 @@ export function ChatComposer({
     }
   };
 
+  const sendDisabled = isLocked || !text.trim();
+
+  // Sprint 15 Phase 4 — focus-within crossfade. Tailwind transition-colors
+  // on the wrapper handles the 120ms crossfade between neutral-200 (idle)
+  // and accent-400 (focus). Ring is also accent-tinted.
   return (
-    <div className="border-t border-gray-100 bg-white px-6 pb-4 pt-3.5">
-      <div className="relative mx-auto flex max-w-2xl items-end gap-2.5 rounded-xl border border-gray-200 bg-white p-2 transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
+    <div className="border-t border-neutral-100 bg-surface-card px-6 pb-4 pt-3.5 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="relative mx-auto flex max-w-2xl items-end gap-2.5 rounded-xl border border-neutral-200 bg-surface-card p-2 transition-colors duration-120 ease-out-soft focus-within:border-accent-400 focus-within:ring-2 focus-within:ring-accent-100 dark:border-neutral-800 dark:bg-neutral-900 dark:focus-within:border-accent-500 dark:focus-within:ring-accent-500/15">
         <label htmlFor="chat-composer-input" className="sr-only">
           Type a message
         </label>
+        <span id="composer-hint" className="sr-only">
+          Press Shift plus Enter to insert a new line.
+        </span>
         <textarea
           ref={textareaRef}
           id="chat-composer-input"
@@ -76,23 +99,39 @@ export function ChatComposer({
           onKeyDown={handleKeyDown}
           disabled={isLocked}
           placeholder="Ask about a lease clause, NJ tenant law, or upload a lease to start a scan…"
-          className="min-h-[38px] flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:ring-0"
+          aria-describedby="composer-hint"
+          className="min-h-[38px] flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm text-fg-default outline-none placeholder:text-fg-subtle focus:ring-0"
           rows={1}
         />
         {onAttachFiles && (
           <AttachButton onFiles={onAttachFiles} disabled={isLocked} />
         )}
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={isLocked || !text.trim()}
-          aria-label="Send message"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:opacity-35 disabled:hover:bg-indigo-600"
-        >
-          <ArrowUp className="h-4 w-4" aria-hidden="true" strokeWidth={2.5} />
-        </button>
+        {animate ? (
+          <motion.button
+            type="button"
+            onClick={handleSubmit}
+            disabled={sendDisabled}
+            aria-label="Send message"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-600 text-white shadow-sm transition-colors hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:opacity-35 disabled:hover:bg-accent-600"
+            whileHover={sendDisabled ? undefined : { scale: 1.05 }}
+            whileTap={sendDisabled ? undefined : { scale: 0.97 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+          >
+            <ArrowUp className="h-4 w-4" aria-hidden="true" strokeWidth={2.5} />
+          </motion.button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={sendDisabled}
+            aria-label="Send message"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-600 text-white shadow-sm transition-colors hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:opacity-35 disabled:hover:bg-accent-600"
+          >
+            <ArrowUp className="h-4 w-4" aria-hidden="true" strokeWidth={2.5} />
+          </button>
+        )}
       </div>
-      <div className="mt-2 text-center font-mono text-[10px] tracking-wide text-gray-300">
+      <div className="mt-2 text-center font-mono text-[10px] tracking-wide text-fg-subtle">
         shift + enter for new line
       </div>
     </div>

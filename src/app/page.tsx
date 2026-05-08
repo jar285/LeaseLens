@@ -2,10 +2,12 @@ import { ScrollText } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
+import { ThemeToggle } from '@/components/auth/ThemeToggle';
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
 import { WorkspaceHeader } from '@/components/cockpit/WorkspaceHeader';
 import { LeaseLensWorkspaceShell } from '@/components/lease/LeaseLensWorkspaceShell';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { ensureDemoUsersExist } from '@/lib/auth/ensure-demo-users';
 import { decrypt } from '@/lib/auth/session';
 import { getLatestConversationForWorkspace } from '@/lib/chat/conversations';
 import { rehydrateConversationMessages } from '@/lib/chat/rehydrate-history';
@@ -66,6 +68,14 @@ export default async function Home() {
   if (sessionCookie) {
     const payload = await decrypt(sessionCookie.value);
     if (payload?.userId) {
+      // Sprint 15.2 — self-heal against dev-DB pollution. The role
+      // switcher sets a session cookie pointing to a stable demo-user
+      // id; if that row is missing (e.g. an integration test wiped it
+      // before the .env.test prefix fix landed), the userExists check
+      // below would silently demote the user back to Creator and the
+      // role tabs would appear broken. Idempotent INSERT OR IGNORE.
+      ensureDemoUsersExist(db);
+
       // Verify user still exists in DB after refresh
       const userExists = db
         .prepare('SELECT 1 FROM users WHERE id = ?')
@@ -106,14 +116,14 @@ export default async function Home() {
     // takes its natural height and the rest of the viewport is exactly
     // one min-h-0 region. Every child below this point owns its own
     // overflow chain; the page itself never scrolls.
-    <main className="flex h-dvh flex-col overflow-hidden bg-[#f8f9fa] font-sans text-gray-900">
-      <header className="z-10 flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-8 py-3.5">
+    <main className="flex h-dvh flex-col overflow-hidden bg-surface-base font-sans text-fg-default">
+      <header className="z-10 flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
         <div className="flex items-center gap-4">
           <Link
             href="/"
-            className="flex items-center gap-2.5 rounded-md text-[15px] font-semibold tracking-tight text-gray-800 transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+            className="flex items-center gap-2.5 rounded-md text-[15px] font-semibold tracking-tight text-neutral-800 transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-100"
           >
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-600 text-white">
               <ScrollText
                 className="h-3.5 w-3.5"
                 aria-hidden="true"
@@ -126,7 +136,7 @@ export default async function Home() {
           {currentRole !== 'Creator' && (
             <Link
               href="/cockpit"
-              className="rounded-md px-1 text-sm font-medium text-gray-500 transition-colors hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+              className="rounded-md px-1 text-sm font-medium text-neutral-500 transition-colors hover:text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-400 dark:hover:text-neutral-200"
             >
               Cockpit
             </Link>
@@ -135,8 +145,12 @@ export default async function Home() {
         {/* Phase 10.8 — role switcher relocated from a floating
             bottom-right group (which overlapped the last red-flag
             card) into the global header. Always rendered in dev for
-            persona testing. */}
-        <RoleSwitcher currentRole={currentRole} />
+            persona testing.
+            Sprint 15.1 — paired with the theme toggle (system/light/dark). */}
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <RoleSwitcher currentRole={currentRole} />
+        </div>
       </header>
       <LeaseLensWorkspaceShell
         key={workspace.id}

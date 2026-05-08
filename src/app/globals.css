@@ -8,59 +8,70 @@
  * (bg-accent-600, text-fg-muted, shadow-hairline, ease-out-soft, …).
  *
  * @theme blocks must be top-level (Tailwind v4 constraint). Dark-mode
- * flips happen via :root overrides inside @media (prefers-color-scheme).
- * Per-class dark:* variants stay available for places where the light/
- * dark colors aren't aliased to a single semantic token.
+ * flips happen via :root.dark overrides driven by the inline no-FOUC
+ * script in layout.tsx. The `dark:` Tailwind variant is rebound below
+ * to match `.dark` on <html> instead of @media prefers-color-scheme,
+ * so a manual ThemeToggle can override system pref cleanly.
  */
+
+/*
+ * Sprint 15.1 — class-based dark variant. The inline script in layout.tsx
+ * adds .dark to <html> when (a) localStorage.theme === 'dark' or (b)
+ * theme is unset/'system' AND prefers-color-scheme is dark. The toggle
+ * cycles system → light → dark and persists to localStorage.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
 @theme {
   /* Color scales — fixed in light + dark; semantic aliases below select. */
-  --color-neutral-50: #FAFAF9;
-  --color-neutral-100: #F4F4F2;
-  --color-neutral-150: #ECECE8;
-  --color-neutral-200: #E2E2DC;
-  --color-neutral-300: #C9C9C0;
-  --color-neutral-400: #A3A39A;
-  --color-neutral-500: #75756B;
+  --color-neutral-50: #fafaf9;
+  --color-neutral-100: #f4f4f2;
+  --color-neutral-150: #ecece8;
+  --color-neutral-200: #e2e2dc;
+  --color-neutral-300: #c9c9c0;
+  --color-neutral-400: #a3a39a;
+  --color-neutral-500: #75756b;
   --color-neutral-600: #565650;
-  --color-neutral-700: #3F3F3A;
-  --color-neutral-800: #28282A;
-  --color-neutral-900: #1A1A1C;
-  --color-neutral-950: #0E0E10;
+  --color-neutral-700: #3f3f3a;
+  --color-neutral-800: #28282a;
+  --color-neutral-900: #1a1a1c;
+  --color-neutral-950: #0e0e10;
 
-  --color-accent-50: #F2EFFD;
-  --color-accent-100: #E6E0FB;
-  --color-accent-200: #CFC4F7;
-  --color-accent-300: #B0A0F1;
-  --color-accent-400: #8A77EB;
-  --color-accent-500: #6E5CE6;
-  --color-accent-600: #5A47DC;
-  --color-accent-700: #4B3AC0;
+  --color-accent-50: #f2effd;
+  --color-accent-100: #e6e0fb;
+  --color-accent-200: #cfc4f7;
+  --color-accent-300: #b0a0f1;
+  --color-accent-400: #8a77eb;
+  --color-accent-500: #6e5ce6;
+  --color-accent-600: #5a47dc;
+  --color-accent-700: #4b3ac0;
 
-  --color-success-100: #DDF4E6;
-  --color-success-600: #1F8B4C;
-  --color-warning-100: #FCF1D6;
-  --color-warning-600: #B07410;
-  --color-danger-100: #FBDFDF;
-  --color-danger-600: #B33232;
-  --color-info-100: #DBEEFD;
-  --color-info-600: #1E6FB8;
+  --color-success-100: #ddf4e6;
+  --color-success-600: #1f8b4c;
+  --color-warning-100: #fcf1d6;
+  --color-warning-600: #b07410;
+  --color-danger-100: #fbdfdf;
+  --color-danger-600: #b33232;
+  --color-info-100: #dbeefd;
+  --color-info-600: #1e6fb8;
 
   /* Semantic aliases — light defaults; dark overrides at :root below. */
-  --color-surface-base: #FAFAF9;
-  --color-surface-card: #FFFFFF;
-  --color-surface-muted: #F4F4F2;
-  --color-fg-default: #1A1A1C;
-  --color-fg-muted: #75756B;
-  --color-fg-subtle: #A3A39A;
+  --color-surface-base: #fafaf9;
+  --color-surface-card: #ffffff;
+  --color-surface-muted: #f4f4f2;
+  --color-fg-default: #1a1a1c;
+  --color-fg-muted: #75756b;
+  --color-fg-subtle: #a3a39a;
   --color-border-hairline: rgb(0 0 0 / 0.08);
-  --color-border-default: #E2E2DC;
-  --color-border-strong: #C9C9C0;
+  --color-border-default: #e2e2dc;
+  --color-border-strong: #c9c9c0;
 
   /* Typography — Geist Sans (UI), Source Serif 4 (editorial H1), Geist Mono. */
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", sans-serif;
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
   --font-serif: var(--font-source-serif), Georgia, "Times New Roman", serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono:
+    var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
 
   /* Radii */
   --radius-sm: 4px;
@@ -89,29 +100,31 @@
 }
 
 /*
- * Dark-mode flip — overrides the semantic aliases at :root when the user's
- * system preference resolves to dark. Components that reference semantic
- * utilities (bg-surface-base, text-fg-default, border-border-hairline)
- * pick up the new value automatically. For surfaces that aren't aliased
- * (e.g. component-specific accent layers), per-class dark:* variants are
- * the escape hatch.
+ * Dark-mode flip — overrides the semantic aliases at :root when the
+ * inline script in layout.tsx adds .dark to <html>. Components that
+ * reference semantic utilities (bg-surface-base, text-fg-default,
+ * border-border-hairline) pick up the new value automatically. For
+ * surfaces that aren't aliased (e.g. component-specific accent layers),
+ * per-class dark:* variants are the escape hatch.
+ *
+ * The script handles BOTH manual override (localStorage.theme === 'dark')
+ * and system preference (prefers-color-scheme: dark when theme is unset
+ * or 'system'). One CSS rule, two activation paths.
  */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-surface-base: #0E0E10;
-    --color-surface-card: #1A1A1C;
-    --color-surface-muted: #28282A;
-    --color-fg-default: #F4F4F2;
-    --color-fg-muted: #A3A39A;
-    --color-fg-subtle: #75756B;
-    --color-border-hairline: rgb(255 255 255 / 0.08);
-    --color-border-default: #28282A;
-    --color-border-strong: #3F3F3A;
-    /* Slight accent desaturation for OLED comfort */
-    --color-accent-500: #8576E8;
-    --color-accent-600: #7666E2;
-    --color-accent-700: #6353D6;
-  }
+:root.dark {
+  --color-surface-base: #0e0e10;
+  --color-surface-card: #1a1a1c;
+  --color-surface-muted: #28282a;
+  --color-fg-default: #f4f4f2;
+  --color-fg-muted: #a3a39a;
+  --color-fg-subtle: #75756b;
+  --color-border-hairline: rgb(255 255 255 / 0.08);
+  --color-border-default: #28282a;
+  --color-border-strong: #3f3f3a;
+  /* Slight accent desaturation for OLED comfort */
+  --color-accent-500: #8576e8;
+  --color-accent-600: #7666e2;
+  --color-accent-700: #6353d6;
 }
 
 @layer base {
@@ -134,8 +147,51 @@
   }
 }
 
+/*
+ * Tailwind v4 dropped the v3 default of `cursor: pointer` on buttons.
+ * Restore it as a top-level rule (outside @layer base) so it doesn't
+ * get out-cascaded by any utility class. Disabled elements keep the
+ * default cursor; the per-component cursor-pointer utility class on
+ * specific surfaces (prompt cards, choose-a-file label) is redundant
+ * but acts as a defence against build-cache issues during dev.
+ */
+button:not(:disabled),
+[role="button"]:not(:disabled),
+a[href] {
+  cursor: pointer;
+}
+
 @layer utilities {
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+}
+
+/*
+ * Sprint 15.2 — short-lived theme-flip transition. The ThemeToggle adds
+ * .theme-transition to <html> right before flipping .dark, then removes
+ * it after 240ms. While the class is present, every element gets a
+ * 220ms ease-out transition on the three colour properties that swap
+ * with the theme. !important wins the cascade against per-element
+ * transition-colors classes (e.g. composer focus-within crossfade).
+ * Outside that 240ms window, hover/focus animations keep their tighter
+ * per-element timings — the rule simply doesn't match.
+ */
+/*
+ * !important is intentional and per-file-overridden in biome.json. Per-
+ * element transition-colors classes (e.g. composer focus crossfade)
+ * would otherwise win the cascade and squash the theme flip. This is
+ * the canonical theme-library pattern (used by next-themes, shadcn);
+ * the rule only matches inside the 240ms toggle window so day-to-day
+ * hover/focus animations are unaffected.
+ */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition:
+    background-color 220ms var(--ease-out-soft),
+    border-color 220ms var(--ease-out-soft),
+    color 220ms var(--ease-out-soft) !important;
+  transition-delay: 0s !important;
 }

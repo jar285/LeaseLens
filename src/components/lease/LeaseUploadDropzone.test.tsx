@@ -128,7 +128,9 @@ describe('LeaseUploadDropzone', () => {
       dataTransfer: { types: ['Files'] },
     });
     expect(dropZone).toHaveAttribute('data-status', 'dragover');
-    expect(screen.getByText(/drop the pdf to upload/i)).toBeInTheDocument();
+    // Sprint 15 Phase 7 — copy swapped from "Drop the PDF to upload" to
+    // "Drop to scan" (briefer, action-oriented).
+    expect(screen.getByText(/drop to scan/i)).toBeInTheDocument();
   });
 
   it('uploads the chosen file and calls onUploaded with the parsed response', async () => {

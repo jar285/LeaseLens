@@ -56,15 +56,21 @@ export function ChatMessage({
   const reduced = useReducedMotion();
   const animate = mounted && !reduced && role === 'assistant';
 
-  const className = `flex gap-3.5 py-4 ${isUser ? '' : 'rounded-xl bg-gray-50 px-4'}`;
+  // Sprint 15 Phase 5 — assistant bubble uses the muted surface token so it
+  // reads as a quiet card on both light and dark schemes.
+  const className = `flex gap-3.5 py-4 ${isUser ? '' : 'rounded-xl bg-surface-muted px-4 dark:bg-neutral-800/50'}`;
 
+  // The brief asks for a per-token fade on streamed assistant tokens. A
+  // robust implementation conflicts with the markdown renderer (every
+  // chunk re-renders the full tree). Sprint 15 ships the token swap and
+  // dark-mode coverage; per-token fade is filed as a Sprint 16 follow-up.
   const inner = (
     <>
       <div
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
           isUser
-            ? 'border border-gray-200 bg-white text-gray-400'
-            : 'bg-indigo-600 text-white'
+            ? 'border border-neutral-200 bg-surface-card text-fg-subtle dark:border-neutral-700 dark:bg-neutral-900'
+            : 'bg-accent-600 text-white'
         }`}
       >
         {isUser ? (
@@ -74,7 +80,7 @@ export function ChatMessage({
         )}
       </div>
       <div className="min-w-0 flex-1 pt-0.5">
-        <div className="mb-0.5 text-[13px] font-semibold text-gray-800">
+        <div className="mb-0.5 text-[13px] font-semibold text-fg-default">
           {isUser ? 'You' : 'Editorial Assistant'}
         </div>
         {/* Tool invocations */}
@@ -92,7 +98,7 @@ export function ChatMessage({
                 key={prompt.id}
                 type="button"
                 onClick={() => onSelectPrompt?.(prompt.prompt)}
-                className="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+                className="rounded-full border border-accent-200 bg-surface-card px-3 py-1.5 text-xs font-medium text-accent-700 transition-colors hover:border-accent-300 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-accent-500/30 dark:bg-neutral-900 dark:text-accent-300 dark:hover:border-accent-400/50 dark:hover:bg-accent-500/10"
               >
                 {prompt.label}
               </button>
@@ -108,7 +114,7 @@ export function ChatMessage({
           <TypingIndicator />
         ) : (
           content && (
-            <div className="wrap-break-word text-[14.5px] leading-[1.7] text-gray-600">
+            <div className="wrap-break-word text-[14.5px] leading-[1.7] text-fg-default/85">
               {isUser ? content : renderMarkdown(content)}
             </div>
           )

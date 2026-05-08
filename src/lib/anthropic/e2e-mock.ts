@@ -5,18 +5,19 @@
 // SDK that src/app/api/chat/route.ts uses: messages.create() and
 // messages.stream().
 //
-// Behavior:
-//   - When the latest message is a fresh user request (no tool_result blocks
-//     present): returns a tool_use invoking schedule_content_item with the
-//     seeded `brand-identity` slug.
-//   - When the latest message is a tool_result (the chat route's second
-//     create call after running the tool): returns end_turn with text.
-//   - messages.stream() emits a single text delta then ends.
+// Sprint 14 / Phase 13 — repointed from the deleted ContentOps tool surface
+// (`schedule_content_item`, `approve_draft`) to the LeaseLens tool surface
+// (`extract_clauses`, `grade_clause_severity`). Behaviour follows the same
+// two-step state machine the original used (inspect message array per call):
 //
-// Sprint-9 amendment: the mock used to track state via a `createCalls`
-// counter, which broke across multiple Playwright tests in the same dev
-// server lifetime (call #3+ never returned tool_use). The mock now inspects
-// the message array directly so behavior is per-request, not per-process.
+//   - When the latest message is a fresh user request (no tool_result blocks
+//     present): returns a tool_use invoking `extract_clauses` against the
+//     conversation's active lease — the real chat route would resolve the
+//     lease via the recent-upload fallback.
+//   - When the latest message is a tool_result: returns end_turn with text.
+//
+// Per-request inspection (not a per-process counter) so behaviour is stable
+// across multiple Playwright tests in the same dev-server lifetime.
 //
 // Used only during Playwright E2E. Never imported in production code paths.
 
@@ -57,19 +58,18 @@ export function createE2EMockClient(): Anthropic {
           stop_reason: 'tool_use',
           stop_sequence: null,
           content: [
-            { type: 'text', text: 'Scheduling that for you.' },
+            {
+              type: 'text',
+              text: "I'll extract the clauses from your lease.",
+            },
             {
               type: 'tool_use',
-              id: 'toolu_e2e_schedule',
-              name: 'schedule_content_item',
-              input: {
-                // Slug must exist in the seeded corpus — see src/corpus/.
-                document_slug: 'brand-identity',
-                // ISO 8601 string — Sprint 8 amendment. Server parses to
-                // Unix seconds via parseIsoToUnixSeconds.
-                scheduled_for: new Date(Date.now() + 86_400_000).toISOString(),
-                channel: 'twitter',
-              },
+              id: 'toolu_e2e_extract',
+              name: 'extract_clauses',
+              // No input args needed — extract_clauses resolves the
+              // active lease via the conversation binding (or the
+              // recent-upload fallback).
+              input: {},
             },
           ],
           usage: { input_tokens: 0, output_tokens: 0 },
@@ -82,7 +82,12 @@ export function createE2EMockClient(): Anthropic {
         model: 'mock',
         stop_reason: 'end_turn',
         stop_sequence: null,
-        content: [{ type: 'text', text: 'Scheduled.' }],
+        content: [
+          {
+            type: 'text',
+            text: 'Extracted the clauses. Let me know which ones to grade against NJ tenant law.',
+          },
+        ],
         usage: { input_tokens: 0, output_tokens: 0 },
       };
     },
@@ -99,7 +104,12 @@ export function createE2EMockClient(): Anthropic {
           model: 'mock',
           stop_reason: 'end_turn',
           stop_sequence: null,
-          content: [{ type: 'text', text: 'Scheduled.' }],
+          content: [
+            {
+              type: 'text',
+              text: 'Extracted the clauses. Let me know which ones to grade against NJ tenant law.',
+            },
+          ],
           usage: { input_tokens: 0, output_tokens: 0 },
         }),
       };

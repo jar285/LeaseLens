@@ -32,7 +32,7 @@ async function makeAuditRequest(user?: {
       role: user.role,
       displayName: user.display_name,
     });
-    req.cookies.set('contentops_session', token);
+    req.cookies.set('leaselens_session', token);
   }
   return req;
 }

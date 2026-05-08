@@ -36,7 +36,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // 2. Extract and verify existing session
-  const cookie = request.cookies.get('contentops_session');
+  const cookie = request.cookies.get('leaselens_session');
   let session = cookie ? await decrypt(cookie.value) : null;
 
   const response = NextResponse.next();
@@ -51,7 +51,7 @@ export async function middleware(request: NextRequest) {
         displayName: creatorUser.display_name,
       };
       const token = await encrypt(session);
-      response.cookies.set('contentops_session', token, {
+      response.cookies.set('leaselens_session', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',

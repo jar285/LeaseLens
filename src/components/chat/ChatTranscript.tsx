@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { ChatEmptyState } from './ChatEmptyState';
 import { ChatMessage, type ChatMessageProps } from './ChatMessage';
+import { FOLLOW_UP_PROMPTS } from '@/lib/chat/follow-up-prompts';
 
 export interface ChatTranscriptProps {
   messages: ChatMessageProps[];
@@ -76,6 +77,14 @@ export function ChatTranscript({
             <ChatMessage
               key={msg.id}
               {...msg}
+              onSelectPrompt={onSelectPrompt}
+              followUpPrompts={
+                !isStreaming &&
+                idx === messages.length - 1 &&
+                msg.role === 'assistant'
+                  ? FOLLOW_UP_PROMPTS
+                  : undefined
+              }
               isStreaming={
                 isStreaming &&
                 idx === messages.length - 1 &&

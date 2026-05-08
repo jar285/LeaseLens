@@ -15,7 +15,7 @@ const DEFAULT_LIMIT = 50;
 
 export async function GET(request: NextRequest) {
   // Resolve session (mirrors the chat route fallback at route.ts:111-124)
-  const sessionCookie = request.cookies.get('contentops_session');
+  const sessionCookie = request.cookies.get('leaselens_session');
   let userId: string | undefined = DEMO_USERS.find(
     (u) => u.role === 'Creator',
   )?.id;

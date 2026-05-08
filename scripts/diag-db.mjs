@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 
-const db = new Database('./data/contentops.db', { readonly: true });
+const db = new Database('./data/leaselens.db', { readonly: true });
 
 console.log('=== documents table CREATE SQL ===');
 const tableSql = db

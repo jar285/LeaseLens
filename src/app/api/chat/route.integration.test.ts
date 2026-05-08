@@ -15,7 +15,7 @@ vi.mock('@/lib/env', async (importOriginal) => {
   return {
     env: {
       ...actual.env,
-      get CONTENTOPS_DEMO_MODE() {
+      get LEASELENS_DEMO_MODE() {
         return process.env._TEST_DEMO_MODE === 'true';
       },
     },
@@ -79,7 +79,7 @@ async function makeSessionRequest(
     method: 'POST',
     body: JSON.stringify({ message, conversationId }),
   });
-  req.cookies.set('contentops_session', token);
+  req.cookies.set('leaselens_session', token);
   // Sprint 11 — chat route requires a workspace cookie. Default to sample.
   const workspaceToken = await encodeWorkspace({
     workspace_id: SAMPLE_WORKSPACE.id,
@@ -124,7 +124,7 @@ describe('Chat API Persistence Integration', () => {
       0,
     );
 
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';
   });
@@ -187,7 +187,7 @@ describe('Chat API Demo Guardrails', () => {
       0,
     );
 
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'true';
   });
@@ -237,7 +237,7 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
     db.prepare(
       'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
     ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';
   });
@@ -256,7 +256,7 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
       method: 'POST',
       body: JSON.stringify({ message: 'hi', conversationId: null }),
     });
-    req.cookies.set('contentops_session', sessionToken);
+    req.cookies.set('leaselens_session', sessionToken);
     // Note: NO workspace cookie.
     const res = await POST(req);
     expect(res.status).toBe(401);
@@ -279,7 +279,7 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
       method: 'POST',
       body: JSON.stringify({ message: 'hi', conversationId: null }),
     });
-    req.cookies.set('contentops_session', sessionToken);
+    req.cookies.set('leaselens_session', sessionToken);
     req.cookies.set(WORKSPACE_COOKIE_NAME, ghostWorkspaceToken);
     const res = await POST(req);
     expect(res.status).toBe(401);
@@ -287,7 +287,7 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
     expect(body.error).toBe('Workspace expired');
     // Set-Cookie clears the workspace cookie.
     const setCookie = res.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain('contentops_workspace=');
+    expect(setCookie).toContain('leaselens_workspace=');
     // Cookie is cleared via Max-Age=0 or expired date.
     expect(setCookie).toMatch(/Max-Age=0|Expires=/i);
   });
@@ -343,7 +343,7 @@ describe('Chat API Workspace Scoping (Sprint 11 Round 3)', () => {
       Math.floor(Date.now() / 1000) + 3600,
     );
 
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';
   });

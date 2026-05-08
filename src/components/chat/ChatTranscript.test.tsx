@@ -132,14 +132,59 @@ describe('ChatTranscript', () => {
       <ChatTranscript
         messages={[]}
         onSelectPrompt={vi.fn()}
-        workspaceName="Side Quest Syndicate"
+        workspaceName="LeaseLens"
       />,
     );
 
     expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
+    // Sprint 13: empty state surfaces the standard-scan prompt.
     expect(
-      screen.getByRole('button', { name: /Define Brand Voice/i }),
+      screen.getByRole('button', { name: /standard scan/i }),
     ).toBeInTheDocument();
+  });
+
+  it('renders follow-up chips under the latest assistant message', () => {
+    const onSelectPrompt = vi.fn();
+
+    render(
+      <ChatTranscript
+        messages={baseMessages}
+        onSelectPrompt={onSelectPrompt}
+        workspaceName="Side Quest Syndicate"
+      />,
+    );
+
+    // Phase 10.8 — follow-ups rewritten for LeaseLens. The first chip
+    // surfaces the "draft emails" continuation (the most common next
+    // action after the agent grades clauses).
+    const draftBtn = screen.getByRole('button', { name: /Draft emails/i });
+    expect(draftBtn).toBeInTheDocument();
+
+    fireEvent.click(draftBtn);
+
+    expect(onSelectPrompt).toHaveBeenCalledTimes(1);
+    expect(onSelectPrompt.mock.calls[0][0]).toMatch(
+      /draft_negotiation_email/i,
+    );
+  });
+
+  it('renders a "what to fix first" chip that asks the agent to prioritize', () => {
+    const onSelectPrompt = vi.fn();
+
+    render(
+      <ChatTranscript
+        messages={baseMessages}
+        onSelectPrompt={onSelectPrompt}
+        workspaceName="Side Quest Syndicate"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /What to fix first/i }));
+
+    expect(onSelectPrompt).toHaveBeenCalledTimes(1);
+    expect(onSelectPrompt.mock.calls[0][0]).toMatch(
+      /rank the red flags|push back on first|prioritize/i,
+    );
   });
 
   it('Round 3 — propagates workspaceName to the rendered empty state', () => {

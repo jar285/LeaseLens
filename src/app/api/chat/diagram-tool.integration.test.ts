@@ -20,7 +20,7 @@ vi.mock('@/lib/env', async (importOriginal) => {
   return {
     env: {
       ...actual.env,
-      get CONTENTOPS_DEMO_MODE() {
+      get LEASELENS_DEMO_MODE() {
         return false;
       },
     },
@@ -64,7 +64,7 @@ async function makeSessionRequest(message: string) {
     method: 'POST',
     body: JSON.stringify({ message, conversationId: null }),
   });
-  req.cookies.set('contentops_session', token);
+  req.cookies.set('leaselens_session', token);
   const workspaceToken = await encodeWorkspace({
     workspace_id: SAMPLE_WORKSPACE.id,
     created_workspace_ids: [],
@@ -130,7 +130,7 @@ describe('Chat API — render_workflow_diagram tool flow (Sprint 12)', () => {
       0,
     );
 
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
 
     createMock.mockReset();

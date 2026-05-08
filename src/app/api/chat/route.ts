@@ -1,4 +1,5 @@
 import type {
+  MessageParam,
   TextBlock,
   Tool,
   ToolUseBlock,
@@ -10,11 +11,16 @@ import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { buildContextWindow } from '@/lib/chat/context-window';
-import { buildSystemPrompt } from '@/lib/chat/system-prompt';
+import {
+  type ActiveLeaseSummary,
+  buildSystemPrompt,
+} from '@/lib/chat/system-prompt';
 import { db } from '@/lib/db';
 import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
 import { isSpendCeilingExceeded, recordSpend } from '@/lib/db/spend';
 import { env } from '@/lib/env';
+import { getLease } from '@/lib/lease/queries';
+import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
 import { retrieve } from '@/lib/rag/retrieve';
 import { createToolRegistry } from '@/lib/tools/create-registry';
 import type { AnthropicTool } from '@/lib/tools/domain';
@@ -32,10 +38,13 @@ const chatRequestBodySchema = z.object({
 });
 
 const SPEND_CEILING_MESSAGE =
-  'Daily demo quota reached. Clone the repo for unlimited local use: github.com/jar285/ContentOps';
+  'Daily demo quota reached. Clone the repo for unlimited local use: github.com/jar285/leaselens';
 
-// Maximum tool-use iterations to prevent runaway loops
-const MAX_TOOL_ITERATIONS = 3;
+// Maximum tool-use iterations per turn. Bumped from 3 → 15 in Sprint 13
+// (charter v1.13) to support per-clause grading flows on a 13-clause lease
+// (1 extract_clauses + N grade_clause_severity calls). Cost guard remains
+// the daily spend ceiling, not this cap. See agent-guidelines §1 Anthropic SDK.
+const MAX_TOOL_ITERATIONS = 15;
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
@@ -53,37 +62,66 @@ function ensureDemoUsersExist(): void {
 
 /**
  * Build Anthropic-formatted messages from history.
+ *
+ * Phase 10.8.3 — persisted tool_use and tool_result rows now produce
+ * PROPER Anthropic content blocks (`{type:'tool_use', ...}` /
+ * `{type:'tool_result', ...}`) instead of fake `[Tool use: <name>]`
+ * placeholder strings. The model was mirroring the placeholder
+ * pattern into its own text output ("Editorial Assistant: …
+ * [Tool use: grade_clause_severity]") because between iterations the
+ * route re-read history and converted prior tool calls to plain
+ * bracketed text. With real content blocks, the model sees its own
+ * structured tool_use parts in history and never produces the
+ * placeholder text again.
  */
 function buildMessagesForAnthropic(
   history: { role: 'user' | 'assistant' | 'tool'; content: string }[],
-): Array<{ role: 'user' | 'assistant'; content: string }> {
+): Array<{
+  role: 'user' | 'assistant';
+  content: string | unknown[];
+}> {
   return history.map((h) => {
     if (h.role === 'tool') {
-      // Tool results stored as JSON - extract for display
       try {
         const parsed = JSON.parse(h.content);
         if (parsed.tool_result) {
           return {
             role: 'user',
-            content: `[Tool result: ${JSON.stringify(parsed.tool_result.result)}]`,
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: parsed.tool_result.id,
+                content:
+                  typeof parsed.tool_result.result === 'string'
+                    ? parsed.tool_result.result
+                    : JSON.stringify(parsed.tool_result.result),
+              },
+            ],
           };
         }
       } catch {
-        // Fall through to plain text
+        // Fall through to plain text — keeps cross-version DB
+        // compatibility for any rows persisted in older formats.
       }
     }
     if (h.role === 'assistant') {
-      // Check if this is a tool_use message
       try {
         const parsed = JSON.parse(h.content);
         if (parsed.tool_use) {
           return {
             role: 'assistant',
-            content: `[Tool use: ${parsed.tool_use.name}]`,
+            content: [
+              {
+                type: 'tool_use',
+                id: parsed.tool_use.id,
+                name: parsed.tool_use.name,
+                input: parsed.tool_use.input,
+              },
+            ],
           };
         }
       } catch {
-        // Regular assistant message
+        // Regular assistant text message — leave as-is.
       }
     }
     return { role: h.role === 'tool' ? 'user' : h.role, content: h.content };
@@ -112,7 +150,7 @@ export async function POST(req: NextRequest) {
     const { message, conversationId } = parsedBody.data;
 
     // Resolve userId and role from session cookie; fall back to default Creator
-    const sessionCookie = req.cookies.get('contentops_session');
+    const sessionCookie = req.cookies.get('leaselens_session');
     let userId = DEMO_USERS.find((u) => u.role === 'Creator')?.id;
     let role: Role = 'Creator';
 
@@ -167,7 +205,7 @@ export async function POST(req: NextRequest) {
     // Demo-only guardrails
     let quotaRemaining: number | null = null;
 
-    if (env.CONTENTOPS_DEMO_MODE) {
+    if (env.LEASELENS_DEMO_MODE) {
       const rateLimit = checkAndIncrementRateLimit(userId);
       if (!rateLimit.allowed) {
         return NextResponse.json(
@@ -251,10 +289,53 @@ export async function POST(req: NextRequest) {
       console.error('RAG retrieval failed, proceeding without context:', err);
     }
 
+    // Phase 10.8.2 — active-lease awareness. Resolve the lease for
+    // this conversation BEFORE building the system prompt so the
+    // agent sees a clear "lease IS loaded" line instead of inferring
+    // from absence of context. We reuse resolveLeaseId with the
+    // recent-upload fallback enabled — same path the lease tools use,
+    // so a lease just uploaded into the side pane resolves into the
+    // current conversation on its very first turn. The resolveLeaseId
+    // call also writes the binding onto conversations.active_lease_id
+    // so the agent's tool calls hit step 2 directly afterward (no
+    // re-fallback). resolveLeaseId throws when nothing matches; that
+    // is the no-lease branch and we proceed with activeLease=null.
+    let activeLease: ActiveLeaseSummary | null = null;
+    try {
+      const leaseId = resolveLeaseId(
+        db,
+        {},
+        {
+          workspaceId: workspace.id,
+          conversationId: resolvedConversationId,
+          userId,
+          enableRecentLeaseFallback: true,
+        },
+      );
+      const lease = getLease(db, leaseId, workspace.id);
+      if (lease) {
+        const clauseCountRow = db
+          .prepare(
+            'SELECT COUNT(*) AS n FROM clauses WHERE lease_id = ? AND workspace_id = ?',
+          )
+          .get(lease.id, workspace.id) as { n: number } | undefined;
+        activeLease = {
+          id: lease.id,
+          filename: lease.filename,
+          page_count: lease.page_count,
+          clause_count: clauseCountRow?.n ?? 0,
+        };
+      }
+    } catch {
+      // No lease bound and no recent upload — leave activeLease=null
+      // so the prompt's no-lease branch handles it.
+    }
+
     const systemPrompt = buildSystemPrompt({
       role,
       workspace,
       context: ragContext,
+      activeLease,
     });
     const encoder = new TextEncoder();
 
@@ -306,9 +387,13 @@ export async function POST(req: NextRequest) {
             if (useStreaming) {
               // Streaming for final text response
               const stream = getAnthropicClient().messages.stream({
-                model: env.CONTENTOPS_ANTHROPIC_MODEL,
+                model: env.LEASELENS_ANTHROPIC_MODEL,
                 system: systemPrompt,
-                messages: contextMessages,
+                // Phase 10.8.3 — context-window's content-block widening
+                // intentionally types content as `string | unknown[]` so
+                // that file stays SDK-agnostic. The cast here re-asserts
+                // the structured-block shape to the Anthropic types.
+                messages: contextMessages as MessageParam[],
                 max_tokens: 1024,
                 tools:
                   availableTools.length > 0
@@ -359,9 +444,13 @@ export async function POST(req: NextRequest) {
             } else {
               // Non-streaming for tool-use iterations
               const response = await getAnthropicClient().messages.create({
-                model: env.CONTENTOPS_ANTHROPIC_MODEL,
+                model: env.LEASELENS_ANTHROPIC_MODEL,
                 system: systemPrompt,
-                messages: contextMessages,
+                // Phase 10.8.3 — context-window's content-block widening
+                // intentionally types content as `string | unknown[]` so
+                // that file stays SDK-agnostic. The cast here re-asserts
+                // the structured-block shape to the Anthropic types.
+                messages: contextMessages as MessageParam[],
                 max_tokens: 1024,
                 tools:
                   availableTools.length > 0
@@ -433,7 +522,7 @@ export async function POST(req: NextRequest) {
           }
 
           // Record spend for ceiling tracking (demo mode only)
-          if (env.CONTENTOPS_DEMO_MODE && tokensIn > 0) {
+          if (env.LEASELENS_DEMO_MODE && tokensIn > 0) {
             recordSpend(tokensIn, tokensOut);
           }
         } catch (error) {

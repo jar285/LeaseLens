@@ -166,4 +166,66 @@ describe('purgeExpiredWorkspaces', () => {
       .get('sample-msg');
     expect(msg).toBeDefined();
   });
+
+  it('Sprint 13 — cascades DELETE through negotiation_emails → clauses → leases for an expired non-sample', () => {
+    const past = Math.floor(Date.now() / 1000) - 60;
+    insertWorkspace(db, { id: 'expired-lease', expires_at: past });
+    db.prepare(
+      `INSERT INTO users (id, email, role, display_name, created_at)
+       VALUES ('u-tenant', 'tenant@example.com', 'Creator', 'T', 0)`,
+    ).run();
+    // Lease + clauses + an email — the FK chain is leases ← clauses ← negotiation_emails.
+    db.prepare(
+      `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+       VALUES ('lease-1', 'expired-lease', 'sample.pdf', 'full text', 5, 'u-tenant', 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
+       VALUES ('clause-1', 'lease-1', 'expired-lease', 0, 'late_fee', 'late fee text', 2, 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO negotiation_emails (id, clause_id, workspace_id, tone, subject, body, drafted_by, created_at)
+       VALUES ('email-1', 'clause-1', 'expired-lease', 'polite', 's', 'b', 'u-tenant', 1)`,
+    ).run();
+
+    const result = purgeExpiredWorkspaces(db);
+    expect(result.purged).toBe(1);
+
+    for (const table of ['negotiation_emails', 'clauses', 'leases']) {
+      const remaining = (
+        db
+          .prepare(`SELECT COUNT(*) as c FROM ${table} WHERE workspace_id = ?`)
+          .get('expired-lease') as { c: number }
+      ).c;
+      expect(remaining, `${table} should have 0 rows after purge`).toBe(0);
+    }
+  });
+
+  it('Sprint 13 — does not violate FK during cascade with leases + clauses + emails present', () => {
+    // The cascade order matters: with foreign_keys = ON, deleting leases
+    // before clauses (or clauses before negotiation_emails) would throw.
+    // Confirm boot-time pragma is on, then run the cascade.
+    db.pragma('foreign_keys = ON');
+
+    const past = Math.floor(Date.now() / 1000) - 60;
+    insertWorkspace(db, { id: 'expired-fk', expires_at: past });
+    db.prepare(
+      `INSERT INTO users (id, email, role, display_name, created_at)
+       VALUES ('u-fk', 'fk@example.com', 'Creator', 'T', 0)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+       VALUES ('lease-fk', 'expired-fk', 'fk.pdf', 't', 1, 'u-fk', 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
+       VALUES ('clause-fk', 'lease-fk', 'expired-fk', 0, 'late_fee', 'x', 1, 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO negotiation_emails (id, clause_id, workspace_id, tone, subject, body, drafted_by, created_at)
+       VALUES ('email-fk', 'clause-fk', 'expired-fk', 'polite', 's', 'b', 'u-fk', 1)`,
+    ).run();
+
+    expect(() => purgeExpiredWorkspaces(db)).not.toThrow();
+  });
 });

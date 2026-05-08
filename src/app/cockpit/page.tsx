@@ -31,7 +31,7 @@ export const runtime = 'nodejs';
 
 export default async function CockpitPage() {
   const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get('contentops_session');
+  const sessionCookie = cookieStore.get('leaselens_session');
   const payload = sessionCookie ? await decrypt(sessionCookie.value) : null;
   const role: Role = payload?.role ?? 'Creator';
   const userId =

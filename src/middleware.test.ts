@@ -7,7 +7,7 @@ import { middleware } from './middleware';
 
 describe('Middleware RBAC Enforcement', () => {
   beforeEach(() => {
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
   });
 
@@ -19,7 +19,7 @@ describe('Middleware RBAC Enforcement', () => {
       displayName: adminUser?.display_name ?? 'Syndicate Admin',
     });
     const req = new NextRequest('http://localhost/api/admin/ping');
-    req.cookies.set('contentops_session', token);
+    req.cookies.set('leaselens_session', token);
 
     const res = await middleware(req);
     expect(res).toBeDefined();
@@ -34,7 +34,7 @@ describe('Middleware RBAC Enforcement', () => {
       displayName: creatorUser?.display_name ?? 'Syndicate Creator',
     });
     const req = new NextRequest('http://localhost/api/admin/ping');
-    req.cookies.set('contentops_session', token);
+    req.cookies.set('leaselens_session', token);
 
     const res = await middleware(req);
     expect(res?.status).toBe(403);

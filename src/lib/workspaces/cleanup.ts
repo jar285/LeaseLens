@@ -30,6 +30,21 @@ export function purgeExpiredWorkspaces(db: Database.Database): PurgeResult {
     const ids = expired.map((r) => r.id);
     const placeholders = ids.map(() => '?').join(',');
 
+    // Sprint 13 §3e cascade — children-first, parent last. With FK
+    // enforcement on (boot-time pragma), this order matters:
+    //   negotiation_emails ← clauses ← leases (lease tables)
+    //   chunks ← documents (corpus tables)
+    //   messages ← conversations (chat history)
+    db.prepare(
+      `DELETE FROM negotiation_emails WHERE workspace_id IN (${placeholders})`,
+    ).run(...ids);
+    db.prepare(
+      `DELETE FROM clauses WHERE workspace_id IN (${placeholders})`,
+    ).run(...ids);
+    db.prepare(
+      `DELETE FROM leases WHERE workspace_id IN (${placeholders})`,
+    ).run(...ids);
+
     db.prepare(
       `DELETE FROM chunks WHERE workspace_id IN (${placeholders})`,
     ).run(...ids);

@@ -75,7 +75,7 @@ export function ChatComposer({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           disabled={isLocked}
-          placeholder="Ask about brand voice, content pillars, or the first-week calendar…"
+          placeholder="Ask about a lease clause, NJ tenant law, or upload a lease to start a scan…"
           className="min-h-[38px] flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:ring-0"
           rows={1}
         />

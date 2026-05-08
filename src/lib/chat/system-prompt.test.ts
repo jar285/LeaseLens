@@ -3,15 +3,38 @@ import type { RetrievedChunk } from '@/lib/rag/retrieve';
 import { buildSystemPrompt } from './system-prompt';
 
 describe('buildSystemPrompt', () => {
-  it('includes the brand name', () => {
+  it('opens with the LeaseLens identity sentence (Sprint 13 §3h §1)', () => {
     const prompt = buildSystemPrompt('Creator');
-    expect(prompt).toContain('Side Quest Syndicate');
+    expect(prompt).toContain('LeaseLens');
+    expect(prompt).toMatch(/NJ residential lease|New Jersey residential/i);
   });
 
-  it('injects the role into the output', () => {
-    expect(buildSystemPrompt('Creator')).toContain('role is Creator');
-    expect(buildSystemPrompt('Editor')).toContain('role is Editor');
-    expect(buildSystemPrompt('Admin')).toContain('role is Admin');
+  it('renders the LeaseLens role labels via labelFor (Tenant/Reviewer/Admin)', () => {
+    expect(buildSystemPrompt('Creator')).toMatch(/Tenant/);
+    expect(buildSystemPrompt('Editor')).toMatch(/Reviewer/);
+    expect(buildSystemPrompt('Admin')).toMatch(/Admin/);
+  });
+
+  it('includes the LEASELENS_DISCLAIMER string verbatim (spec §2.8 invariant)', () => {
+    const prompt = buildSystemPrompt('Creator');
+    expect(prompt.toLowerCase()).toContain('not legal advice');
+    expect(prompt).toMatch(/attorney|legal[\s-]aid|clinic/);
+  });
+
+  it('names the LeaseLens tool surface and the prescribed call order', () => {
+    const prompt = buildSystemPrompt('Creator');
+    // Three new tools surface in the prompt; old ContentOps tools do not.
+    expect(prompt).toMatch(/extract_clauses/);
+    expect(prompt).toMatch(/grade_clause_severity/);
+    expect(prompt).toMatch(/draft_negotiation_email/);
+    expect(prompt).not.toMatch(/schedule_content_item/);
+    expect(prompt).not.toMatch(/approve_draft\b/);
+  });
+
+  it('refuses non-NJ leases (spec §2.7)', () => {
+    const prompt = buildSystemPrompt('Creator');
+    expect(prompt).toMatch(/New Jersey|NJ-only|NJ\b/);
+    expect(prompt).toMatch(/refuse|decline/i);
   });
 
   it('includes a UTC date in YYYY-MM-DD format', () => {
@@ -47,7 +70,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toContain('<context>');
   });
 
-  it('parameterizes on a workspace via options-object signature (Sprint 11)', () => {
+  it('parameterizes on a workspace via options-object signature (Sprint 11; Sprint 13 prose update)', () => {
     const prompt = buildSystemPrompt({
       role: 'Editor',
       workspace: {
@@ -59,7 +82,8 @@ describe('buildSystemPrompt', () => {
         expires_at: 9_999_999_999,
       },
     });
-    expect(prompt).toContain('You are an AI assistant for Acme');
+    // Sprint 13 — workspace name appears in the active-workspace section.
+    expect(prompt).toContain('The active workspace is Acme.');
     expect(prompt).toContain('A test brand for measurement.');
     expect(prompt).not.toContain('Side Quest Syndicate');
   });
@@ -88,17 +112,19 @@ describe('buildSystemPrompt', () => {
       },
     });
     // Both produce exactly one trailing period after the description sentence.
-    expect(withPeriod).toContain('Acme. A demo brand.');
+    // Sprint 13: the description appears in the LeaseLens identity sentence
+    // (not as a "brand-onboarding" tagline).
+    expect(withPeriod).toContain('A demo brand.');
     expect(withPeriod).not.toContain('A demo brand..');
-    expect(withoutPeriod).toContain('Acme. A demo brand.');
+    expect(withoutPeriod).toContain('A demo brand.');
+    expect(withoutPeriod).not.toContain('A demo brand..');
   });
 
-  it('mentions render_workflow_diagram and prescribes search-first for brand diagrams (Sprint 12)', () => {
+  it('mentions render_workflow_diagram and the LeaseLens diagram shapes (Sprint 13)', () => {
     const prompt = buildSystemPrompt('Creator');
     expect(prompt).toMatch(/render_workflow_diagram/);
-    expect(prompt).toMatch(
-      /approval pipeline|content calendar|brand voice taxonomy|publishing state machine/,
-    );
-    expect(prompt).toMatch(/search_corpus[\s\S]*first|first[\s\S]*search_corpus/);
+    // Sprint 13 §3f: LeaseLens repurposes the diagram tool for a clause-
+    // dependency map and a severity heatmap.
+    expect(prompt).toMatch(/clause|severity|heatmap|dependency/i);
   });
 });

@@ -144,4 +144,11 @@ export function migrate(db: Database.Database): void {
   db.exec(
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_slug_workspace ON documents(slug, workspace_id)`,
   );
+
+  // Sprint 13 §3e — conversations.active_lease_id (nullable). Idempotent
+  // via columnExists so re-running the migrate path on a fresh SCHEMA-built
+  // DB or an already-migrated dev DB is a no-op.
+  if (!columnExists(db, 'conversations', 'active_lease_id')) {
+    db.exec(`ALTER TABLE conversations ADD COLUMN active_lease_id TEXT`);
+  }
 }

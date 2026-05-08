@@ -39,7 +39,7 @@ interface SessionResult {
 
 async function resolveSession(): Promise<SessionResult> {
   const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get('contentops_session');
+  const sessionCookie = cookieStore.get('leaselens_session');
   let userId: string | undefined = DEMO_USERS.find(
     (u) => u.role === 'Creator',
   )?.id;

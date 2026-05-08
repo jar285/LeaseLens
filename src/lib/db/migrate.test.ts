@@ -440,4 +440,87 @@ describe('migrate', () => {
     ).c;
     expect(count).toBe(2);
   });
+
+  // Pre-S13 schema fixture. Has workspace_id columns (post-Round-3) but
+  // lacks active_lease_id on conversations and lacks the lease tables.
+  // Also includes the minimum tables migrate() touches (documents, chunks,
+  // audit_log, content_calendar, approvals, conversations).
+  function seedPreS13Schema(db: Database.Database): void {
+    db.exec(`
+      CREATE TABLE documents (
+        id TEXT PRIMARY KEY, slug TEXT NOT NULL, workspace_id TEXT NOT NULL,
+        title TEXT NOT NULL, content TEXT NOT NULL, content_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE chunks (
+        id TEXT PRIMARY KEY, document_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL, chunk_level TEXT NOT NULL, heading TEXT,
+        content TEXT NOT NULL, embedding BLOB, embedding_model TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE audit_log (
+        id TEXT PRIMARY KEY, tool_name TEXT NOT NULL, tool_use_id TEXT,
+        actor_user_id TEXT NOT NULL, actor_role TEXT NOT NULL,
+        conversation_id TEXT, workspace_id TEXT NOT NULL,
+        input_json TEXT NOT NULL, output_json TEXT NOT NULL,
+        compensating_action_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'executed',
+        created_at INTEGER NOT NULL, rolled_back_at INTEGER
+      );
+      CREATE TABLE content_calendar (
+        id TEXT PRIMARY KEY, document_slug TEXT NOT NULL, workspace_id TEXT NOT NULL,
+        scheduled_for INTEGER NOT NULL, channel TEXT NOT NULL,
+        scheduled_by TEXT NOT NULL, created_at INTEGER NOT NULL
+      );
+      CREATE TABLE approvals (
+        id TEXT PRIMARY KEY, document_slug TEXT NOT NULL, workspace_id TEXT NOT NULL,
+        approved_by TEXT NOT NULL, notes TEXT, created_at INTEGER NOT NULL
+      );
+      CREATE TABLE conversations (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+        title TEXT DEFAULT 'New Conversation', created_at INTEGER NOT NULL
+      );
+    `);
+  }
+
+  it('Sprint 13 — adds active_lease_id column to a pre-S13 conversations table', () => {
+    const db = new Database(':memory:');
+    seedPreS13Schema(db);
+
+    migrate(db);
+
+    const cols = db.prepare(`PRAGMA table_info(conversations)`).all() as {
+      name: string;
+      notnull: number;
+    }[];
+    const activeLease = cols.find((c) => c.name === 'active_lease_id');
+    expect(activeLease).toBeDefined();
+    expect(activeLease?.notnull).toBe(0);
+  });
+
+  it('Sprint 13 — running migrate twice on a pre-S13 DB is idempotent for active_lease_id', () => {
+    const db = new Database(':memory:');
+    seedPreS13Schema(db);
+
+    migrate(db);
+    // Second call must not throw and must not duplicate the column.
+    expect(() => migrate(db)).not.toThrow();
+
+    const cols = db.prepare(`PRAGMA table_info(conversations)`).all() as {
+      name: string;
+    }[];
+    const activeLeaseCols = cols.filter((c) => c.name === 'active_lease_id');
+    expect(activeLeaseCols).toHaveLength(1);
+  });
+
+  it('Sprint 13 — fresh SCHEMA includes active_lease_id; migrate is a no-op on it', () => {
+    const db = new Database(':memory:');
+    db.exec(SCHEMA);
+    migrate(db);
+
+    const cols = db.prepare(`PRAGMA table_info(conversations)`).all() as {
+      name: string;
+    }[];
+    expect(cols.some((c) => c.name === 'active_lease_id')).toBe(true);
+  });
 });

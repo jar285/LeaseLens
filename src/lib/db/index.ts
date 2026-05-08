@@ -5,11 +5,11 @@ import { env } from '@/lib/env';
 import { migrate } from './migrate';
 import { SCHEMA } from './schema';
 
-if (!env.CONTENTOPS_DEMO_MODE) {
-  mkdirSync(dirname(env.CONTENTOPS_DB_PATH), { recursive: true });
+if (!env.LEASELENS_DEMO_MODE) {
+  mkdirSync(dirname(env.LEASELENS_DB_PATH), { recursive: true });
 }
 
-const db = new Database(env.CONTENTOPS_DB_PATH);
+const db = new Database(env.LEASELENS_DB_PATH);
 
 db.pragma('busy_timeout = 5000');
 db.pragma('journal_mode = WAL');
@@ -18,5 +18,28 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.exec(SCHEMA);
 migrate(db); // Sprint 11 — patches pre-Sprint-11 dev DBs idempotently.
+
+// Phase 10.7 — startup sanity check. The NJ tenant-law corpus is the
+// hard dependency for grade_clause_severity. If it's empty, the chat
+// experience is broken in a way that's painful to diagnose from the
+// UI alone (every grade fails). Log loud and clearly so the dev sees
+// it in the terminal. The `predev` npm script auto-seeds when this
+// is empty, so this warning should only appear if seeding was
+// skipped or failed silently.
+if (!env.LEASELENS_DEMO_MODE) {
+  try {
+    const row = db.prepare('SELECT COUNT(*) AS n FROM chunks').get() as
+      | { n: number }
+      | undefined;
+    if ((row?.n ?? 0) === 0) {
+      console.warn(
+        '[leaselens] WARNING: chunks table is empty. NJ tenant-law corpus is not loaded. Run `npm run db:seed` to fix.',
+      );
+    }
+  } catch {
+    // Table doesn't exist yet on a brand-new DB — schema/migrate
+    // already ran above, but be defensive against unusual states.
+  }
+}
 
 export { db };

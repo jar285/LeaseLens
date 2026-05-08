@@ -1,11 +1,14 @@
 {
-  "name": "contentop",
+  "name": "leaselens",
   "version": "1.0.0",
   "main": "index.js",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
+    "postinstall": "node scripts/copy-pdf-worker.mjs",
+    "predev": "node scripts/copy-pdf-worker.mjs && node scripts/seed-if-empty.mjs",
+    "prebuild": "node scripts/copy-pdf-worker.mjs && node scripts/seed-if-empty.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -15,7 +18,8 @@
     "test:e2e": "playwright test",
     "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
     "eval:golden": "tsx --env-file=.env.local scripts/eval-golden.ts",
-    "mcp:server": "tsx mcp/contentops-server.ts"
+    "eval:leases": "tsx --env-file=.env.local scripts/eval-leases.ts",
+    "mcp:server": "tsx mcp/leaselens-server.ts"
   },
   "keywords": [],
   "author": "",
@@ -34,8 +38,10 @@
     "mermaid": "^11.14.0",
     "motion": "^12.38.0",
     "next": "^16.2.4",
+    "pdfjs-dist": "^5.6.205",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "react-pdf": "^10.4.1",
     "zod": "^3.25.0"
   },
   "devDependencies": {

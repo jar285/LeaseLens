@@ -88,25 +88,23 @@ describe('Homepage Chat UI', () => {
   });
 
   it('renders the initial empty state correctly', () => {
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(<ChatUI workspaceName="LeaseLens — NJ Tenant Law" />);
     expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: /Side Quest Syndicate/i }),
+      screen.getByRole('heading', { name: /LeaseLens/i }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText('Type a message')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 
   it('submits an empty-state suggested prompt', async () => {
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(<ChatUI workspaceName="LeaseLens — NJ Tenant Law" />);
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /Define Brand Voice/i }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /standard scan/i }));
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Summarize the Side Quest Syndicate brand voice/i),
+        screen.getByText(/extract the clauses|grade.*NJ tenant law/i),
       ).toBeInTheDocument();
     });
 
@@ -114,7 +112,7 @@ describe('Homepage Chat UI', () => {
       '/api/chat',
       expect.objectContaining({
         method: 'POST',
-        body: expect.stringContaining('brand voice'),
+        body: expect.stringMatching(/extract|standard scan|NJ tenant law/i),
       }),
     );
   });

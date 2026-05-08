@@ -79,7 +79,7 @@ test.beforeEach(async ({ context, page }) => {
   });
   await context.addCookies([
     {
-      name: 'contentops_session',
+      name: 'leaselens_session',
       value: token,
       domain: 'localhost',
       path: '/',
@@ -87,7 +87,7 @@ test.beforeEach(async ({ context, page }) => {
       sameSite: 'Lax',
     },
     {
-      name: 'contentops_workspace',
+      name: 'leaselens_workspace',
       value: workspaceToken,
       domain: 'localhost',
       path: '/',

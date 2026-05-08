@@ -22,7 +22,7 @@ vi.mock('next/cache', () => ({
 describe('switchRole Server Action', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
   });
 
@@ -35,7 +35,7 @@ describe('switchRole Server Action', () => {
 
     // Check the arguments passed to set()
     const [name, token, options] = vi.mocked(cookieStore.set).mock.calls[0];
-    expect(name).toBe('contentops_session');
+    expect(name).toBe('leaselens_session');
     expect(options).toMatchObject({
       httpOnly: true,
       path: '/',

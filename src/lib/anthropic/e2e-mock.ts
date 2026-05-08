@@ -1,6 +1,6 @@
 // E2E Anthropic mock client.
 //
-// Engaged when CONTENTOPS_E2E_MOCK === '1' (set by playwright.config.ts via
+// Engaged when LEASELENS_E2E_MOCK === '1' (set by playwright.config.ts via
 // webServer.env). Returns a thin object satisfying the parts of the Anthropic
 // SDK that src/app/api/chat/route.ts uses: messages.create() and
 // messages.stream().

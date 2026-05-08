@@ -27,7 +27,7 @@ const SAMPLE_LEASE_PDF_PATH = join(
 
 // Sprint 13 — stable id for the seeded sample lease so the lease-
 // grading eval (Phase 11) can reference it without re-seeding.
-const SAMPLE_LEASE_ID = '00000000-0000-0000-0000-000000000020';
+export const SAMPLE_LEASE_ID = '00000000-0000-0000-0000-000000000020';
 // Stable uploader so audit ownership tests are deterministic.
 const SAMPLE_LEASE_UPLOADER_ID = DEMO_USERS.find((u) => u.role === 'Creator')
   ?.id as string;

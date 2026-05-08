@@ -41,7 +41,7 @@ describe('POST /api/workspaces (upload)', () => {
     db.prepare(`DELETE FROM chunks WHERE workspace_id != ?`).run(sampleId);
     db.prepare(`DELETE FROM documents WHERE workspace_id != ?`).run(sampleId);
     db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
   });
 
@@ -69,7 +69,7 @@ describe('POST /api/workspaces (upload)', () => {
     expect(body.workspace_id).toBeTruthy();
 
     const setCookie = res.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain('contentops_workspace=');
+    expect(setCookie).toContain('leaselens_workspace=');
 
     // DB has the new workspace + a document scoped to it.
     const ws = db

@@ -9,41 +9,38 @@ describe('ChatEmptyState', () => {
   });
 
   it('renders the heading using the workspaceName prop', () => {
-    render(<ChatEmptyState workspaceName="GitLab" />);
-    expect(screen.getByRole('heading', { name: 'GitLab' })).toBeInTheDocument();
+    render(<ChatEmptyState workspaceName="LeaseLens — NJ Tenant Law" />);
+    expect(
+      screen.getByRole('heading', { name: /LeaseLens/i }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: /Side Quest Syndicate/i }),
     ).not.toBeInTheDocument();
   });
 
-  it('templates each suggested prompt with the workspaceName', () => {
+  it('exposes the standard scan as the first suggested prompt', () => {
     const onSelectPrompt = vi.fn();
     render(
-      <ChatEmptyState workspaceName="Acme" onSelectPrompt={onSelectPrompt} />,
+      <ChatEmptyState workspaceName="W" onSelectPrompt={onSelectPrompt} />,
     );
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /Define Brand Voice/i }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: /standard scan/i }));
     expect(onSelectPrompt).toHaveBeenCalledTimes(1);
-    expect(onSelectPrompt.mock.calls[0][0]).toMatch(/Acme/);
-    expect(onSelectPrompt.mock.calls[0][0]).not.toMatch(/Side Quest Syndicate/);
+    const prompt = onSelectPrompt.mock.calls[0][0] as string;
+    expect(prompt).toMatch(/grade.*NJ tenant law|red flag/i);
   });
 
-  it('all four suggested prompts contain the workspaceName', () => {
+  it('exposes all four LeaseLens suggested prompts', () => {
     const onSelectPrompt = vi.fn();
     render(
-      <ChatEmptyState
-        workspaceName="Riverbrook"
-        onSelectPrompt={onSelectPrompt}
-      />,
+      <ChatEmptyState workspaceName="W" onSelectPrompt={onSelectPrompt} />,
     );
 
     for (const label of [
-      /Define Brand Voice/i,
-      /Map Content Pillars/i,
-      /Plan First Week/i,
-      /Review Approval Flow/i,
+      /standard scan/i,
+      /Explain a lease term/i,
+      /Compare to NJ statute/i,
+      /negotiation email/i,
     ]) {
       onSelectPrompt.mockClear();
       fireEvent.click(screen.getByRole('button', { name: label }));
@@ -51,12 +48,8 @@ describe('ChatEmptyState', () => {
       const prompt = onSelectPrompt.mock.calls[0][0] as string;
       expect(
         prompt,
-        `prompt for ${label} should contain workspaceName`,
-      ).toMatch(/Riverbrook/);
-      expect(
-        prompt,
-        `prompt for ${label} should NOT mention Side Quest Syndicate`,
-      ).not.toMatch(/Side Quest Syndicate/);
+        `prompt for ${label} should NOT mention ContentOps`,
+      ).not.toMatch(/Side Quest Syndicate|brand voice|content pillars/i);
     }
   });
 });

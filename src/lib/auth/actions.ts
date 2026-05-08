@@ -21,7 +21,7 @@ export async function switchRole(role: Role) {
   const token = await encrypt(session);
 
   const cookieStore = await cookies();
-  cookieStore.set('contentops_session', token, {
+  cookieStore.set('leaselens_session', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',

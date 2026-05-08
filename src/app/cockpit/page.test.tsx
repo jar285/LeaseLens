@@ -55,8 +55,8 @@ async function mockCookieFor(
   });
   (cookies as ReturnType<typeof vi.fn>).mockResolvedValue({
     get: (name: string) => {
-      if (name === 'contentops_session') return { value: sessionToken };
-      if (name === 'contentops_workspace') return { value: workspaceToken };
+      if (name === 'leaselens_session') return { value: sessionToken };
+      if (name === 'leaselens_workspace') return { value: workspaceToken };
       return undefined;
     },
     delete: () => {},

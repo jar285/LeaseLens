@@ -1,13 +1,14 @@
-import { Layers } from 'lucide-react';
+import { ScrollText } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
-import { ChatUI } from '@/components/chat/ChatUI';
 import { WorkspaceHeader } from '@/components/cockpit/WorkspaceHeader';
+import { LeaseLensWorkspaceShell } from '@/components/lease/LeaseLensWorkspaceShell';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import { getLatestConversationForWorkspace } from '@/lib/chat/conversations';
+import { rehydrateConversationMessages } from '@/lib/chat/rehydrate-history';
 import { db } from '@/lib/db';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
@@ -39,7 +40,6 @@ export default async function Home() {
     ? getActiveWorkspace(db, workspacePayload.workspace_id)
     : null;
   if (!workspace) {
-    if (workspaceCookie) cookieStore.delete(WORKSPACE_COOKIE_NAME);
     workspace = {
       id: SAMPLE_WORKSPACE.id,
       name: SAMPLE_WORKSPACE.name,
@@ -58,7 +58,7 @@ export default async function Home() {
       )
     : [];
 
-  const sessionCookie = cookieStore.get('contentops_session');
+  const sessionCookie = cookieStore.get('leaselens_session');
 
   let currentRole: 'Creator' | 'Editor' | 'Admin' = 'Creator';
   let currentUserId = DEMO_USERS.find((u) => u.role === 'Creator')?.id;
@@ -97,16 +97,16 @@ export default async function Home() {
           'SELECT id, role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
         )
         .all(conversationId) as { id: string; role: string; content: string }[];
-      initialMessages = msgs.map((m) => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      }));
+      initialMessages = rehydrateConversationMessages(msgs);
     }
   }
 
   return (
-    <main className="grid h-screen max-h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-[#f8f9fa] font-sans text-gray-900">
+    // Phase 10.5 — outermost shell uses h-dvh + flex-col so the header
+    // takes its natural height and the rest of the viewport is exactly
+    // one min-h-0 region. Every child below this point owns its own
+    // overflow chain; the page itself never scrolls.
+    <main className="flex h-dvh flex-col overflow-hidden bg-[#f8f9fa] font-sans text-gray-900">
       <header className="z-10 flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-8 py-3.5">
         <div className="flex items-center gap-4">
           <Link
@@ -114,13 +114,13 @@ export default async function Home() {
             className="flex items-center gap-2.5 rounded-md text-[15px] font-semibold tracking-tight text-gray-800 transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white">
-              <Layers
+              <ScrollText
                 className="h-3.5 w-3.5"
                 aria-hidden="true"
                 strokeWidth={2.5}
               />
             </span>
-            ContentOps Studio
+            LeaseLens
           </Link>
           <WorkspaceHeader workspace={workspace} otherBrands={otherBrands} />
           {currentRole !== 'Creator' && (
@@ -132,20 +132,18 @@ export default async function Home() {
             </Link>
           )}
         </div>
-        {/* Sprint chip removed in Sprint 9 — see spec §3 / §9.1 */}
+        {/* Phase 10.8 — role switcher relocated from a floating
+            bottom-right group (which overlapped the last red-flag
+            card) into the global header. Always rendered in dev for
+            persona testing. */}
+        <RoleSwitcher currentRole={currentRole} />
       </header>
-      <div className="flex min-h-0 w-full justify-center overflow-hidden">
-        <div className="relative flex h-full w-full max-w-[52rem] flex-col border-x border-gray-100 bg-white">
-          <ChatUI
-            key={workspace.id}
-            initialMessages={initialMessages}
-            conversationId={conversationId}
-            workspaceName={workspace.name}
-          />
-        </div>
-      </div>
-      {/* Always show in development for persona testing */}
-      <RoleSwitcher currentRole={currentRole} />
+      <LeaseLensWorkspaceShell
+        key={workspace.id}
+        initialMessages={initialMessages}
+        conversationId={conversationId}
+        workspaceName={workspace.name}
+      />
     </main>
   );
 }

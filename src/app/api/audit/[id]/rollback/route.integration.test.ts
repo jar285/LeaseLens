@@ -5,13 +5,13 @@ import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
 import { writeAuditRow } from '@/lib/tools/audit-log';
-import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   createGetDocumentSummaryTool,
   createListDocumentsTool,
   createSearchCorpusTool,
 } from '@/lib/tools/corpus-tools';
 import { ToolRegistry } from '@/lib/tools/registry';
+import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { POST } from './route';
 
 // Sentinel — flipped on by the throwing-rollback test in beforeEach,
@@ -72,7 +72,7 @@ async function makeRollbackRequest(
       role: user.role,
       displayName: user.display_name,
     });
-    req.cookies.set('contentops_session', token);
+    req.cookies.set('leaselens_session', token);
   }
   return req;
 }
@@ -87,8 +87,8 @@ describe('POST /api/audit/[id]/rollback', () => {
     db.prepare('DELETE FROM audit_log').run();
     db.prepare('DELETE FROM content_calendar').run();
     db.prepare('DELETE FROM approvals').run();
-    db.prepare('DELETE FROM documents').run();
     db.prepare('DELETE FROM chunks').run();
+    db.prepare('DELETE FROM documents').run();
 
     // Re-seed demo users + the document the schedule_content_item rows
     // refer to.
@@ -101,53 +101,68 @@ describe('POST /api/audit/[id]/rollback', () => {
     }
     db.prepare(
       'INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    ).run('doc-1', 'sqs-launch', SAMPLE_WORKSPACE.id, 'SQS Launch', 'content', 'hash', now);
+    ).run(
+      'doc-1',
+      'sqs-launch',
+      SAMPLE_WORKSPACE.id,
+      'SQS Launch',
+      'content',
+      'hash',
+      now,
+    );
+
+    // Sprint 13 — the audit/rollback path now exercises
+    // draft_negotiation_email as the exemplar mutating tool.
+    // Seed a parent lease + clause that the audit row will reference.
+    db.prepare('DELETE FROM negotiation_emails').run();
+    db.prepare('DELETE FROM clauses').run();
+    db.prepare('DELETE FROM leases').run();
+    db.prepare(
+      `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+       VALUES ('lease-rb', ?, 'rb.pdf', 'text', 1, ?, ?)`,
+    ).run(SAMPLE_WORKSPACE.id, EDITOR.id, now);
+    db.prepare(
+      `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
+       VALUES ('clause-rb', 'lease-rb', ?, 0, 'security_deposit', 'two months rent', 1, ?)`,
+    ).run(SAMPLE_WORKSPACE.id, now);
   });
 
   afterEach(() => {
     useThrowingRegistry.value = false;
   });
 
+  /**
+   * Seed a negotiation_emails row and a matching audit_log row whose
+   * compensating action is a DELETE on the email row. Mirrors the real
+   * draft_negotiation_email path (Sprint 13).
+   */
   function seedScheduledRowAndAudit(actor: { id: string; role: Role }): {
     auditId: string;
     scheduleId: string;
   } {
-    const scheduleId = `sched-${Math.random().toString(36).slice(2)}`;
+    const emailId = `email-${Math.random().toString(36).slice(2)}`;
     db.prepare(
-      `INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      scheduleId,
-      'sqs-launch',
-      SAMPLE_WORKSPACE.id,
-      1_700_000_000,
-      'twitter',
-      actor.id,
-      0,
-    );
+      `INSERT INTO negotiation_emails
+         (id, clause_id, workspace_id, tone, subject, body, drafted_by, created_at)
+       VALUES (?, 'clause-rb', ?, 'polite', 'subj', 'body', ?, 0)`,
+    ).run(emailId, SAMPLE_WORKSPACE.id, actor.id);
 
     const auditId = writeAuditRow(db, {
-      tool_name: 'schedule_content_item',
+      tool_name: 'draft_negotiation_email',
       context: {
         role: actor.role,
         userId: actor.id,
         conversationId: 'conv-test',
         workspaceId: SAMPLE_WORKSPACE.id,
       },
-      input: {
-        // Audit row's input_json now stores the ISO string the tool received,
-        // not the parsed Unix seconds (Sprint 8 amendment — see mutating-tools.ts).
-        document_slug: 'sqs-launch',
-        scheduled_for: '2023-11-14T22:13:20Z',
-        channel: 'twitter',
-      },
-      output: { schedule_id: scheduleId },
-      compensatingActionPayload: { schedule_id: scheduleId },
+      input: { clause_id: 'clause-rb', tone: 'polite' },
+      output: { email_id: emailId },
+      compensatingActionPayload: { email_id: emailId },
     });
-    return { auditId, scheduleId };
+    return { auditId, scheduleId: emailId };
   }
 
-  it("Admin rolls back another user's row → 200 + audit rolled_back + content_calendar row deleted", async () => {
+  it("Admin rolls back another user's row → 200 + audit rolled_back + negotiation_emails row deleted", async () => {
     const { auditId, scheduleId } = seedScheduledRowAndAudit(EDITOR);
 
     const req = await makeRollbackRequest(auditId, ADMIN);
@@ -163,7 +178,7 @@ describe('POST /api/audit/[id]/rollback', () => {
     expect(audit.rolled_back_at).toBeGreaterThan(0);
 
     const calRow = db
-      .prepare('SELECT 1 FROM content_calendar WHERE id = ?')
+      .prepare('SELECT 1 FROM negotiation_emails WHERE id = ?')
       .get(scheduleId);
     expect(calRow).toBeUndefined();
   });
@@ -182,7 +197,7 @@ describe('POST /api/audit/[id]/rollback', () => {
     expect(audit.status).toBe('executed');
 
     const calRow = db
-      .prepare('SELECT 1 FROM content_calendar WHERE id = ?')
+      .prepare('SELECT 1 FROM negotiation_emails WHERE id = ?')
       .get(scheduleId);
     expect(calRow).toBeDefined();
   });
@@ -224,7 +239,7 @@ describe('POST /api/audit/[id]/rollback', () => {
     expect(auditAfterSecond.rolled_back_at).toBe(firstTimestamp);
 
     const calRow = db
-      .prepare('SELECT 1 FROM content_calendar WHERE id = ?')
+      .prepare('SELECT 1 FROM negotiation_emails WHERE id = ?')
       .get(scheduleId);
     expect(calRow).toBeUndefined();
   });

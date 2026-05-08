@@ -10,10 +10,10 @@ import type { SessionClaims, SessionPayload } from './types';
  * boot via env.ts, so this value is safe once the app is running.
  */
 function getSecret(): Uint8Array {
-  const raw = process.env.CONTENTOPS_SESSION_SECRET;
+  const raw = process.env.LEASELENS_SESSION_SECRET;
   if (!raw || raw.length < 32) {
     throw new Error(
-      'CONTENTOPS_SESSION_SECRET must be set and at least 32 characters.',
+      'LEASELENS_SESSION_SECRET must be set and at least 32 characters.',
     );
   }
   return new TextEncoder().encode(raw);

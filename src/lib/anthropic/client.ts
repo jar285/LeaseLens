@@ -6,11 +6,11 @@ let _client: Anthropic | null = null;
 let _mock: Anthropic | null = null;
 
 export function getAnthropicClient(): Anthropic {
-  // Sprint 8: Playwright dev server runs with CONTENTOPS_E2E_MOCK=1
+  // Sprint 8: Playwright dev server runs with LEASELENS_E2E_MOCK=1
   // (set in playwright.config.ts webServer.env). Returns a deterministic
   // mock client so the smoke test does not depend on LLM behavior or burn
   // Anthropic budget.
-  if (process.env.CONTENTOPS_E2E_MOCK === '1') {
+  if (process.env.LEASELENS_E2E_MOCK === '1') {
     if (!_mock) _mock = createE2EMockClient();
     return _mock;
   }

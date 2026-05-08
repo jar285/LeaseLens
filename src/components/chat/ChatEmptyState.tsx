@@ -1,8 +1,8 @@
 import {
-  BookOpen,
-  Calendar,
-  CheckSquare,
-  Map as MapIcon,
+  AlertTriangle,
+  FileText,
+  Mail,
+  ScrollText,
   Sparkles,
 } from 'lucide-react';
 
@@ -10,34 +10,42 @@ interface SuggestedPrompt {
   label: string;
   description: string;
   prompt: string;
-  Icon: typeof BookOpen;
+  Icon: typeof FileText;
 }
 
-function buildSuggestedPrompts(workspaceName: string): SuggestedPrompt[] {
+// Sprint 13 §3f — LeaseLens empty-state prompts. Replace the
+// ContentOps-era brand-onboarding cards with lease-review starters.
+// The first card is the headline scan flow; the others are common
+// follow-up questions a tenant or reviewer would ask.
+function buildSuggestedPrompts(_workspaceName: string): SuggestedPrompt[] {
   return [
     {
-      label: 'Define Brand Voice',
-      description: 'Set tone, audience, and editorial guidelines.',
-      prompt: `Summarize the ${workspaceName} brand voice and give me practical writing rules for creators.`,
-      Icon: BookOpen,
+      label: 'Run the standard scan',
+      description: 'Extract clauses and grade each against NJ tenant law.',
+      prompt:
+        'Run the standard scan on my active lease — extract the clauses, grade each against NJ tenant law, and list the red flags.',
+      Icon: AlertTriangle,
     },
     {
-      label: 'Map Content Pillars',
-      description: 'Identify core themes and recurring topics.',
-      prompt: `Map the core content pillars for ${workspaceName} and explain what each pillar is for.`,
-      Icon: MapIcon,
+      label: 'Explain a lease term',
+      description: 'Plain-English breakdown grounded in NJ statutes.',
+      prompt:
+        'Explain the security-deposit cap and return rules under NJ tenant law in plain English.',
+      Icon: ScrollText,
     },
     {
-      label: 'Plan First Week',
-      description: 'Draft posts and schedule the rollout calendar.',
-      prompt: `Create a first-week content plan for ${workspaceName} using the brand corpus.`,
-      Icon: Calendar,
+      label: 'Compare to NJ statute',
+      description: 'Cite the supporting NJ statute for any clause.',
+      prompt:
+        'For each clause you grade, cite the supporting NJ statute and quote the relevant section verbatim.',
+      Icon: FileText,
     },
     {
-      label: 'Review Approval Flow',
-      description: 'Configure review stages and sign-off rules.',
-      prompt: `Explain the approval workflow for ${workspaceName} and what an Admin should review before publishing.`,
-      Icon: CheckSquare,
+      label: 'Draft a negotiation email',
+      description: 'Polite landlord email; you review before sending.',
+      prompt:
+        'Draft a polite negotiation email to the landlord about the most concerning clause in my lease.',
+      Icon: Mail,
     },
   ];
 }
@@ -66,8 +74,9 @@ export function ChatEmptyState({
       </h2>
 
       <p className="mb-10 max-w-md text-[15px] leading-relaxed text-gray-500">
-        Your editorial assistant is ready. Define the brand voice, map content
-        pillars, plan the first-week calendar, or configure the approval flow.
+        Drop a NJ residential lease in the left pane, then ask me to scan it.
+        I'll extract clauses, grade each against NJ tenant-law sources, and
+        draft negotiation emails for any red flags.
       </p>
 
       <div className="grid w-full max-w-lg grid-cols-1 gap-2.5 sm:grid-cols-2">

@@ -27,7 +27,7 @@ export function isSpendCeilingExceeded(): boolean {
 
   return (
     estimateCost(row.tokens_in, row.tokens_out) >=
-    env.CONTENTOPS_DAILY_SPEND_CEILING_USD
+    env.LEASELENS_DAILY_SPEND_CEILING_USD
   );
 }
 

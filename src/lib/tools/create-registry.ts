@@ -1,6 +1,12 @@
 // Factory for creating a fully populated ToolRegistry
+//
+// Sprint 13 (charter v1.13): the ContentOps mutating tools
+// (`schedule_content_item`, `approve_draft`) are deregistered. The three
+// LeaseLens tools take their place; the read-only corpus tools and the
+// visualization tool stay. Total surface: 7 tools (4 retained + 3 new).
 
 import type Database from 'better-sqlite3';
+import { getAnthropicClient } from '@/lib/anthropic/client';
 import {
   createGetDocumentSummaryTool,
   createListDocumentsTool,
@@ -8,31 +14,68 @@ import {
 } from './corpus-tools';
 import { createRenderWorkflowDiagramTool } from './diagram-tools';
 import {
-  createApproveDraftTool,
-  createScheduleContentItemTool,
-} from './mutating-tools';
+  type AnthropicLike,
+  createDraftNegotiationEmailTool,
+  createExtractClausesTool,
+  createGradeClauseSeverityTool,
+} from './lease-tools';
 import { ToolRegistry } from './registry';
 
 /**
- * Create a ToolRegistry with all ContentOps tools registered.
+ * Create a ToolRegistry with all LeaseLens tools registered.
  *
- * Sprint 8: forwards `db` to the registry constructor so the registry
- * can write audit_log rows for mutating tools.
+ * @param db        Database handle (passed to every tool factory).
+ * @param anthropic Optional Anthropic client. Defaults to the lazily-
+ *                  resolved singleton from `getAnthropicClient()`. Tests
+ *                  may inject a deterministic stub.
  */
-export function createToolRegistry(db: Database.Database): ToolRegistry {
+export function createToolRegistry(
+  db: Database.Database,
+  anthropic?: AnthropicLike,
+): ToolRegistry {
   const registry = new ToolRegistry(db);
 
-  // Register read-only corpus tools
+  // Read-only corpus tools (retained from ContentOps; descriptions
+  // remain accurate because the corpus content swap doesn't change
+  // their behavior — they search whatever's in `documents`/`chunks`).
   registry.register(createSearchCorpusTool(db));
   registry.register(createGetDocumentSummaryTool(db));
   registry.register(createListDocumentsTool(db));
 
-  // Register mutating tools (Sprint 8)
-  registry.register(createScheduleContentItemTool(db));
-  registry.register(createApproveDraftTool(db));
-
-  // Register visualization tools (Sprint 12)
+  // Sprint 12 — visualization tool (retained).
   registry.register(createRenderWorkflowDiagramTool(db));
 
+  // Sprint 13 — LeaseLens tools.
+  // The Anthropic-using tools accept the client as a constructor arg so
+  // the lazy resolution and the test-injection path share one shape.
+  const llm = anthropic ?? lazyAnthropic();
+  registry.register(createExtractClausesTool(db));
+  registry.register(createGradeClauseSeverityTool(db, llm));
+  registry.register(createDraftNegotiationEmailTool(db, llm));
+
   return registry;
+}
+
+/**
+ * Lazy-resolved Anthropic client. The singleton from
+ * `getAnthropicClient()` requires an API key; we don't want building a
+ * registry to throw when constructed for tests / contexts that won't
+ * actually invoke an Anthropic-using tool. The proxy resolves on first
+ * `messages.create` access.
+ */
+function lazyAnthropic(): AnthropicLike {
+  return {
+    messages: {
+      create: (args) => {
+        const real = getAnthropicClient();
+        // The real SDK's create signature differs from `unknown` by
+        // type, but at runtime the passed args object is the same shape.
+        return (
+          real.messages.create as unknown as (a: unknown) => Promise<{
+            content: Array<{ type: string; text?: string }>;
+          }>
+        )(args);
+      },
+    },
+  };
 }

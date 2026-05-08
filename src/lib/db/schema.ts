@@ -26,7 +26,8 @@ export const SCHEMA = `
     user_id TEXT NOT NULL REFERENCES users(id),
     workspace_id TEXT NOT NULL,
     title TEXT DEFAULT 'New Conversation',
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    active_lease_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS messages (
@@ -122,6 +123,48 @@ export const SCHEMA = `
     notes         TEXT,
     created_at    INTEGER NOT NULL
   );
+
+  -- Sprint 13 §3e — LeaseLens session-input tables. Per charter §5.12,
+  -- leases are per-session input documents, NOT corpus content. They live
+  -- in their own table and are NOT embedded into chunks.
+  CREATE TABLE IF NOT EXISTS leases (
+    id            TEXT PRIMARY KEY,
+    workspace_id  TEXT NOT NULL,
+    filename      TEXT NOT NULL,
+    text_extract  TEXT NOT NULL,
+    page_count    INTEGER NOT NULL,
+    uploaded_by   TEXT NOT NULL,
+    created_at    INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_leases_workspace ON leases(workspace_id);
+
+  CREATE TABLE IF NOT EXISTS clauses (
+    id            TEXT PRIMARY KEY,
+    lease_id      TEXT NOT NULL REFERENCES leases(id),
+    workspace_id  TEXT NOT NULL,
+    clause_index  INTEGER NOT NULL,
+    clause_type   TEXT NOT NULL,
+    text          TEXT NOT NULL,
+    page_number   INTEGER NOT NULL,
+    created_at    INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_clauses_lease     ON clauses(lease_id);
+  CREATE INDEX IF NOT EXISTS idx_clauses_workspace ON clauses(workspace_id);
+
+  CREATE TABLE IF NOT EXISTS negotiation_emails (
+    id            TEXT PRIMARY KEY,
+    clause_id     TEXT NOT NULL REFERENCES clauses(id),
+    workspace_id  TEXT NOT NULL,
+    tone          TEXT NOT NULL,
+    subject       TEXT NOT NULL,
+    body          TEXT NOT NULL,
+    drafted_by    TEXT NOT NULL,
+    created_at    INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_negotiation_emails_workspace ON negotiation_emails(workspace_id);
 `;
 // Note: workspace_id-dependent indexes (composite UNIQUE on documents.slug,
 // per-table workspace_id indexes) are created inside `migrate()` because they

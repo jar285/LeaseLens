@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// ContentOps MCP Server
-// Exposes read-only corpus tools over the Model Context Protocol (stdio transport)
-// Usage: npx tsx mcp/contentops-server.ts
+// LeaseLens MCP Server
+// Exposes the LeaseLens tool surface over the Model Context Protocol (stdio transport)
+// Usage: npx tsx mcp/leaselens-server.ts
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -13,7 +13,7 @@ import { createToolRegistry } from '../src/lib/tools/create-registry';
 import { SAMPLE_WORKSPACE } from '../src/lib/workspaces/constants';
 
 // Database path - uses same DB as the main app
-const DB_PATH = join(process.cwd(), 'data', 'contentops.db');
+const DB_PATH = join(process.cwd(), 'data', 'leaselens.db');
 
 // MCP context (no real auth in stdio mode, assume Admin for broadest access).
 // Sprint 11: hardcoded to the SAMPLE_WORKSPACE — per-caller MCP workspace
@@ -36,7 +36,7 @@ async function main() {
 
   // Create MCP server
   const server = new McpServer({
-    name: 'contentops',
+    name: 'leaselens',
     version: '1.0.0',
   });
 

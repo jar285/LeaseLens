@@ -31,6 +31,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     { workspace_id: SAMPLE_WORKSPACE.id },
     { status: 200 },
   );
+  // Clear any stale workspace cookie before setting fresh one
+  res.cookies.delete(WORKSPACE_COOKIE_NAME);
   res.cookies.set(WORKSPACE_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'lax',

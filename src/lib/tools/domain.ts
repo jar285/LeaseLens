@@ -4,7 +4,7 @@
 
 import type { Role } from '@/lib/auth/types';
 
-export type ToolCategory = 'corpus' | 'system' | 'visualization';
+export type ToolCategory = 'corpus' | 'system' | 'visualization' | 'lease';
 
 export interface ToolDescriptor {
   /** Unique tool name — must match the Anthropic tool name exactly */
@@ -18,14 +18,36 @@ export interface ToolDescriptor {
   /** Organizational category */
   category: ToolCategory;
   /**
+   * Optional async preparation step for mutating tools that need work
+   * (e.g., an Anthropic call) BEFORE the sync better-sqlite3 transaction.
+   * Sprint 13 (charter v1.13): introduced for `draft_negotiation_email`,
+   * which calls Anthropic to compose subject/body and then must INSERT
+   * into `negotiation_emails` atomically with the audit-row write.
+   *
+   * The registry awaits `prepare` outside the transaction; its return
+   * value is passed to `execute` as the third argument. If `prepare`
+   * throws, no DB write occurs. If `execute` throws inside the
+   * transaction, the audit row also rolls back (existing invariant).
+   *
+   * Read-only tools and mutating tools that don't need async work
+   * leave this undefined.
+   */
+  prepare?: (
+    input: Record<string, unknown>,
+    context: ToolExecutionContext,
+  ) => Promise<unknown>;
+  /**
    * Execute the tool with validated input.
    * Read-only tools: async, returns the raw result.
    * Mutating tools: sync, returns MutationOutcome.
    * Mutating tools MUST throw on validation failures (Sprint 8 spec 4.3).
+   * The third `prepared` argument is the resolved value of `prepare()`
+   * when one is declared; otherwise undefined.
    */
   execute: (
     input: Record<string, unknown>,
     context: ToolExecutionContext,
+    prepared?: unknown,
   ) => Promise<unknown> | MutationOutcome;
   /**
    * When set, this tool is mutating. The registry runs `execute` inside

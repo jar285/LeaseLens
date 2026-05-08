@@ -36,7 +36,7 @@ export function FileDropZone({ onFiles, children }: FileDropZoneProps) {
     // biome-ignore lint/a11y/noStaticElementInteractions: AttachButton provides the keyboard-accessible path
     <div
       data-testid="file-drop-zone"
-      className={`relative h-full ${
+      className={`relative flex h-full min-h-0 flex-col ${
         isOver ? 'ring-2 ring-indigo-300 ring-offset-2' : ''
       }`}
       onDragOver={(e) => {

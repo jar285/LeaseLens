@@ -27,7 +27,7 @@ Stack-specific rules are grouped first, then ContentOps-specific patterns, then 
 
 ### Anthropic SDK (`@anthropic-ai/sdk` ^0.90)
 
-- **Tool-use loop is bounded** — [`src/app/api/chat/route.ts`](../../src/app/api/chat/route.ts) caps at 3 iterations. Each iteration: non-streaming `messages.create` to get `tool_use` blocks → execute via `toolRegistry.execute` → append `tool_result` → re-call. Final answer streams via `messages.stream` + `.on('text')`.
+- **Tool-use loop is bounded** — [`src/app/api/chat/route.ts`](../../src/app/api/chat/route.ts) caps at `MAX_TOOL_ITERATIONS` iterations. Each iteration: non-streaming `messages.create` to get `tool_use` blocks → execute via `toolRegistry.execute` → append `tool_result` → re-call. Final answer streams via `messages.stream` + `.on('text')`. The cap was 3 through Sprint 12; Sprint 13 raised it to 15 to support per-clause grading flows where a 13-clause lease scan needs roughly `1 + N` tool calls in one turn (`extract_clauses` plus one `grade_clause_severity` per clause). The real cost guard is the daily spend ceiling (charter §11b), not the per-turn cap. Don't tighten the cap back below 15 without a real reason; runaway-loop protection is already covered by `recordSpend` + the ceiling.
 - **System prompt is parameterized on `{ role, workspace, context }`** — see [`src/lib/chat/system-prompt.ts`](../../src/lib/chat/system-prompt.ts). Never hard-code brand-specific copy in the prompt; pass `workspace.name` / `workspace.description` through.
 - **Model is pinned via `env.CONTENTOPS_ANTHROPIC_MODEL`.** Don't hardcode `'claude-haiku-4-5'` in code; read from env. The pin is a demo-mode cost guardrail.
 - **Tool results that come from a *mutating* tool carry `audit_id` in the result envelope.** Don't strip it — the UI uses it to enable the Undo button and `POST /api/audit/{id}/rollback`.
@@ -146,6 +146,43 @@ These are enforced **only when `CONTENTOPS_DEMO_MODE=true`**. Local dev runs wit
 `purgeExpiredWorkspaces()` ([`src/lib/workspaces/cleanup.ts`](../../src/lib/workspaces/cleanup.ts)) runs only on `POST /api/workspaces`. There is no cron. The sample workspace (`is_sample = 1`) is excluded by the WHERE clause. **Don't add a background job** unless a sprint specs it — eventual consistency is a feature.
 
 The cleanup helper deletes children before parents (chunks → audit_log → content_calendar → approvals → documents → messages → conversations → workspaces). With FK enforcement on, this order matters. Don't rearrange.
+
+### Three-pane shell scroll containment (Sprint 13 / Phase 10.5)
+
+The LeaseLens home is a fixed-height grid: each pane scrolls independently inside the viewport, and the page itself never scrolls. The scroll-containment chain is fragile — every parent above a `overflow-y-auto` leaf must declare `min-h-0` (or `flex-1 min-h-0`), and the shell root must be a **grid**, not `flex-wrap`. With `flex-wrap` on a single-row container, default `align-content: normal` sizes each row to *content* height, which silently defeats every `min-h-0` below it.
+
+Canonical chain (mirrors `docs/_references/ai_mcp_chat_ordo`):
+
+```
+<main flex h-dvh flex-col overflow-hidden>
+  <header shrink-0>
+  <div grid min-h-0 flex-1 grid-cols-[20rem_minmax(0,1fr)_20rem] overflow-hidden>
+    <section flex min-h-0 flex-col overflow-hidden>
+      <header shrink-0>
+      <div flex flex-1 min-h-0 overflow-y-auto overscroll-contain>  ← scrolls
+```
+
+`overscroll-contain` on each leaf prevents one pane from rubber-band-scrolling its neighbor. [`LeaseLensWorkspaceShell.test.tsx`](../../src/components/lease/LeaseLensWorkspaceShell.test.tsx) pins the grid + no-flex-wrap decision.
+
+### Browser-only modules need polyfills + a `next/dynamic({ssr:false})` boundary (Sprint 13 / Phase 10 hotfix series)
+
+`react-pdf` and `pdfjs-dist` touch `DOMMatrix`, `Worker`, `URL.parse`, and `Promise.try` at module-init time. Three rules:
+
+1. **Wrap in `next/dynamic({ ssr: false })`** so the import never runs on the server. See [`PdfViewer.tsx`](../../src/components/lease/PdfViewer.tsx) for the canonical pattern.
+2. **Polyfill platform features** the browser may not have. ES module imports evaluate in source order, so the polyfill side-effect import MUST come before the `react-pdf` import. See [`url-parse-polyfill.ts`](../../src/components/lease/url-parse-polyfill.ts) — currently polyfills `URL.parse` (Chrome 124+, Safari 18.4+) and `Promise.try` (Chrome 128+, Safari 18.2+). When the worker file itself uses missing features, ship the **legacy build** instead of patching it (see [`scripts/copy-pdf-worker.mjs`](../../scripts/copy-pdf-worker.mjs)).
+3. **Pin the worker to react-pdf's nested `pdfjs-dist`** version, not the top-level. react-pdf v10 pins `pdfjs-dist: 5.4.296` exactly; our top-level may be newer. The worker file must match the API version react-pdf actually loads, otherwise pdfjs throws `"The API version 'X' does not match the Worker version 'Y'"`. The copy script tries the nested install first.
+
+### Self-healing demo state (Sprint 13 / Phase 10.7)
+
+A predev script ([`scripts/seed-if-empty.mjs`](../../scripts/seed-if-empty.mjs)) runs before `next dev` and `next build`. If the `chunks` table is empty, it shells out to `npm run db:seed`. This means: a fresh clone, a wiped DB, or any state where the corpus is missing self-heals before the dev server announces "Ready". `db/index.ts` also logs a startup warning if `chunks=0`. Together: the chat experience cannot silently fail with "no NJ tenant-law chunks retrieved" because the operator forgot to seed.
+
+### Active-lease awareness in the system prompt (Sprint 13 / Phase 10.8.2)
+
+The chat route resolves the active lease via `resolveLeaseId(... enableRecentLeaseFallback: true)` BEFORE building the system prompt, then threads a one-line `ActiveLeaseSummary` ("Active lease IS loaded: filename, X pages, Y clauses, lease_id …") into the prompt. Without this signal, the model cannot tell from the chat history alone that a lease is loaded (the lease lives in a side pane, not the message stream) and incorrectly tells the user "I don't see an uploaded lease" when one was JUST uploaded. Whenever a new feature lives outside the message stream, **inject its state into the system prompt** rather than expecting the model to infer.
+
+### Persisted tool calls must round-trip as Anthropic content blocks (Sprint 13 / Phase 10.8.3)
+
+[`buildMessagesForAnthropic`](../../src/app/api/chat/route.ts) used to convert persisted `tool_use` rows into `[Tool use: <name>]` plain-text placeholders. The model saw that bracketed pattern in its own assistant history and **mirrored it into its final text response** — leaking the placeholder into the chat UI. The rule: persisted tool turns round-trip as proper `{type:'tool_use', id, name, input}` and `{type:'tool_result', tool_use_id, content}` content blocks, never as fake bracketed strings. The model copies whatever it sees in history; give it the real format.
 
 ---
 

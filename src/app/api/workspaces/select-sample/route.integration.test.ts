@@ -15,7 +15,7 @@ function makeRequest(): NextRequest {
 
 describe('POST /api/workspaces/select-sample', () => {
   beforeEach(() => {
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
   });
 
@@ -26,10 +26,10 @@ describe('POST /api/workspaces/select-sample', () => {
     expect(body.workspace_id).toBe(SAMPLE_WORKSPACE.id);
   });
 
-  it('sets the contentops_workspace cookie on the response', async () => {
+  it('sets the leaselens_workspace cookie on the response', async () => {
     const res = await POST(makeRequest());
     const setCookie = res.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain('contentops_workspace=');
+    expect(setCookie).toContain('leaselens_workspace=');
     expect(setCookie).toMatch(/Max-Age=86400/);
   });
 
@@ -46,6 +46,6 @@ describe('POST /api/workspaces/select-sample', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
     const setCookie = res.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain('contentops_workspace=');
+    expect(setCookie).toContain('leaselens_workspace=');
   });
 });

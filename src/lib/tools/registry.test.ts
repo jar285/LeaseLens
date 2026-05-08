@@ -356,5 +356,50 @@ describe('ToolRegistry', () => {
         expect(names).toContain('render_workflow_diagram');
       }
     });
+
+    it('Sprint 13: registers the three lease tools', async () => {
+      const { createToolRegistry } = await import('./create-registry');
+      const db = createTestDb();
+      const registry = createToolRegistry(db);
+      const names = registry.getToolNames();
+
+      expect(names).toContain('extract_clauses');
+      expect(names).toContain('grade_clause_severity');
+      expect(names).toContain('draft_negotiation_email');
+    });
+
+    it('Sprint 13: drops the ContentOps mutating tools', async () => {
+      const { createToolRegistry } = await import('./create-registry');
+      const db = createTestDb();
+      const registry = createToolRegistry(db);
+      const names = registry.getToolNames();
+
+      expect(names).not.toContain('schedule_content_item');
+      expect(names).not.toContain('approve_draft');
+    });
+
+    it('Sprint 13: extract_clauses + grade_clause_severity are ALL roles; draft_negotiation_email is Tenant+Reviewer+Admin', async () => {
+      const { createToolRegistry } = await import('./create-registry');
+      const db = createTestDb();
+      const registry = createToolRegistry(db);
+
+      for (const role of ['Creator', 'Editor', 'Admin'] as const) {
+        const names = registry.getToolsForRole(role).map((t) => t.name);
+        expect(names).toContain('extract_clauses');
+        expect(names).toContain('grade_clause_severity');
+        expect(names).toContain('draft_negotiation_email');
+      }
+    });
+
+    it('Sprint 13: total tool count is 7 (4 retained + 3 new)', async () => {
+      const { createToolRegistry } = await import('./create-registry');
+      const db = createTestDb();
+      const registry = createToolRegistry(db);
+
+      // 4 retained: search_corpus, get_document_summary, list_documents, render_workflow_diagram
+      // 3 new:      extract_clauses, grade_clause_severity, draft_negotiation_email
+      // 2 removed:  schedule_content_item, approve_draft
+      expect(registry.getToolNames()).toHaveLength(7);
+    });
   });
 });

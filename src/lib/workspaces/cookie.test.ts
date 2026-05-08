@@ -28,7 +28,7 @@ describe('workspace cookie', () => {
     // Decode must accept those without erroring; the normalized shape is
     // an empty list (no known prior uploads).
     const secret = new TextEncoder().encode(
-      process.env.CONTENTOPS_SESSION_SECRET ?? '',
+      process.env.LEASELENS_SESSION_SECRET ?? '',
     );
     const legacyToken = await new SignJWT({ workspace_id: 'ws-legacy' })
       .setProtectedHeader({ alg: 'HS256' })

@@ -9,7 +9,7 @@ describe('Admin Ping Endpoint Integration', () => {
 
   beforeEach(() => {
     // Ensure the secret is set for real jose operations
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
   });
 
@@ -23,7 +23,7 @@ describe('Admin Ping Endpoint Integration', () => {
       displayName: `Test ${role}`,
     });
 
-    request.cookies.set('contentops_session', token);
+    request.cookies.set('leaselens_session', token);
 
     // 1. Run through middleware
     const mwResponse = await middleware(request);

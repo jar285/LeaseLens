@@ -91,8 +91,20 @@ export class ToolRegistry {
         );
       }
       const db = this.db;
+
+      // Sprint 13: optional async preparation step (e.g., LLM call) runs
+      // BEFORE the transaction. Throws here propagate out without any DB
+      // write. The resolved value is passed to execute as `prepared`.
+      const prepared = descriptor.prepare
+        ? await descriptor.prepare(input, context)
+        : undefined;
+
       const txn = db.transaction((): ToolExecutionResult => {
-        const outcome = descriptor.execute(input, context) as MutationOutcome;
+        const outcome = descriptor.execute(
+          input,
+          context,
+          prepared,
+        ) as MutationOutcome;
         const audit_id = writeAuditRow(db, {
           tool_name: name,
           tool_use_id: context.toolUseId ?? null,

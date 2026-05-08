@@ -1,7 +1,26 @@
-export type ContextMessage = { role: 'user' | 'assistant'; content: string };
+// Phase 10.8.3 — content can be a plain string OR an array of
+// Anthropic content blocks (text / tool_use / tool_result). Persisted
+// tool_use and tool_result rows render as PROPER content blocks so
+// the model sees real `tool_use` parts in its history instead of
+// fake `[Tool use: <name>]` text — which the model was mirroring
+// into its own output. We keep the array element type as `unknown`
+// here so context-window doesn't have to import the Anthropic SDK
+// types; the route layer is the one that actually constructs them.
+export type ContextMessageContent = string | unknown[];
+
+export type ContextMessage = {
+  role: 'user' | 'assistant';
+  content: ContextMessageContent;
+};
 
 const MAX_MESSAGES = 20;
 const MAX_CHARS = 40_000;
+
+function contentLength(content: ContextMessageContent): number {
+  return typeof content === 'string'
+    ? content.length
+    : JSON.stringify(content).length;
+}
 
 /**
  * Merge consecutive same-role messages into one.
@@ -18,7 +37,20 @@ export function normalizeAlternation(
   for (let i = 1; i < messages.length; i++) {
     const prev = merged[merged.length - 1];
     if (messages[i].role === prev.role) {
-      prev.content = `${prev.content}\n\n${messages[i].content}`;
+      const a = prev.content;
+      const b = messages[i].content;
+      // String + string → concat. Otherwise concat as array of
+      // blocks: a string becomes a `text` block, an array stays as
+      // its blocks. Anthropic accepts mixed-block arrays, and this
+      // preserves tool_use / tool_result fidelity through alternation
+      // normalization.
+      if (typeof a === 'string' && typeof b === 'string') {
+        prev.content = `${a}\n\n${b}`;
+      } else {
+        const aParts = typeof a === 'string' ? [{ type: 'text', text: a }] : a;
+        const bParts = typeof b === 'string' ? [{ type: 'text', text: b }] : b;
+        prev.content = [...aParts, ...bParts];
+      }
     } else {
       merged.push({ ...messages[i] });
     }
@@ -37,9 +69,12 @@ function trimToLimits(messages: ContextMessage[]): ContextMessage[] {
       ? messages.slice(messages.length - MAX_MESSAGES)
       : [...messages];
 
-  let totalChars = trimmed.reduce((sum, m) => sum + m.content.length, 0);
+  let totalChars = trimmed.reduce(
+    (sum, m) => sum + contentLength(m.content),
+    0,
+  );
   while (totalChars > MAX_CHARS && trimmed.length > 1) {
-    totalChars -= trimmed[0].content.length;
+    totalChars -= contentLength(trimmed[0].content);
     trimmed = trimmed.slice(1);
   }
 

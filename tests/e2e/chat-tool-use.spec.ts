@@ -31,7 +31,7 @@ test.beforeEach(async ({ context }) => {
 
   await context.addCookies([
     {
-      name: 'contentops_workspace',
+      name: 'leaselens_workspace',
       value: workspaceToken,
       domain: 'localhost',
       path: '/',
@@ -39,7 +39,7 @@ test.beforeEach(async ({ context }) => {
       sameSite: 'Lax',
     },
     {
-      name: 'contentops_session',
+      name: 'leaselens_session',
       value: token,
       domain: 'localhost',
       path: '/',
@@ -55,11 +55,11 @@ test('mutating tool flow renders ToolCard with working Undo', async ({
   await page.goto('/');
   await startFreshConversation(page);
 
-  // Send any prompt — the dev server runs with CONTENTOPS_E2E_MOCK=1 so the
+  // Send any prompt — the dev server runs with LEASELENS_E2E_MOCK=1 so the
   // mock client at src/lib/anthropic/e2e-mock.ts ignores prompt content
   // and deterministically returns a schedule_content_item tool_use.
   // Prompt content is irrelevant — the dev server runs with
-  // CONTENTOPS_E2E_MOCK=1 so the mock returns a deterministic tool_use
+  // LEASELENS_E2E_MOCK=1 so the mock returns a deterministic tool_use
   // for schedule_content_item against the seeded `brand-identity` slug.
   await page
     .getByRole('textbox')

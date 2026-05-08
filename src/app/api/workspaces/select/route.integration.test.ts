@@ -32,7 +32,7 @@ function insertWorkspace(id: string, expires_at: number | null): void {
 
 describe('POST /api/workspaces/select', () => {
   beforeEach(() => {
-    process.env.CONTENTOPS_SESSION_SECRET =
+    process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
     const future = Math.floor(Date.now() / 1000) + 86_400;
@@ -56,7 +56,7 @@ describe('POST /api/workspaces/select', () => {
     const body = (await res.json()) as { workspace_id: string };
     expect(body.workspace_id).toBe(B_ID);
     const setCookie = res.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain('contentops_workspace=');
+    expect(setCookie).toContain('leaselens_workspace=');
   });
 
   it('refuses with 403 when target id is not in the visitor created list', async () => {

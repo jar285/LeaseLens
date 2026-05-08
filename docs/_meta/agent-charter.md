@@ -1,8 +1,8 @@
-# Agent Charter — ContentOps
+# Agent Charter — LeaseLens (formerly ContentOps)
 
-**Version:** 1.12
+**Version:** 1.13
 **Status:** Active
-**Governs:** All AI coding agent sessions for the ContentOps project
+**Governs:** All AI coding agent sessions for the LeaseLens project
 **Precedence:** This charter outranks any single sprint doc, spec, or
 conversational instruction, except where a later amendment to the charter
 itself supersedes an earlier rule.
@@ -11,7 +11,7 @@ itself supersedes an earlier rule.
 
 ## 1. Read This First, Every Session
 
-You are a coding agent working on ContentOps. Before doing anything in a new
+You are a coding agent working on LeaseLens. Before doing anything in a new
 session, you must:
 
 1. Read this charter in full.
@@ -38,41 +38,50 @@ their absence.
 
 ---
 
-## 2. What ContentOps Is
+## 2. What LeaseLens Is
 
-ContentOps is a locally-runnable, publicly-demoable AI operator cockpit for
-onboarding a media brand into an AI-assisted content operations workflow. The
-product persona is a small content team (Creators, Editors, Admins) taking a
-new brand — for the demo, a fake brand called **Side Quest Syndicate** — from
-"pile of intake documents" to "first-week content calendar approved and
-scheduled."
+LeaseLens is a locally-runnable, publicly-demoable AI operator cockpit that
+reads a New Jersey residential lease PDF and returns a graded red-flag report
+grounded in NJ tenant law. The product persona is a small operator surface
+(Tenant, Reviewer, Admin) taking a single lease from "PDF on the desktop" to
+"red flags identified, citations attached, negotiation email drafted, audit
+trail recorded."
 
 The cockpit runs end-to-end on a reviewer's laptop with a cloned repo and an
 Anthropic API key. A public demo instance (Vercel) lets anonymous reviewers
-click through the full workflow without installing anything, using pre-seeded
-Side Quest Syndicate data and cost-guarded interactions.
+upload their own NJ lease PDF (or use a pre-seeded sample lease) and exercise
+the full workflow without installing anything, with cost-guarded interactions.
 
-The user interacts with ContentOps through a chat homepage backed by
-retrieval-augmented generation over the brand's onboarding materials, and
-through an operator cockpit dashboard that shows live state, recent tool
-actions, approvals, rollback history, and system health.
+The user interacts with LeaseLens through a three-pane chat homepage:
 
-The model answers grounded questions about the brand, drafts content, creates
-checklist items, requests approvals, and — with appropriate role — executes
-mutating actions (scheduling a calendar item, approving a draft) through MCP
-tools. Every mutating action is logged with a compensating action so it can be
-rolled back.
+- **Left pane** — `react-pdf` viewer rendering the uploaded lease, with citation
+  chips that scroll to the cited clause on click.
+- **Middle pane** — streaming chat backed by retrieval-augmented generation over
+  a curated NJ tenant-law corpus (NJ Truth-in-Renting Act, NJ Stat 46:8, and
+  selected NOLO/EFF tenant-rights references).
+- **Right pane** — a live red-flag report that fills in as the agent extracts
+  clauses, grades them against tenant law, and renders a Mermaid clause-
+  dependency map.
 
-ContentOps is not:
+The model identifies clauses, grades each clause's severity (high/med/low) with
+a citation to the applicable NJ statute, renders structured Mermaid diagrams,
+and — with appropriate role — executes mutating actions (drafting a
+negotiation email to the landlord, flagging a clause for reviewer escalation)
+through MCP tools. Every mutating action is logged with a compensating action
+so it can be rolled back.
 
-- a caption generator
-- a generic document chatbot
-- a clone of Studio Ordo
+LeaseLens is not:
+
+- a generic document chatbot or PDF Q&A toy
+- legal advice or a substitute for a tenant attorney
+- a multi-jurisdiction product (NJ-only by spec; expanding is a charter
+  amendment, not a sprint task)
 - a multi-tenant SaaS product
+- a clone of Studio Ordo
 - a place to demonstrate every pattern the agent has ever seen
 
 It is a bounded, role-aware, auditable, rollback-capable cockpit for one
-specific workflow: **brand onboarding**.
+specific workflow: **NJ residential lease red-flag review**.
 
 ---
 
@@ -102,7 +111,7 @@ improvement.
 
 ## 4. The Architectural Invariant
 
-ContentOps has one architectural invariant that must hold across every sprint:
+LeaseLens has one architectural invariant that must hold across every sprint:
 
 > **The model's prompt-visible tool schemas and its runtime-executable tools
 > must come from the same registry, filtered by the same RBAC, so that
@@ -119,7 +128,7 @@ most important design decision in the project.
 
 ## 5. Hard Requirements
 
-ContentOps must satisfy all of the following. These are non-negotiable across
+LeaseLens must satisfy all of the following. These are non-negotiable across
 every sprint.
 
 1. **Homepage chat.** A beautiful, polished chat UI at `/` is the primary
@@ -136,9 +145,17 @@ every sprint.
 5. **SQLite storage.** All persistent state (users, sessions, conversations,
    messages, documents, chunks, audit log, rollback snapshots, approvals)
    lives in SQLite via `better-sqlite3`. No Postgres, no external DB.
-6. **Role-based access control.** Three roles — Creator, Editor, Admin —
+6. **Role-based access control.** Three roles — Tenant, Reviewer, Admin —
    with middleware-enforced authorization on every protected surface
-   (routes, API endpoints, tool calls).
+   (routes, API endpoints, tool calls). Tenants own their leases and may run
+   read-only scans plus draft outbound negotiation emails. Reviewers (e.g.,
+   legal-aid clinic personas) may view multiple tenants' leases within a
+   workspace and add review notes. Admins see the full audit log and may
+   roll back any mutation. Database-level role identifiers retain the legacy
+   `creator|editor|admin` literals to avoid a schema rewrite mid-pivot; the
+   UI surface, system prompt, and tool descriptors expose the LeaseLens
+   names. Mapping is documented in `docs/_meta/architecture.md` per the
+   Sprint-13 spec.
 7. **Rollback controls.** Every mutating tool call produces a
    `compensating_action` payload. The cockpit surfaces an Undo affordance.
    Admins see the full audit log; non-admins see their own actions.
@@ -148,23 +165,27 @@ every sprint.
 9. **Automated testing.** Unit tests, integration tests, and an AI eval
    harness. Roughly 40 tests total — every test load-bearing, none written
    for count.
-10. **Local-runnable, remotely demoable.** ContentOps must run end-to-end on
+10. **Local-runnable, remotely demoable.** LeaseLens must run end-to-end on
     a reviewer's laptop with only a cloned repo, a free SQLite file, and an
     Anthropic API key. No Postgres, no external auth, no third-party
     telemetry, no cloud services beyond the Anthropic API itself.
-11. **Live demo deployment with cost guardrails.** ContentOps must deploy to
+11. **Live demo deployment with cost guardrails.** LeaseLens must deploy to
     a public URL (Vercel recommended) where an anonymous visitor can land,
     switch roles via a visible role-overlay control, and exercise the full
-    cockpit — chat, RAG retrieval, MCP tool call, approval, rollback — on
-    pre-seeded Side Quest Syndicate data, without creating an account. The
+    cockpit — lease upload, RAG retrieval against the NJ tenant-law corpus,
+    MCP tool call, mutation, rollback — without creating an account. The
     deployed instance must enforce cost guardrails (see Section 11) so that
-    public traffic cannot run up an unbounded Anthropic bill. The demo
-    deploys with a read-only seeded corpus; document upload is available to
-    local-run reviewers only.
-12. **Seed-only corpus on the demo.** The Side Quest Syndicate corpus is
-    generated at build or first-boot time. Anonymous visitors cannot upload,
-    modify, or delete corpus documents on the deployed instance. Local
-    development allows corpus manipulation through admin-role tooling.
+    public traffic cannot run up an unbounded Anthropic bill. A pre-seeded
+    sample lease is provided so reviewers can exercise the workflow without
+    uploading their own.
+12. **Seed-only corpus on the demo; per-session lease input allowed.** The
+    NJ tenant-law corpus (the RAG source-of-truth) is generated at build or
+    first-boot time and is read-only on the deployed instance. Lease PDFs
+    uploaded by reviewers are session-scoped *input documents*, not corpus,
+    and live in a separate `leases` table that does not feed the RAG
+    embeddings. Anonymous visitors cannot modify, replace, or delete the
+    tenant-law corpus on the deployed instance. Local development allows
+    corpus manipulation through admin-role tooling.
 
 ---
 
@@ -345,7 +366,7 @@ evidence.
 ### 11a. Patterns explicitly out of scope
 
 These patterns exist in Studio Ordo or in other well-known AI projects. They
-are out of scope for ContentOps. Do not add them.
+are out of scope for LeaseLens. Do not add them.
 
 - Deferred job queues, web push notifications, background workers
 - Multi-provider model routing (Anthropic only)
@@ -359,7 +380,11 @@ are out of scope for ContentOps. Do not add them.
 - Observability stacks (OpenTelemetry, Sentry, Datadog)
 - Containerization beyond a single-service Docker setup if time permits
 - Email verification, password reset, OAuth / SSO
-- File upload on the deployed demo (local development only)
+- Multi-jurisdiction tenant-law support (NJ-only by spec)
+- OCR fallback for scanned-image leases (text-layer PDFs only; scanned PDFs
+  surface a clear error and a paste-text fallback)
+- Real outbound email delivery — `draft_negotiation_email` produces an
+  artifact in the audit trail; actual SMTP/Mailgun integration is out of scope
 
 If a sprint's spec seems to require one of these, stop and surface the
 question to the human before implementing.
@@ -573,11 +598,15 @@ should be reserved for specs, QA passes, and hard debugging.
 
 ## 16. The 14-Sprint Roadmap
 
-ContentOps is delivered in 14 sprints (Sprint 0 through Sprint 13). Reframed
-from 13 sprints in v1.12 to insert a Diagram Tool + Motion Polish sprint
-(new Sprint 12) before the deployment closeout (renumbered to Sprint 13).
-Prior v1.7 reframing inserted Sprint 11 (Workspaces & Brand Onboarding);
-prior v1.6 reframing inserted Sprint 10 (UI Polish Pass).
+LeaseLens is delivered in 14 sprints (Sprint 0 through Sprint 13). Sprints
+0-12 shipped under the prior ContentOps charter framing (v1.0-v1.12) — those
+historical descriptions are preserved below to record what was actually
+built. Sprint 13 was reframed in v1.13 from "Demo Deployment + README + Loom
+for ContentOps" to a vertical pivot: replace the media-brand corpus and tool
+surface with the LeaseLens NJ-lease red-flag reviewer, then deploy the
+result. Prior v1.12 inserted Sprint 12 (Diagrams + Motion); v1.7 inserted
+Sprint 11 (Workspaces & Brand Onboarding); v1.6 inserted Sprint 10 (UI
+Polish Pass).
 
 1.  **Sprint 0 — Foundation (complete):** Next.js 16, React 19, TS Strict, Tailwind 4, SQLite, Vitest, Zod, and placeholder page.
 2.  **Sprint 1 — Homepage Chat UI + Streaming Shell (complete):** Polished light editorial UI, deterministic mock streaming, and scroll architecture.
@@ -592,12 +621,13 @@ prior v1.6 reframing inserted Sprint 10 (UI Polish Pass).
 11. **Sprint 10 — UI Polish Pass:** Composer auto-resize (192px max), focus rings + hover affordances, ToolCard loading skeletons, smooth scroll-to-bottom, and a typography/spacing pass across chat + cockpit. Excludes marketing-style hero with proof-point cards (operator-tool fit, not a consumer chat product). TDD covers state machines and behavioral flows (vitest/RTL + Playwright); aesthetic correctness is human-eyeball review by policy — no visual-regression infra (Chromatic/Percy explicitly declined).
 12. **Sprint 11 — Workspaces & Brand Onboarding:** Pivot from a Side-Quest-Syndicate-only demo into a workspace-based product. Any operator can supply their own brand identity + audience profile via an upload form; the chat / tools / audit / rollback / cockpit all operate against the operator's content. Side Quest stays as a one-click sample workspace so reviewers don't face cold-start friction. Adds a `workspaces` table and a `workspace_id` column to existing per-data tables (`documents`, `chunks`, `audit_log`, `content_calendar`, `approvals`); parameterizes the system prompt on the active workspace; adds `/onboarding` flow and a workspace switcher in the cockpit header. Eval harness continues to run against the sample workspace only — that's the architectural retrieval-quality claim, not a per-brand promise. Demo-grade: no real auth, no PDFs, no LLM-inferred metadata; uploaded workspaces TTL after 24h via lazy cleanup on next create. Markdown-only ingestion (max 5 files, 100KB each).
 13. **Sprint 12 — Diagram Tool + Motion Polish (complete):** Adds a `render_workflow_diagram` MCP tool that emits Mermaid source for the chat to render client-side, plus three scoped Framer Motion polish surfaces (diagram first-paint fade+scale, `ChatMessage` assistant entry slide-up, `ToolCard` expand/collapse layout animation). Tool is read-only `roles: 'ALL'`, registered in the same `ToolRegistry` and exposed over the MCP server (charter §4 invariant). Validation is prefix-regex over 8 supported diagram families (flowchart, graph, sequenceDiagram, stateDiagram-v2, mindmap, journey, classDiagram, erDiagram); parse errors surface client-side as a `<pre>` fallback. New deps: `mermaid@^11`, `motion@^12`. All three motion surfaces honor `useReducedMotion()` via conditional render plus a mounted-state guard to prevent SSR flash. Test count: 279 → 317 (+38 net new). Vitest 317/317, eval-golden 5/5 (root-cause fix to `ingestMarkdownFile` re-stabilized eval after a Sprint 11 chunk-id regression). Demo positioning: the Sprint 13 Loom is recommended (not bound) to include a diagram moment.
-14. **Sprint 13 — Demo Deployment + README + Loom:** Vercel deployment, final documentation, and demo recording.
+14. **Sprint 13 — LeaseLens Vertical Pivot + Demo Deployment + README + Loom:** Replace the Side Quest Syndicate brand corpus and content-ops tool surface with a NJ residential lease red-flag reviewer. Adds: (a) PDF ingestion for lease input documents (`pdf-parse`/`pdfjs-dist`); (b) curated NJ tenant-law seed corpus (~40-60 sections from NJ Truth-in-Renting Act, NJ Stat 46:8, NOLO/EFF references) ingested via the existing hybrid RAG pipeline; (c) three new tools — `extract_clauses` (read-only), `grade_clause_severity` (read-only, RAG-backed), `draft_negotiation_email` (mutating + audit + rollback) — registered in the existing `ToolRegistry` (charter §4 invariant); (d) renamed MCP server (`mcp/leaselens-server.ts`) exposing the same tool surface over stdio; (e) three-pane UI rebuild — `react-pdf` viewer (left), streaming chat (middle), live red-flag report (right) with citation chips that scroll the PDF; (f) Mermaid `render_workflow_diagram` retained, repurposed for clause-dependency map and severity heatmap; (g) eval harness extended from 5 retrieval cases to 25 lease-grading cases measuring red-flag precision/recall/F1, citation groundedness, cost per lease, and latency; (h) RBAC role labels updated (Tenant/Reviewer/Admin per §5.6) with DB-level identifiers preserved for migration safety; (i) Vercel deployment with the existing rate-limit + spend-cap guardrails; (j) README rewrite, Loom demo, and `/cockpit/evals` published.
 
 ---
 
 ### Changelog
 
+- **v1.13** — Vertical pivot: ContentOps → **LeaseLens**. Project repurposed as a NJ residential lease red-flag reviewer. Driver: the operator surfaced the pivot in a class-assignment portfolio reframing session; the resume gap analysis (vs Doing Things AI Product Engineer, Semgrep Staff AI PE, Distyl FDE, Regal AI Product Specialist JDs) confirmed that "LLM SDK + RAG + agentic tool use + eval frameworks" stacked into one focused vertical reads as more "serious, clear, professional" to a reviewer than the prior media-brand framing. Changes: §1 project name (ContentOps → LeaseLens). §2 fully rewritten — three-pane UI (PDF viewer / chat / red-flag report), NJ tenant-law corpus, single-jurisdiction scope. §4-5 forward-looking project name renamed; §5.6 RBAC roles relabeled (Creator/Editor/Admin → Tenant/Reviewer/Admin) with DB-level literals preserved to avoid mid-pivot schema rewrite. §5.11 demo flow updated (sample lease seeded; reviewer can upload their own NJ lease). §5.12 distinguishes corpus (read-only NJ tenant-law) from session-scoped lease input (per-visitor PDF). §11.a out-of-scope list extended (multi-jurisdiction, OCR for scanned PDFs, real outbound email delivery). §16 Sprint 13 entry fully rewritten as the LeaseLens vertical pivot + deployment + README + Loom; sprints 0-12 historical descriptions preserved under prior ContentOps framing. Codebase artifacts NOT renamed in this amendment (package name `contentop`, env-var prefix `CONTENTOPS_`, DB path defaults, MCP server file rename) — those are spec-time decisions for the Sprint-13 spec, not charter-level commitments. The §4 architectural invariant (prompt-visible tool schemas == runtime-executable tools, filtered by the same RBAC) is preserved unchanged. Authorized by operator session, 2026-05-07.
 - **v1.12** — Sprint 12 (Diagram Tool + Motion Polish) shipped. Roadmap reframed from 13 sprints to 14: inserted the new Sprint 12, renumbered the deployment closeout to Sprint 13. Operator-authorized 2026-05-05 after a brainstorm in which the operator chose diagrams over deployment as the next-priority demo asset; my pushback on the reorder is recorded in the Sprint 12 spec (§10) but the operator drove the call. Implementation followed the §7 delivery loop end-to-end (spec → spec-QA → sprint plan → sprint-QA → impl). New deps: `mermaid@^11.14.0`, `motion@^12.38.0`. New tool `render_workflow_diagram` (category: `visualization`, roles: `'ALL'`, no audit/rollback) registered in `src/lib/tools/create-registry.ts` and auto-exposed over the MCP server — charter §4 invariant holds. Tool surface: raw Mermaid `code` plus optional `title`/`caption`; pure server-side validation (8 diagram-family prefix regex, 4000-char length, init-directive + line-comment skip); parse errors fall back to a `<pre>` block client-side. Three scoped Motion surfaces: `MermaidDiagram` first-paint fade+scale (350ms), `ChatMessage` assistant entry slide+fade (250ms, user messages stay instant), `ToolCard` expand/collapse layout animation (220ms). All three honor `useReducedMotion()` via conditional render to plain DOM equivalents, plus a mounted-state guard so SSR + first client paint never flash. `data-motion="on"|"off"` is the stable test hook. **Eval-golden root-cause fix:** Sprint 11's "Round 5" change (chunk IDs namespaced by `documentId`) was a real cross-workspace collision protection but it broke the eval golden set, which keys on slug-prefixed chunk IDs from Sprint 6. Added optional `forceDocumentId` to `IngestFileInput`; the corpus seed path passes `slug`, restoring deterministic seed-time chunk IDs. Upload paths intentionally omit it, preserving Round 5's collision protection. Re-seeded the sample workspace; eval is back to 5/5 (17.0/20.0), matching the Sprint 6 baseline. Test count: 279 → 317 (+38: 15 diagram-tool unit tests, 3 registry+MCP, 1 system-prompt, 6 MermaidDiagram, 5 ToolCard branches+animation, 3 ChatMessage motion, 3 chat-route integration, 2 ingest forceDocumentId). Lint count unchanged at 140 (pre-existing CRLF debt; zero introduced by this branch). Architecture doc and README updated in the same commit per the charter rule. **Out of scope (deferred):** server-side Mermaid rendering, structured-spec compiler, persistence of tool invocations across page reload, conversation list UI, Mermaid theme customization beyond `'neutral'`. Authorized by operator session, 2026-05-05.
 - **v1.11** — Tiny inter-sprint follow-up after the v1.10 polish landed: operator manual smoke surfaced that clicking "New conversation" left no path back to the prior thread (no DB row was lost, but the UI had no affordance to revisit it). Studied `docs/_references/ai_mcp_chat_ordo` for guidance and confirmed the reference *deliberately* does not ship a user-visible conversation list either — single active conversation in global state, admin-only inspection table, soft-delete via `deleted_at` reserved for compliance not browsing. Took the reference's product judgment as signal: the brand-onboarding chat is workflow-shaped not memory-shaped, and the audit log already covers "what did I do." Did **not** build a sidebar/list (rejected as feature creep dressed as polish; ~3-hour scope deferred). Instead shipped the narrowest fix for the actual misclick concern: a one-click undo in `ChatUI`. On "New conversation" click, the prior `conversationId` and `messages` are stashed in component state; the toolbar swaps the New button for a "Continue previous" button while the chat is empty-with-stash; clicking it restores the prior thread; sending a message in the new thread auto-clears the stash (commit-to-new semantic). No schema change, no new API route, no server fetch — pure client-side undo of a misclick. Test count: 277 → 279 (+2 — Continue-previous undo behavior, no-stash on initial empty state). One existing test updated to reflect that the toolbar now stays visible in the empty-with-stash state (it previously asserted `invisible` after every New click). Honest pushback recorded in-session: the polish loop has a bottom only when the operator declares one — this is positioned as the last polish item before Sprint 12. Authorized by operator session, 2026-05-05.
 - **v1.10** — Inter-sprint workspace-UX polish before Sprint 12, prompted by operator manual smoke of the upload flow with GitLab + MailChimp markdown. Three real gaps surfaced: (1) the native `<input type="file">` was unstyled, (2) `WorkspaceMenu` orphaned every prior brand by listing only sample + new (DB rows existed but UI had no path back), (3) the chat thread bled across workspace switches because `ChatUI`'s local `useState` initialized once on mount and `router.refresh()` didn't reset it. Operator chose all three with the cookie-list approach for #2 (no schema change; privacy is per-cookie). Landed in five phases: **(A)** `WorkspaceCookiePayload` extended to `{ workspace_id, created_workspace_ids: string[] }` with backward-compat decode (legacy cookies normalize to `[]`); middleware, `POST /api/workspaces` (appends), and `POST /api/workspaces/select-sample` (preserves) all updated to propagate the list. **(B)** new `POST /api/workspaces/select` route with cookie-list defense in depth (target id must be in visitor's `created_workspace_ids` AND non-expired in DB; sample workspace explicitly 403'd to keep the `/select-sample` route as the single sample path). **(C)** `listVisitorBrands` query helper + `WorkspaceMenu` accepts `otherBrands: Workspace[]` and renders click-to-switch entries between active-brand header and the divider. **(D)** drop-zone file picker with drag-and-drop + click-to-choose fallback in `BrandUploadModal`; native input hidden via `sr-only` to preserve label-association and a11y. **(E)** `key={workspace.id}` on `<ChatUI>` in `app/page.tsx` so every workspace switch unmounts the chat and remounts with the new workspace's empty thread; new regression test asserts the GitLab thread does not survive into a MailChimp re-render. Boy Scout: scoped MCP `schedule_content_item` test's slug query to `SAMPLE_WORKSPACE.id` so a multi-workspace dev DB no longer flakes that test. Test count: 262 → 277 (+15 net new across phases A/B/C/D/E and the MCP fix). Typecheck clean. **Open item:** `npm run lint` reports 140 errors that are all CRLF→LF formatting complaints from running Biome on a Windows working tree (git's `core.autocrlf` produces CRLF locally; Biome wants LF). Pre-existing, not introduced by this branch; should be addressed via a separate one-shot `biome check --write` on a Linux runner or a Windows-aware Biome config. Authorized by operator session, 2026-05-05.

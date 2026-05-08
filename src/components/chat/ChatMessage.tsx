@@ -4,6 +4,7 @@ import { PenTool, User } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { renderMarkdown } from '@/lib/chat/render-markdown';
+import type { FollowUpPrompt } from '@/lib/chat/follow-up-prompts';
 import { ToolCard } from './ToolCard';
 import { TypingIndicator } from './TypingIndicator';
 
@@ -24,6 +25,8 @@ export interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string;
   toolInvocations?: ToolInvocation[];
+  followUpPrompts?: FollowUpPrompt[];
+  onSelectPrompt?: (prompt: string) => void;
   /** Sprint 9: true only for the actively-streaming assistant message
    *  (set by ChatTranscript on the last message). Drives the in-bubble
    *  TypingIndicator visibility under the four-clause condition. */
@@ -34,6 +37,8 @@ export function ChatMessage({
   role,
   content,
   toolInvocations,
+  followUpPrompts,
+  onSelectPrompt,
   isStreaming,
 }: ChatMessageProps) {
   const isUser = role === 'user';
@@ -77,6 +82,20 @@ export function ChatMessage({
           <div className="my-2">
             {toolInvocations.map((invocation) => (
               <ToolCard key={invocation.id} invocation={invocation} />
+            ))}
+          </div>
+        )}
+        {followUpPrompts && followUpPrompts.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {followUpPrompts.map((prompt) => (
+              <button
+                key={prompt.id}
+                type="button"
+                onClick={() => onSelectPrompt?.(prompt.prompt)}
+                className="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+              >
+                {prompt.label}
+              </button>
             ))}
           </div>
         )}

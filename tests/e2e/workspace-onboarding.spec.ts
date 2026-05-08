@@ -20,7 +20,7 @@ test.beforeEach(async ({ context }) => {
   });
   await context.addCookies([
     {
-      name: 'contentops_session',
+      name: 'leaselens_session',
       value: token,
       domain: 'localhost',
       path: '/',

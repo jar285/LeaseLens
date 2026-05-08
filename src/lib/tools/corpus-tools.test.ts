@@ -1,9 +1,11 @@
-// Integration tests for corpus tools
-// Tests against seeded database
+// Unit tests for corpus tools — hermetic via in-memory SQLite per
+// agent-guidelines §1 Vitest rule. Pre-Sprint-13 this file opened the
+// real dev DB, which made it order-dependent on db:seed state.
 
-import { join } from 'node:path';
-import Database from 'better-sqlite3';
-import { beforeAll, describe, expect, it } from 'vitest';
+import type Database from 'better-sqlite3';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTestDb } from '@/lib/test/db';
+import { seedChunk, seedDocument } from '@/lib/test/seed';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   createGetDocumentSummaryTool,
@@ -12,15 +14,81 @@ import {
 } from './corpus-tools';
 import type { ToolExecutionContext } from './domain';
 
-const DB_PATH = join(process.cwd(), 'data', 'contentops.db');
+vi.mock('@/lib/rag/embed', async () => {
+  const m = await import('@/lib/test/embed-mock');
+  return m.buildEmbedderMock();
+});
+
+const FIXTURE_DOCS = [
+  {
+    slug: 'brand-identity',
+    chunks: [
+      { id: 'brand-identity#section:0', content: 'mission and identity' },
+      { id: 'brand-identity#section:1', content: 'mission statement intro' },
+      { id: 'brand-identity#section:2', content: 'audience overview' },
+      {
+        id: 'brand-identity#section:3',
+        content: 'brand voice — conversational, knowledgeable friend',
+      },
+    ],
+  },
+  {
+    slug: 'content-pillars',
+    chunks: [
+      { id: 'content-pillars#section:0', content: 'pillar overview content' },
+      { id: 'content-pillars#section:1', content: 'pillar 1 community' },
+    ],
+  },
+  {
+    slug: 'content-calendar',
+    chunks: [
+      { id: 'content-calendar#section:0', content: 'editorial weekly cadence' },
+    ],
+  },
+  {
+    slug: 'audience-profile',
+    chunks: [
+      { id: 'audience-profile#section:0', content: 'primary audience players' },
+    ],
+  },
+  {
+    slug: 'style-guide',
+    chunks: [
+      { id: 'style-guide#section:0', content: 'tone of voice intro' },
+      { id: 'style-guide#section:1', content: 'tone with authority' },
+    ],
+  },
+];
+
+function seedFixtureCorpus(db: Database.Database): void {
+  for (const doc of FIXTURE_DOCS) {
+    const docId = seedDocument(db, doc.slug);
+    doc.chunks.forEach((chunk, index) => {
+      seedChunk(db, docId, {
+        id: chunk.id,
+        content: chunk.content,
+        index,
+        level: 'section',
+      });
+    });
+  }
+}
 
 describe('Corpus Tools', () => {
   let db: Database.Database;
   let context: ToolExecutionContext;
 
-  beforeAll(() => {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
+  beforeEach(() => {
+    db = createTestDb();
+    db.prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
+    ).run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      Math.floor(Date.now() / 1000),
+    );
+    seedFixtureCorpus(db);
     context = {
       role: 'Admin',
       userId: 'test-user',
@@ -76,8 +144,6 @@ describe('Corpus Tools', () => {
         context,
       );
 
-      // Hybrid retrieval uses vector similarity as fallback, so we may still get results
-      // even for non-matching queries (this is expected behavior for the embedder)
       expect(result).toHaveProperty('results');
       expect(Array.isArray((result as { results: unknown[] }).results)).toBe(
         true,

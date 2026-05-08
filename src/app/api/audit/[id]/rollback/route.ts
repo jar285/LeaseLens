@@ -21,7 +21,7 @@ export async function POST(
   const { id } = await params;
 
   // 1. Resolve session (no-cookie → Creator default, mirrors chat route).
-  const sessionCookie = request.cookies.get('contentops_session');
+  const sessionCookie = request.cookies.get('leaselens_session');
   let userId: string | undefined = DEMO_USERS.find(
     (u) => u.role === 'Creator',
   )?.id;

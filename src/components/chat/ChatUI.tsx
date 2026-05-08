@@ -14,16 +14,32 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to generate response';
 }
 
+export interface ChatToolEvent {
+  tool_name: string;
+  input: Record<string, unknown>;
+  result: unknown;
+  audit_id: string | undefined;
+}
+
 export interface ChatUIProps {
   initialMessages?: ChatMessageProps[];
   conversationId?: string | null;
   workspaceName: string;
+  /**
+   * Sprint 13 §3f — optional callback fired once per resolved tool_result
+   * event in the NDJSON stream. Used by the three-pane shell to forward
+   * tool events into ChatStreamContext so the right-pane RedFlagReport
+   * can render gradings progressively. When omitted, ChatUI continues to
+   * stream into its own message-state only (Sprints 8-12 behavior).
+   */
+  onToolEvent?: (event: ChatToolEvent) => void;
 }
 
 export function ChatUI({
   initialMessages = [],
   conversationId = null,
   workspaceName,
+  onToolEvent,
 }: ChatUIProps) {
   const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
@@ -195,6 +211,16 @@ export function ChatUI({
                     : m,
                 ),
               );
+
+              // Sprint 13 §3f — forward the resolved tool event to the
+              // three-pane shell (RedFlagReport reads it). Optional —
+              // ChatUI works standalone when no callback is wired.
+              onToolEvent?.({
+                tool_name: data.tool_result.name ?? existing.name,
+                input: existing.input,
+                result: data.tool_result.result,
+                audit_id: data.tool_result.audit_id,
+              });
             }
           }
         }
@@ -222,7 +248,7 @@ export function ChatUI({
 
   return (
     <FileDropZone onFiles={(files) => setPendingFiles(files)}>
-      <div className="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_auto]">
+      <div className="grid min-h-0 w-full flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
         {/* Conversation toolbar — visible when there's an active thread or
             a stashed previous one (one-click undo for misclicked New). */}
         <div

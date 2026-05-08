@@ -106,4 +106,96 @@ describe('buildContextWindow', () => {
       expect(result.contextMessages[0].role).toBe('user');
     }
   });
+
+  it('Sprint 14 regression — drops leading orphan tool_result blocks after trim', () => {
+    // Reproduces the live "tool_use_id found in tool_result blocks: …
+    // Each tool_result block must have a corresponding tool_use block
+    // in the previous message" 400 from Anthropic. Long scan history
+    // → trimToLimits drops the assistant tool_use rows from the front
+    // → the matching tool_result blocks are stranded at position 0.
+    // The leading drop loop must continue past those orphans until it
+    // finds a clean user start.
+    const longContent = 'X'.repeat(20_000); // forces aggressive trim
+    const input: ContextMessage[] = [
+      { role: 'user', content: 'scan' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'A', name: 'extract_clauses', input: {} },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'A', content: longContent },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'B',
+            name: 'grade_clause_severity',
+            input: {},
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'B', content: longContent },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: 'Final summary text — clean assistant message.',
+      },
+      // A clean follow-up user turn that should survive the trim.
+      { role: 'user', content: 'Now what?' },
+    ];
+
+    const result = buildContextWindow(input);
+    // The first kept message must NOT have an orphan tool_result block.
+    const firstContent = result.contextMessages[0].content;
+    if (Array.isArray(firstContent)) {
+      const hasToolResult = firstContent.some(
+        (block) =>
+          typeof block === 'object' &&
+          block !== null &&
+          (block as { type?: string }).type === 'tool_result',
+      );
+      expect(hasToolResult).toBe(false);
+    }
+    expect(result.contextMessages[0].role).toBe('user');
+  });
+
+  it('keeps interior tool_result blocks (their tool_use is in the previous message)', () => {
+    // tool_result is only an "orphan" at position 0. Mid-history
+    // tool_results paired with the preceding assistant tool_use are
+    // valid Anthropic content and must NOT be stripped.
+    const input: ContextMessage[] = [
+      { role: 'user', content: 'scan' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'I will extract clauses.' },
+          { type: 'tool_use', id: 'A', name: 'extract_clauses', input: {} },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'A', content: '{"clauses":[]}' },
+        ],
+      },
+      { role: 'assistant', content: 'Done.' },
+    ];
+
+    const result = buildContextWindow(input);
+    expect(result.contextMessages).toHaveLength(4);
+    // Interior tool_result preserved at index 2.
+    const interior = result.contextMessages[2].content;
+    expect(Array.isArray(interior)).toBe(true);
+  });
 });

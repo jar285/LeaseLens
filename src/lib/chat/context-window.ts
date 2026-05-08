@@ -60,8 +60,32 @@ export function normalizeAlternation(
 }
 
 /**
+ * Sprint 14 regression fix — when a user message's content array
+ * contains tool_result blocks AT THE FRONT of the trimmed window,
+ * those tool_result blocks are ORPHANS: their matching tool_use blocks
+ * were in an assistant message that got dropped to fit the window.
+ * The Anthropic API rejects orphan tool_result blocks with:
+ *   `Each tool_result block must have a corresponding tool_use block
+ *    in the previous message.`
+ * After trimming, we keep dropping leading messages until the first
+ * is a clean user start (text or content blocks with no tool_result).
+ */
+function isOrphanLeadingToolResult(msg: ContextMessage): boolean {
+  if (msg.role !== 'user') return false;
+  if (typeof msg.content === 'string') return false;
+  return msg.content.some(
+    (block) =>
+      typeof block === 'object' &&
+      block !== null &&
+      (block as { type?: string }).type === 'tool_result',
+  );
+}
+
+/**
  * Trim from the front to stay within message count and character budgets.
- * The resulting window always starts with a user message (Anthropic requirement).
+ * The resulting window always starts with a user message (Anthropic requirement)
+ * AND that user message must NOT lead with a tool_result block whose tool_use
+ * has been trimmed off (Sprint 14 regression fix).
  */
 function trimToLimits(messages: ContextMessage[]): ContextMessage[] {
   let trimmed =
@@ -78,7 +102,12 @@ function trimToLimits(messages: ContextMessage[]): ContextMessage[] {
     trimmed = trimmed.slice(1);
   }
 
-  while (trimmed.length > 1 && trimmed[0].role !== 'user') {
+  // Drop until the first message is a CLEAN user start: role 'user'
+  // AND no leading orphan tool_result (Sprint 14 fix).
+  while (
+    trimmed.length > 1 &&
+    (trimmed[0].role !== 'user' || isOrphanLeadingToolResult(trimmed[0]))
+  ) {
     trimmed = trimmed.slice(1);
   }
 

@@ -103,7 +103,9 @@ describe('EvalHealthPanel', () => {
       />,
     );
     const badge = screen.getByText('12 / 12 passed');
-    expect(badge).toHaveClass('bg-green-100');
+    // Sprint 15.1 — accent palette migrated from raw bg-green-* to
+    // semantic bg-success-* tokens (token system in globals.css).
+    expect(badge).toHaveClass('bg-success-100');
   });
 
   it('renders amber Tier 1 badge when some failed', () => {
@@ -114,7 +116,8 @@ describe('EvalHealthPanel', () => {
       />,
     );
     const badge = screen.getByText('10 / 12 passed');
-    expect(badge).toHaveClass('bg-amber-100');
+    // Sprint 15.1 — bg-amber-* → bg-warning-* semantic token.
+    expect(badge).toHaveClass('bg-warning-100');
   });
 
   it('renders Tier 2 metric grid when leaseGrading snapshot present', () => {

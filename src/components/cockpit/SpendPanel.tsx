@@ -24,15 +24,15 @@ export function SpendPanel({ initialSnapshot }: SpendPanelProps) {
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+    <section className="overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline dark:border-neutral-800 dark:bg-neutral-900">
+      <header className="flex items-center justify-between border-b border-neutral-100 px-4 py-3 dark:border-neutral-800">
         <div>
-          <h2 className="text-sm font-semibold text-gray-800">
+          <h2 className="text-sm font-semibold text-fg-default">
             Today&rsquo;s spend
           </h2>
-          <p className="mt-0.5 flex items-center gap-2 text-[11px] text-gray-500">
-            <span>{snapshot.date}</span>
-            <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-gray-500">
+          <p className="mt-0.5 flex items-center gap-2 text-[11px] text-fg-muted">
+            <span className="tabular">{snapshot.date}</span>
+            <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-fg-muted dark:bg-neutral-800">
               Global · all workspaces
             </span>
           </p>
@@ -41,20 +41,20 @@ export function SpendPanel({ initialSnapshot }: SpendPanelProps) {
       </header>
       <div className="grid grid-cols-1 gap-4 px-4 py-4 text-center sm:grid-cols-3">
         <div>
-          <div className="text-xs text-gray-500">Tokens in</div>
-          <div className="mt-1 text-lg font-semibold text-gray-800">
+          <div className="text-xs text-fg-muted">Tokens in</div>
+          <div className="mt-1 text-lg font-semibold tabular text-fg-default">
             {snapshot.tokens_in}
           </div>
         </div>
         <div>
-          <div className="text-xs text-gray-500">Tokens out</div>
-          <div className="mt-1 text-lg font-semibold text-gray-800">
+          <div className="text-xs text-fg-muted">Tokens out</div>
+          <div className="mt-1 text-lg font-semibold tabular text-fg-default">
             {snapshot.tokens_out}
           </div>
         </div>
         <div>
-          <div className="text-xs text-gray-500">Estimated</div>
-          <div className="mt-1 text-lg font-semibold text-gray-800">
+          <div className="text-xs text-fg-muted">Estimated</div>
+          <div className="mt-1 text-lg font-semibold tabular text-fg-default">
             ≈ ${snapshot.estimated_dollars.toFixed(4)}
           </div>
         </div>

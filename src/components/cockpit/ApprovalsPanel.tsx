@@ -35,20 +35,20 @@ export function ApprovalsPanel({ initialItems }: ApprovalsPanelProps) {
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+    <section className="overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline dark:border-neutral-800 dark:bg-neutral-900">
+      <header className="flex items-center justify-between border-b border-neutral-100 px-4 py-3 dark:border-neutral-800">
         <div>
-          <h2 className="text-sm font-semibold text-gray-800">
+          <h2 className="text-sm font-semibold text-fg-default">
             Awaiting sign-off
           </h2>
-          <p className="mt-0.5 text-[11px] text-gray-500">
+          <p className="mt-0.5 text-[11px] text-fg-muted">
             Recent approvals · Admin only
           </p>
         </div>
         <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
       </header>
       {items.length === 0 ? (
-        <div className="px-4 py-6 text-xs text-gray-500">
+        <div className="px-4 py-6 text-xs text-fg-muted">
           No approvals recorded yet.
         </div>
       ) : (
@@ -57,19 +57,19 @@ export function ApprovalsPanel({ initialItems }: ApprovalsPanelProps) {
             {items.map((item) => (
               <li
                 key={item.id}
-                className="grid min-w-[700px] grid-cols-[180px_minmax(0,1fr)_120px_minmax(0,1fr)] items-center gap-3 border-b border-gray-100 px-4 py-2.5 text-xs"
+                className="grid min-w-[700px] grid-cols-[180px_minmax(0,1fr)_120px_minmax(0,1fr)] items-center gap-3 border-b border-neutral-100 px-4 py-2.5 text-xs dark:border-neutral-800"
               >
-                <span className="text-gray-700">
+                <span className="tabular text-fg-default">
                   {formatTime(item.created_at)}
                 </span>
-                <span className="truncate font-mono text-gray-600">
+                <span className="truncate font-mono text-fg-default">
                   {item.document_slug}
                 </span>
-                <span className="truncate text-gray-500">
+                <span className="truncate text-fg-muted">
                   {item.approved_by}
                 </span>
                 <span
-                  className="truncate text-gray-500"
+                  className="truncate text-fg-muted"
                   title={item.notes ?? ''}
                 >
                   {item.notes ?? '—'}

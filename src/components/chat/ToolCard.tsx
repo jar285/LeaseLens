@@ -58,26 +58,28 @@ export function ToolCard({ invocation }: ToolCardProps) {
     invocation.audit_id &&
     rollbackState === 'idle';
 
-  return (
-    <div className="my-2 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+  // Sprint 15 Phase 6 — hairline border (replaces shadow-sm bloom),
+  // 2px hover lift via motion, and semantic-token status badges.
+  const card = (
+    <>
       {/* Header — flex row with the expand toggle as a button and Undo/Retry
           as siblings (avoids invalid nested-button HTML). */}
-      <div className="flex items-center gap-2 px-3 py-2 transition-colors hover:bg-gray-50">
+      <div className="flex items-center gap-2 px-3 py-2 transition-colors hover:bg-surface-muted dark:hover:bg-neutral-800/50">
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
           aria-label={
             isExpanded ? 'Collapse tool details' : 'Expand tool details'
           }
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
         >
           {isExpanded ? (
-            <ChevronDown className="h-4 w-4 text-gray-400" />
+            <ChevronDown className="h-4 w-4 text-fg-subtle" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-gray-400" />
+            <ChevronRight className="h-4 w-4 text-fg-subtle" />
           )}
-          <Wrench className="h-4 w-4 text-indigo-500" />
-          <span className="truncate text-sm font-medium text-gray-700">
+          <Wrench className="h-4 w-4 text-accent-500 dark:text-accent-300" />
+          <span className="truncate text-sm font-medium text-fg-default">
             {invocation.name}
           </span>
         </button>
@@ -88,17 +90,17 @@ export function ToolCard({ invocation }: ToolCardProps) {
         {rollbackState === 'idle' && (
           <>
             {hasError && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-600">
+              <span className="rounded-full bg-danger-100 px-2 py-0.5 text-xs text-danger-600 dark:bg-danger-600/15 dark:text-danger-100">
                 Error
               </span>
             )}
             {hasResult && !hasError && (
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-600">
+              <span className="rounded-full bg-success-100 px-2 py-0.5 text-xs text-success-600 dark:bg-success-600/15 dark:text-success-100">
                 Done
               </span>
             )}
             {isPending && (
-              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+              <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
                 Running...
               </span>
             )}
@@ -110,18 +112,18 @@ export function ToolCard({ invocation }: ToolCardProps) {
           <button
             type="button"
             onClick={handleUndo}
-            className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+            className="rounded-full border border-warning-100 bg-warning-100/60 px-2 py-0.5 text-xs text-warning-600 transition-colors hover:bg-warning-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-warning-600/40 dark:bg-warning-600/15 dark:text-warning-100"
           >
             Undo
           </button>
         )}
         {rollbackState === 'rolling_back' && (
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
             Rolling back…
           </span>
         )}
         {rollbackState === 'rolled_back' && (
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-fg-muted dark:bg-neutral-800">
             Rolled back
           </span>
         )}
@@ -129,7 +131,7 @@ export function ToolCard({ invocation }: ToolCardProps) {
           <button
             type="button"
             onClick={handleUndo}
-            className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-700 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+            className="rounded-full border border-danger-100 bg-danger-100/60 px-2 py-0.5 text-xs text-danger-600 transition-colors hover:bg-danger-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-danger-600/40 dark:bg-danger-600/15 dark:text-danger-100"
           >
             Retry undo
           </button>
@@ -139,13 +141,13 @@ export function ToolCard({ invocation }: ToolCardProps) {
       {isPending && (
         <div
           role="status"
-          className="border-t border-gray-100 px-3 py-2.5 text-xs text-gray-500"
+          className="border-t border-neutral-100 px-3 py-2.5 text-xs text-fg-muted dark:border-neutral-800"
         >
           <span className="sr-only">Tool is running</span>
           <div className="space-y-1.5" aria-hidden="true">
-            <div className="h-2 w-2/3 animate-pulse rounded bg-gray-100" />
-            <div className="h-2 w-1/2 animate-pulse rounded bg-gray-100" />
-            <div className="h-2 w-3/4 animate-pulse rounded bg-gray-100" />
+            <div className="h-2 w-2/3 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+            <div className="h-2 w-1/2 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+            <div className="h-2 w-3/4 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
           </div>
         </div>
       )}
@@ -153,7 +155,7 @@ export function ToolCard({ invocation }: ToolCardProps) {
       {/* Sprint 12: render the diagram inline above the collapsible
           details when the tool result carries Mermaid code. */}
       {diagramResult && (
-        <div className="border-t border-gray-100 px-3 py-2">
+        <div className="border-t border-neutral-100 px-3 py-2 dark:border-neutral-800">
           <MermaidDiagram
             code={diagramResult.code}
             title={diagramResult.title}
@@ -178,13 +180,13 @@ export function ToolCard({ invocation }: ToolCardProps) {
               transition={{ duration: 0.22, ease: 'easeOut' }}
               style={{ overflow: 'hidden' }}
             >
-              <div className="border-t border-gray-100 px-3 py-2">
+              <div className="border-t border-neutral-100 px-3 py-2 dark:border-neutral-800">
                 {/* Input */}
                 <div className="mb-3">
-                  <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
+                  <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
                     Input
                   </div>
-                  <pre className="max-h-32 overflow-auto rounded bg-gray-50 p-2 text-xs text-gray-700">
+                  <pre className="max-h-32 overflow-auto rounded bg-surface-muted p-2 text-xs text-fg-default dark:bg-neutral-800">
                     {formatJson(invocation.input)}
                   </pre>
                 </div>
@@ -192,14 +194,14 @@ export function ToolCard({ invocation }: ToolCardProps) {
                 {/* Result or Error */}
                 {hasResult && (
                   <div>
-                    <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
+                    <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
                       Result
                     </div>
                     <pre
                       className={`max-h-48 overflow-auto rounded p-2 text-xs ${
                         hasError
-                          ? 'bg-red-50 text-red-700'
-                          : 'bg-gray-50 text-gray-700'
+                          ? 'bg-danger-100/60 text-danger-600 dark:bg-danger-600/15 dark:text-danger-100'
+                          : 'bg-surface-muted text-fg-default dark:bg-neutral-800'
                       }`}
                     >
                       {formatJson(invocation.result)}
@@ -210,25 +212,25 @@ export function ToolCard({ invocation }: ToolCardProps) {
             </motion.div>
           ) : (
             <div key="body" data-testid="expanded-body" data-motion="off">
-              <div className="border-t border-gray-100 px-3 py-2">
+              <div className="border-t border-neutral-100 px-3 py-2 dark:border-neutral-800">
                 <div className="mb-3">
-                  <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
+                  <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
                     Input
                   </div>
-                  <pre className="max-h-32 overflow-auto rounded bg-gray-50 p-2 text-xs text-gray-700">
+                  <pre className="max-h-32 overflow-auto rounded bg-surface-muted p-2 text-xs text-fg-default dark:bg-neutral-800">
                     {formatJson(invocation.input)}
                   </pre>
                 </div>
                 {hasResult && (
                   <div>
-                    <div className="mb-1 text-xs font-semibold text-gray-500 uppercase">
+                    <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
                       Result
                     </div>
                     <pre
                       className={`max-h-48 overflow-auto rounded p-2 text-xs ${
                         hasError
-                          ? 'bg-red-50 text-red-700'
-                          : 'bg-gray-50 text-gray-700'
+                          ? 'bg-danger-100/60 text-danger-600 dark:bg-danger-600/15 dark:text-danger-100'
+                          : 'bg-surface-muted text-fg-default dark:bg-neutral-800'
                       }`}
                     >
                       {formatJson(invocation.result)}
@@ -239,6 +241,21 @@ export function ToolCard({ invocation }: ToolCardProps) {
             </div>
           ))}
       </AnimatePresence>
-    </div>
+    </>
+  );
+
+  const containerClass =
+    'my-2 overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline dark:border-neutral-800 dark:bg-neutral-900';
+
+  return animate ? (
+    <motion.div
+      className={containerClass}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.15, ease: 'easeOut' }}
+    >
+      {card}
+    </motion.div>
+  ) : (
+    <div className={containerClass}>{card}</div>
   );
 }

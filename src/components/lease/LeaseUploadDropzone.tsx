@@ -8,13 +8,19 @@
 // pill-style affordance, and per-state accent colors that read at a
 // glance. Each state is also exposed as `data-status="..."` on the
 // root <section> so tests can assert without reading classnames.
+//
+// Sprint 15 Phase 7 — dragover dashed→solid accent, copy swap to
+// "Drop to scan", single-pulse icon scale on dragover entry, full
+// token sweep + dark-mode coverage.
 
 'use client';
 
 import { AlertTriangle, CheckCircle2, FileUp, Loader2 } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 import {
   type ChangeEvent,
   type DragEvent,
+  useEffect,
   useId,
   useRef,
   useState,
@@ -54,6 +60,12 @@ export function LeaseUploadDropzone({
   const [status, setStatus] = useState<Status>('idle');
   const [statusMsg, setStatusMsg] = useState<string>('');
   const [filename, setFilename] = useState<string | null>(null);
+  const reduced = useReducedMotion();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const animate = mounted && !reduced;
 
   function reportError(msg: string): void {
     setStatus('error');
@@ -140,6 +152,45 @@ export function LeaseUploadDropzone({
   const isError = status === 'error';
   const isSuccess = status === 'success';
 
+  // Sprint 15 Phase 7 — dragover takes a solid accent border (drops the
+  // dashed treatment); idle keeps dashed. Other states keep a solid edge.
+  const borderStyle = isDragOver
+    ? 'border-2 border-solid border-accent-400 bg-accent-50/60 ring-2 ring-accent-100 dark:border-accent-400 dark:bg-accent-500/10 dark:ring-accent-500/15'
+    : isUploading
+      ? 'border-2 border-solid border-accent-200 bg-accent-50/30 dark:border-accent-500/40 dark:bg-accent-500/5'
+      : isError
+        ? 'border-2 border-solid border-danger-100 bg-danger-100/40 dark:border-danger-600/40 dark:bg-danger-600/5'
+        : isSuccess
+          ? 'border-2 border-solid border-success-100 bg-success-100/40 dark:border-success-600/40 dark:bg-success-600/5'
+          : 'border-2 border-dashed border-neutral-200 bg-surface-card hover:border-accent-300 hover:bg-surface-muted dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-accent-500/40 dark:hover:bg-neutral-800/60';
+
+  const iconWrapperClass = classNames(
+    'flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl transition-colors duration-200',
+    isDragOver &&
+      'bg-accent-100 text-accent-600 dark:bg-accent-500/25 dark:text-accent-200',
+    isUploading &&
+      'bg-accent-50 text-accent-500 dark:bg-accent-500/15 dark:text-accent-300',
+    isError &&
+      'bg-danger-100/60 text-danger-600 dark:bg-danger-600/15 dark:text-danger-100',
+    isSuccess &&
+      'bg-success-100/60 text-success-600 dark:bg-success-600/15 dark:text-success-100',
+    !isDragOver &&
+      !isUploading &&
+      !isError &&
+      !isSuccess &&
+      'bg-neutral-100 text-fg-subtle group-hover:bg-accent-50 group-hover:text-accent-500 dark:bg-neutral-800 dark:text-neutral-400 dark:group-hover:bg-accent-500/15 dark:group-hover:text-accent-300',
+  );
+
+  const iconNode = isUploading ? (
+    <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+  ) : isError ? (
+    <AlertTriangle className="h-6 w-6" aria-hidden="true" />
+  ) : isSuccess ? (
+    <CheckCircle2 className="h-6 w-6" aria-hidden="true" />
+  ) : (
+    <FileUp className="h-6 w-6" aria-hidden="true" />
+  );
+
   return (
     <section
       data-testid="lease-upload-dropzone"
@@ -150,51 +201,34 @@ export function LeaseUploadDropzone({
       onDrop={onDrop}
       aria-label="Lease PDF upload area"
       className={classNames(
-        'group relative flex w-full flex-1 flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl border-2 border-dashed p-8 text-center transition-all duration-200',
-        isDragOver &&
-          'border-indigo-400 bg-indigo-50/60 ring-2 ring-indigo-100',
-        isUploading && 'border-indigo-200 bg-indigo-50/30',
-        isError && 'border-red-200 bg-red-50/40',
-        isSuccess && 'border-emerald-200 bg-emerald-50/40',
-        !isDragOver &&
-          !isUploading &&
-          !isError &&
-          !isSuccess &&
-          'border-gray-200 bg-white hover:border-indigo-200 hover:bg-gray-50/80',
+        'group relative flex w-full flex-1 flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl p-8 text-center transition-all duration-200',
+        borderStyle,
       )}
     >
-      {/* Status icon */}
-      <div
-        data-testid="lease-upload-icon"
-        className={classNames(
-          'flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl transition-colors duration-200',
-          isDragOver && 'bg-indigo-100 text-indigo-600',
-          isUploading && 'bg-indigo-50 text-indigo-500',
-          isError && 'bg-red-50 text-red-500',
-          isSuccess && 'bg-emerald-50 text-emerald-600',
-          !isDragOver &&
-            !isUploading &&
-            !isError &&
-            !isSuccess &&
-            'bg-gray-100 text-gray-400 group-hover:bg-indigo-50 group-hover:text-indigo-500',
-        )}
-      >
-        {isUploading ? (
-          <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
-        ) : isError ? (
-          <AlertTriangle className="h-6 w-6" aria-hidden="true" />
-        ) : isSuccess ? (
-          <CheckCircle2 className="h-6 w-6" aria-hidden="true" />
-        ) : (
-          <FileUp className="h-6 w-6" aria-hidden="true" />
-        )}
-      </div>
+      {/* Status icon — pulses once when dragover begins. Reduced-motion
+          renders a plain div with the same styles. */}
+      {animate ? (
+        <motion.div
+          data-testid="lease-upload-icon"
+          className={iconWrapperClass}
+          // re-mount the animation each time isDragOver flips on
+          key={isDragOver ? 'over' : 'rest'}
+          animate={isDragOver ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+          transition={{ duration: 0.4, ease: 'easeOut' }}
+        >
+          {iconNode}
+        </motion.div>
+      ) : (
+        <div data-testid="lease-upload-icon" className={iconWrapperClass}>
+          {iconNode}
+        </div>
+      )}
 
       {/* Headline + subtext */}
       <div className="space-y-1">
-        <p className="text-[15px] font-semibold tracking-tight text-gray-900">
+        <p className="text-[15px] font-semibold tracking-tight text-fg-default">
           {isDragOver
-            ? 'Drop the PDF to upload'
+            ? 'Drop to scan'
             : isUploading
               ? 'Parsing your lease…'
               : isError
@@ -203,7 +237,7 @@ export function LeaseUploadDropzone({
                   ? 'Lease ready'
                   : 'Drop your NJ residential lease'}
         </p>
-        <p className="mx-auto max-w-xs text-xs leading-relaxed text-gray-500">
+        <p className="mx-auto max-w-xs text-xs leading-relaxed text-fg-muted">
           {isDragOver
             ? 'Release to start parsing'
             : isUploading
@@ -222,10 +256,10 @@ export function LeaseUploadDropzone({
           htmlFor={inputId}
           data-testid="lease-upload-label"
           className={classNames(
-            'cursor-pointer rounded-md border px-3.5 py-1.5 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
+            'cursor-pointer rounded-md border px-3.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
             isError
-              ? 'border-red-200 bg-white text-red-700 hover:border-red-300 hover:bg-red-50 focus-visible:ring-red-200'
-              : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 focus-visible:ring-indigo-200',
+              ? 'border-danger-100 bg-surface-card text-danger-600 hover:border-danger-100/80 hover:bg-danger-100/40 focus-visible:ring-danger-100 dark:border-danger-600/40 dark:bg-neutral-900 dark:text-danger-100 dark:hover:bg-danger-600/15'
+              : 'border-neutral-200 bg-surface-card text-fg-default hover:border-neutral-300 hover:bg-surface-muted focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-neutral-600 dark:hover:bg-neutral-800',
           )}
         >
           {isError ? 'Try another file' : 'Choose a file'}
@@ -234,7 +268,7 @@ export function LeaseUploadDropzone({
 
       {/* Hint */}
       {status === 'idle' ? (
-        <p className="text-[11px] text-gray-400">PDF files up to 10 MB</p>
+        <p className="text-[11px] text-fg-subtle">PDF files up to 10 MB</p>
       ) : null}
 
       <input

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
+import { ThemeToggle } from '@/components/auth/ThemeToggle';
 import { CockpitDashboard } from '@/components/cockpit/CockpitDashboard';
 import { WorkspaceHeader } from '@/components/cockpit/WorkspaceHeader';
 import { DEMO_USERS } from '@/lib/auth/constants';
@@ -105,16 +106,16 @@ export default async function CockpitPage() {
 
   return (
     <>
-      <header className="z-10 flex shrink-0 items-center justify-between border-b border-gray-200 bg-white px-8 py-3.5">
+      <header className="z-10 flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
         <div className="flex items-center gap-4">
           <Link
             href="/"
-            className="rounded-md px-1 text-sm text-gray-500 transition-colors hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+            className="rounded-md px-1 text-sm text-fg-muted transition-colors hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
           >
             ← Chat
           </Link>
-          <span className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-gray-800">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600 text-white">
+          <span className="flex items-center gap-2.5 text-[15px] font-semibold tracking-tight text-fg-default">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-600 text-white">
               <Layers
                 className="h-3.5 w-3.5"
                 aria-hidden="true"
@@ -125,15 +126,18 @@ export default async function CockpitPage() {
           </span>
           <WorkspaceHeader workspace={workspace} otherBrands={otherBrands} />
         </div>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <RoleSwitcher currentRole={role} />
+        </div>
       </header>
       <div className="mx-auto max-w-6xl px-6 py-8">
-        <p className="mb-6 text-sm text-gray-500">
+        <p className="mb-6 text-sm text-fg-muted">
           What your team sees while the AI works on behalf of{' '}
-          <span className="font-medium text-gray-700">{workspace.name}</span>.
+          <span className="font-medium text-fg-default">{workspace.name}</span>.
         </p>
         <CockpitDashboard initialData={initialData} />
       </div>
-      <RoleSwitcher currentRole={role} />
     </>
   );
 }

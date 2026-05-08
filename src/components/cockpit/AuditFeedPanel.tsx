@@ -52,21 +52,23 @@ function AuditRowItem({
   return (
     <li
       data-testid={`audit-row-${row.id}`}
-      className="grid min-w-[760px] grid-cols-[140px_140px_140px_minmax(0,1fr)_100px_84px] items-center gap-3 border-b border-gray-100 px-4 py-2.5 text-xs"
+      className="grid min-w-[760px] grid-cols-[140px_140px_140px_minmax(0,1fr)_100px_84px] items-center gap-3 border-b border-neutral-100 px-4 py-2.5 text-xs dark:border-neutral-800"
     >
-      <span className="text-gray-500">{formatTime(row.created_at)}</span>
-      <span className="font-mono text-gray-700">{row.tool_name}</span>
-      <span className="text-gray-700">{actor}</span>
-      <span className="truncate text-gray-500" title={row.input_json}>
+      <span className="tabular text-fg-muted">
+        {formatTime(row.created_at)}
+      </span>
+      <span className="font-mono text-fg-default">{row.tool_name}</span>
+      <span className="text-fg-default">{actor}</span>
+      <span className="truncate text-fg-muted" title={row.input_json}>
         {summarizeInput(row.input_json)}
       </span>
       <span>
         {isRolledBack ? (
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-500">
+          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-fg-muted dark:bg-neutral-800">
             Rolled back
           </span>
         ) : (
-          <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-700">
+          <span className="rounded-full bg-success-100 px-2 py-0.5 text-success-600 dark:bg-success-600/15 dark:text-success-100">
             Executed
           </span>
         )}
@@ -76,19 +78,19 @@ function AuditRowItem({
           <button
             type="button"
             onClick={rollback}
-            className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+            className="rounded-full border border-warning-100 bg-warning-100/60 px-2 py-0.5 text-warning-600 transition-colors hover:bg-warning-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-warning-600/40 dark:bg-warning-600/15 dark:text-warning-100"
           >
             Undo
           </button>
         )}
         {rollbackStatus === 'rolling_back' && (
-          <span className="text-gray-500">…</span>
+          <span className="text-fg-muted">…</span>
         )}
         {rollbackStatus === 'rollback_failed' && (
           <button
             type="button"
             onClick={rollback}
-            className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-red-700 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+            className="rounded-full border border-danger-100 bg-danger-100/60 px-2 py-0.5 text-danger-600 transition-colors hover:bg-danger-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-danger-600/40 dark:bg-danger-600/15 dark:text-danger-100"
           >
             Retry
           </button>
@@ -123,20 +125,21 @@ export function AuditFeedPanel({
   const hiddenCount = rows.length - visibleRows.length;
 
   return (
-    <section className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+    <section className="overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline dark:border-neutral-800 dark:bg-neutral-900">
+      <header className="flex items-center justify-between border-b border-neutral-100 px-4 py-3 dark:border-neutral-800">
         <div>
-          <h2 className="text-sm font-semibold text-gray-800">
+          <h2 className="text-sm font-semibold text-fg-default">
             What has the AI done?
           </h2>
-          <p className="mt-0.5 text-[11px] text-gray-500">
-            Tool actions logged on this brand · {rows.length} entries
+          <p className="mt-0.5 text-[11px] text-fg-muted">
+            Tool actions logged on this brand ·{' '}
+            <span className="tabular">{rows.length}</span> entries
           </p>
         </div>
         <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
       </header>
       {rows.length === 0 ? (
-        <div className="px-4 py-6 text-xs text-gray-500">
+        <div className="px-4 py-6 text-xs text-fg-muted">
           No tool actions recorded yet.
         </div>
       ) : (
@@ -152,11 +155,11 @@ export function AuditFeedPanel({
             ))}
           </ul>
           {(hiddenCount > 0 || expanded) && (
-            <div className="border-t border-gray-100 px-4 py-2 text-right">
+            <div className="border-t border-neutral-100 px-4 py-2 text-right dark:border-neutral-800">
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="text-xs font-medium text-indigo-600 transition-colors hover:text-indigo-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+                className="text-xs font-medium text-accent-600 transition-colors hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-accent-300 dark:hover:text-accent-200"
               >
                 {expanded ? 'Show fewer' : `View all (${rows.length})`}
               </button>

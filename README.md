@@ -199,6 +199,62 @@ Open `/cockpit` (Reviewer or Admin only) for the operator dashboard: today's spe
 
 Click the workspace label in the header to open the switcher. From there you can use the seeded sample, drag in your own lease PDF, or jump back to a previously-uploaded one. Each upload TTLs after 24 hours via lazy cleanup on the next upload.
 
+### Where to get a test lease
+
+The seeded sample lease ([`src/corpus/sample-lease/sample-nj-residential-lease.pdf`](src/corpus/sample-lease/sample-nj-residential-lease.pdf)) loads automatically on the first `npm run dev` and exercises every clause type the grader recognises. If you want to walk the upload flow with a different document, any **text-layer NJ residential lease PDF, ≤ 1 MB, ≤ 30 pages** works. Free template sources that meet the requirement:
+
+| Source | What it is | Notes |
+|---|---|---|
+| [eForms — NJ Residential Lease Agreement](https://eforms.com/rental/nj/) | Free PDF template generator | Fills with placeholder text; downloads as text-layer PDF ready for upload |
+| [LawDepot — NJ Lease](https://www.lawdepot.com/contracts/residential-lease-agreement/?loc=US-NJ) | Free preview PDF | Print-to-PDF the preview; clauses cover security deposit, late fees, repairs |
+| [Rocket Lawyer — NJ Lease](https://www.rocketlawyer.com/real-estate/landlords/residential-property/document/lease-agreement) | Free preview | Same pattern — print preview to PDF |
+| [NJ DCA Truth in Renting guide](https://www.nj.gov/dca/codes/publications/pdf_lps/t_i_r.pdf) | Official tenant-rights booklet | Not a lease itself, but useful as a corpus check for the `search_corpus` tool |
+
+> **Don't upload a real personal lease.** The PDF binary isn't persisted (parsed clauses are kept in SQLite only, blob URLs expire on tab close), but treat the local DB as throwaway dev data — it isn't encrypted at rest. A redacted template is the right test artefact.
+
+**Avoid:** scanned-image PDFs (no text layer → 422 with `error: 'pdf_no_text_layer'`), commercial leases, and leases from other states (the system prompt instructs the model to refuse non-NJ residential).
+
+### Prompts to try
+
+A library of prompts that exercise different parts of the tool surface. Each maps to a specific tool path so you can verify the chain of reasoning + citation grounding. Drop the seeded sample (or your own upload) into the left pane, then send any of these into the chat:
+
+#### Standard scan + red-flag triage
+
+- *"Run the standard scan on this lease."* — chain: `extract_clauses` → `grade_clause_severity` per clause. Watch the right-pane Red Flag report fill in over ~30s.
+- *"Which clause is the most concerning, and why?"* — narrative summary on top of the standard scan. Tests that the model surfaces severity ordering verbatim from grading results.
+- *"Show me only the high-severity red flags."* — filtered re-statement; tests the model's ability to read its own scan output.
+
+#### Specific clause lookups
+
+- *"Read the security-deposit clause and tell me if it's enforceable under NJ law."* — `extract_clauses` + a single targeted `grade_clause_severity` call. Result should cite N.J.S.A. 46:8-19 (the 1.5-month cap).
+- *"Is the late fee in this lease legal? Quote the section that talks about it."* — tests both grading and verbatim-quote retrieval from clause text.
+- *"What does the lease say about early termination, and what's NJ law's position?"* — paired clause-text + `search_corpus` ground.
+- *"Compare the attorney's-fees clause to NJ statute. Is it one-way or reciprocal?"* — tests `attorneys_fees` clause classification + the asymmetry check.
+
+#### Direct corpus questions (no lease required)
+
+- *"How much can a NJ landlord legally charge for a security deposit, and is interest required?"* — `search_corpus`; should return the security-deposit-cap chunk verbatim.
+- *"Under what circumstances can a NJ tenant break a lease early without penalty?"* — `search_corpus` against the early-termination corpus (domestic violence / senior-disabled / general).
+- *"What notice does a NJ landlord have to give before entering the apartment?"* — `search_corpus` → entry-notice + entry-emergency.
+- *"Cite the NJ statute on retaliation against a tenant who reports code violations."* — verbatim citation lookup (N.J.S.A. 2A:42-10.10).
+
+#### Negotiation drafting
+
+- *"Draft a polite email to my landlord about the security deposit clause."* — `draft_negotiation_email` (mutating; produces an audited row with an Undo button).
+- *"Draft a firmer email about the late-fee structure — this isn't negotiable for me."* — same tool with `tone: "firm"`.
+- *"Use a formal tone and request a redline of the early-termination clause."* — `tone: "formal"`. Demonstrates the three-tone copy library.
+
+#### Cockpit-only workflows (Reviewer/Admin)
+
+- Switch to Reviewer or Admin in the header, open `/cockpit`, click the refresh icon on each panel. Tests the server actions wired to the cockpit refresh buttons.
+- After a `draft_negotiation_email` call, click **Undo** on the resulting ToolCard. The audit row's status flips to `rolled_back` and the `negotiation_emails` row is deleted in the same transaction. Re-open `/cockpit` and watch the audit feed refresh.
+
+#### Edge cases worth poking at
+
+- *"Summarise this lease in plain English for someone with no legal background."* — non-tool path; pure RAG-grounded chat. Tests that the model still cites NJ law when the user doesn't ask for citations explicitly.
+- *"Is anything in this lease actually unenforceable? Don't be polite about it."* — tests the disclaimer override; the system prompt should still keep tone professional and citation-bound.
+- Upload a 30+ page PDF or a scanned-image lease and confirm the dropzone surfaces the right error pill (size cap or `pdf_no_text_layer`).
+
 ---
 
 ## Features

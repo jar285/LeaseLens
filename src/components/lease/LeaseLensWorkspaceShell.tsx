@@ -99,7 +99,7 @@ function ShellInner({
     >
       <section
         data-testid="shell-left-pane"
-        className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-gray-100 bg-white"
+        className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-neutral-100 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900"
       >
         {activeLease ? (
           <PdfViewer
@@ -118,7 +118,7 @@ function ShellInner({
 
       <section
         data-testid="shell-center-pane"
-        className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-white"
+        className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface-card dark:bg-neutral-900"
       >
         <ChatUI
           initialMessages={initialMessages}
@@ -130,14 +130,14 @@ function ShellInner({
 
       <aside
         data-testid="shell-right-pane"
-        className="flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-gray-100 bg-gray-50"
+        className="flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-neutral-100 bg-surface-base dark:border-neutral-800 dark:bg-neutral-950"
         aria-label="Red-flag report"
       >
         <header
           data-testid="shell-right-pane-header"
-          className="flex shrink-0 items-center border-b border-gray-100 bg-white px-4 py-3"
+          className="flex shrink-0 items-center border-b border-neutral-100 bg-surface-card px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900"
         >
-          <h2 className="text-[11px] font-semibold tracking-[0.14em] text-gray-500 uppercase">
+          <h2 className="text-[11px] font-semibold tracking-[0.14em] text-fg-muted uppercase">
             Red flags
           </h2>
         </header>

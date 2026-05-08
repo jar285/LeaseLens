@@ -2,9 +2,9 @@ import './globals.css';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'ContentOps Studio — Side Quest Syndicate',
+  title: 'LeaseLens — NJ Tenant Lease Red-Flag Reviewer',
   description:
-    'Editorial AI workspace for brand voice, content pillars, and approval flows.',
+    'Drop a NJ residential lease, get a graded red-flag report grounded in NJ tenant law.',
 };
 
 export default function RootLayout({

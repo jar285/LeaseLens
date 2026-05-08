@@ -32,7 +32,10 @@ describe('workspace queries', () => {
   describe('createWorkspace', () => {
     it('inserts and returns the row with TTL set 24h in the future', () => {
       const before = Math.floor(Date.now() / 1000);
-      const ws = createWorkspace(db, { name: 'Acme', description: 'A test brand' });
+      const ws = createWorkspace(db, {
+        name: 'Acme',
+        description: 'A test brand',
+      });
       expect(ws.name).toBe('Acme');
       expect(ws.description).toBe('A test brand');
       expect(ws.is_sample).toBe(0);

@@ -65,7 +65,10 @@ describe('cockpit queries', () => {
         createdAt: 2000,
       });
 
-      const rows = listRecentAuditRows(db, { workspaceId: SAMPLE_WORKSPACE.id, limit: 10 });
+      const rows = listRecentAuditRows(db, {
+        workspaceId: SAMPLE_WORKSPACE.id,
+        limit: 10,
+      });
       expect(rows).toHaveLength(2);
       // DESC by created_at — mcp-server (2000) comes first
       expect(rows[0].actor_user_id).toBe('mcp-server');
@@ -119,12 +122,20 @@ describe('cockpit queries', () => {
             `INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at)
              VALUES (?, 'brand-identity', ?, ?, 'twitter', 'editor-id', ?)`,
           )
-          .run(id, SAMPLE_WORKSPACE.id, scheduledFor, Math.floor(Date.now() / 1000));
+          .run(
+            id,
+            SAMPLE_WORKSPACE.id,
+            scheduledFor,
+            Math.floor(Date.now() / 1000),
+          );
       insert('s2', 2000);
       insert('s1', 1000);
       insert('s3', 3000);
 
-      const items = listScheduledItems(db, { workspaceId: SAMPLE_WORKSPACE.id, limit: 10 });
+      const items = listScheduledItems(db, {
+        workspaceId: SAMPLE_WORKSPACE.id,
+        limit: 10,
+      });
       expect(items.map((i) => i.id)).toEqual(['s1', 's2', 's3']);
     });
 
@@ -158,7 +169,10 @@ describe('cockpit queries', () => {
       insert('a2', 2000);
       insert('a3', 3000);
 
-      const items = listRecentApprovals(db, { workspaceId: SAMPLE_WORKSPACE.id, limit: 10 });
+      const items = listRecentApprovals(db, {
+        workspaceId: SAMPLE_WORKSPACE.id,
+        limit: 10,
+      });
       expect(items.map((i) => i.id)).toEqual(['a3', 'a2', 'a1']);
     });
 

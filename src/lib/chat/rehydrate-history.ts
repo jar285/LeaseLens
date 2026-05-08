@@ -1,4 +1,7 @@
-import type { ChatMessageProps, ToolInvocation } from '@/components/chat/ChatMessage';
+import type {
+  ChatMessageProps,
+  ToolInvocation,
+} from '@/components/chat/ChatMessage';
 
 type ConversationRow = {
   id: string;
@@ -25,7 +28,9 @@ type PersistedToolResult = {
   };
 };
 
-function parsePersistedToolContent(content: string): PersistedToolUse | PersistedToolResult | null {
+function parsePersistedToolContent(
+  content: string,
+): PersistedToolUse | PersistedToolResult | null {
   try {
     const parsed: unknown = JSON.parse(content);
     if (
@@ -54,7 +59,9 @@ function parsePersistedToolContent(content: string): PersistedToolUse | Persiste
   return null;
 }
 
-function toToolInvocation(toolUse: PersistedToolUse['tool_use']): ToolInvocation {
+function toToolInvocation(
+  toolUse: PersistedToolUse['tool_use'],
+): ToolInvocation {
   return {
     id: toolUse.id,
     name: toolUse.name,

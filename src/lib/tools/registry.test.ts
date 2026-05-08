@@ -113,7 +113,12 @@ describe('ToolRegistry', () => {
       const { result, audit_id } = await registry.execute(
         'adder',
         { a: 1, b: 2 },
-        { role: 'Creator', userId: 'user-1', conversationId: 'conv-1', workspaceId: SAMPLE_WORKSPACE.id },
+        {
+          role: 'Creator',
+          userId: 'user-1',
+          conversationId: 'conv-1',
+          workspaceId: SAMPLE_WORKSPACE.id,
+        },
       );
 
       expect(result).toEqual({ result: 'adder' });
@@ -127,7 +132,12 @@ describe('ToolRegistry', () => {
         registry.execute(
           'missing',
           {},
-          { role: 'Creator', userId: 'user-1', conversationId: 'conv-1', workspaceId: SAMPLE_WORKSPACE.id },
+          {
+            role: 'Creator',
+            userId: 'user-1',
+            conversationId: 'conv-1',
+            workspaceId: SAMPLE_WORKSPACE.id,
+          },
         ),
       ).rejects.toThrow(UnknownToolError);
     });
@@ -140,7 +150,12 @@ describe('ToolRegistry', () => {
         registry.execute(
           'admin_only',
           {},
-          { role: 'Creator', userId: 'user-1', conversationId: 'conv-1', workspaceId: SAMPLE_WORKSPACE.id },
+          {
+            role: 'Creator',
+            userId: 'user-1',
+            conversationId: 'conv-1',
+            workspaceId: SAMPLE_WORKSPACE.id,
+          },
         ),
       ).rejects.toThrow(ToolAccessDeniedError);
     });
@@ -152,7 +167,12 @@ describe('ToolRegistry', () => {
       const { result } = await registry.execute(
         'admin_only',
         {},
-        { role: 'Admin', userId: 'user-1', conversationId: 'conv-1', workspaceId: SAMPLE_WORKSPACE.id },
+        {
+          role: 'Admin',
+          userId: 'user-1',
+          conversationId: 'conv-1',
+          workspaceId: SAMPLE_WORKSPACE.id,
+        },
       );
 
       expect(result).toEqual({ result: 'admin_only' });
@@ -272,7 +292,12 @@ describe('ToolRegistry', () => {
         registry.execute(
           'mut_tool',
           {},
-          { role: 'Admin', userId: 'u', conversationId: 'c', workspaceId: SAMPLE_WORKSPACE.id },
+          {
+            role: 'Admin',
+            userId: 'u',
+            conversationId: 'c',
+            workspaceId: SAMPLE_WORKSPACE.id,
+          },
         ),
       ).rejects.toThrow('mutation failed');
 
@@ -293,7 +318,12 @@ describe('ToolRegistry', () => {
       await registry.execute(
         'readonly',
         {},
-        { role: 'Admin', userId: 'u', conversationId: 'c', workspaceId: SAMPLE_WORKSPACE.id },
+        {
+          role: 'Admin',
+          userId: 'u',
+          conversationId: 'c',
+          workspaceId: SAMPLE_WORKSPACE.id,
+        },
       );
 
       const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
@@ -310,7 +340,12 @@ describe('ToolRegistry', () => {
         registry.execute(
           'mut_tool',
           {},
-          { role: 'Admin', userId: 'u', conversationId: 'c', workspaceId: SAMPLE_WORKSPACE.id },
+          {
+            role: 'Admin',
+            userId: 'u',
+            conversationId: 'c',
+            workspaceId: SAMPLE_WORKSPACE.id,
+          },
         ),
       ).rejects.toThrow(/has no db to write the audit row/);
     });
@@ -335,7 +370,12 @@ describe('ToolRegistry', () => {
         registry.execute(
           'validating_tool',
           {},
-          { role: 'Admin', userId: 'u', conversationId: 'c', workspaceId: SAMPLE_WORKSPACE.id },
+          {
+            role: 'Admin',
+            userId: 'u',
+            conversationId: 'c',
+            workspaceId: SAMPLE_WORKSPACE.id,
+          },
         ),
       ).rejects.toThrow('missing required_field');
 

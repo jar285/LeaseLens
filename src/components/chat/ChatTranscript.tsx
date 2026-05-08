@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
+import { FOLLOW_UP_PROMPTS } from '@/lib/chat/follow-up-prompts';
 import { ChatEmptyState } from './ChatEmptyState';
 import { ChatMessage, type ChatMessageProps } from './ChatMessage';
-import { FOLLOW_UP_PROMPTS } from '@/lib/chat/follow-up-prompts';
 
 export interface ChatTranscriptProps {
   messages: ChatMessageProps[];

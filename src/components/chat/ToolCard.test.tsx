@@ -146,9 +146,7 @@ describe('ToolCard', () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Expand tool details' }),
       );
-      const wrapper = container.querySelector(
-        '[data-testid="expanded-body"]',
-      );
+      const wrapper = container.querySelector('[data-testid="expanded-body"]');
       expect(wrapper?.getAttribute('data-motion')).toBe('on');
     });
 
@@ -160,9 +158,7 @@ describe('ToolCard', () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'Expand tool details' }),
       );
-      const wrapper = container.querySelector(
-        '[data-testid="expanded-body"]',
-      );
+      const wrapper = container.querySelector('[data-testid="expanded-body"]');
       expect(wrapper?.getAttribute('data-motion')).toBe('off');
     });
   });

@@ -85,7 +85,7 @@ describe('render_workflow_diagram tool', () => {
 
   it('rejects oversized input', async () => {
     const tool = createRenderWorkflowDiagramTool(stubDb);
-    const oversized = 'flowchart TD\n' + 'A-->B\n'.repeat(800); // > 4000 chars
+    const oversized = `flowchart TD\n${'A-->B\n'.repeat(800)}`; // > 4000 chars
     await expect(tool.execute({ code: oversized }, ctx)).rejects.toThrow(
       /4000/,
     );

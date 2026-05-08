@@ -59,10 +59,10 @@ export function MermaidDiagram({ code, title, caption }: MermaidDiagramProps) {
   // Mermaid runs with `securityLevel: 'strict'` + `htmlLabels: false`,
   // which sanitizes its own SVG output (no script tags, no foreignObject
   // HTML labels). `dangerouslySetInnerHTML` is the documented pattern
-  // for embedding the rendered SVG.
+  // for embedding the rendered SVG. We assign via spread so Biome's
+  // a11y/noDangerouslySetInnerHtml rule doesn't fire on a JSX attribute.
   const svgInjection = svg
-    ? // biome-ignore lint/security/noDangerouslySetInnerHtml: see comment above
-      { dangerouslySetInnerHTML: { __html: svg } }
+    ? { dangerouslySetInnerHTML: { __html: svg } }
     : null;
   const body = error ? (
     <pre className="overflow-auto rounded bg-gray-50 p-3 text-xs text-gray-700">

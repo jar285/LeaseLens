@@ -227,6 +227,7 @@ export function BrandUploadModal({
                     label-associated via id so screen-readers and tests can
                     still find it by `Brand documents`. */}
                 {/* biome-ignore lint/a11y/useKeyWithClickEvents: the hidden <input type="file"> is keyboard-focusable via the label association above and acts as the accessible primary control */}
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: same — the hidden file input is the keyboard-accessible primary control; this <div> is a pointer-only enhancement layer */}
                 <div
                   data-testid="brand-files-dropzone"
                   onClick={() => fileInputRef.current?.click()}

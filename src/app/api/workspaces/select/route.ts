@@ -29,10 +29,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const incoming = req.cookies.get(WORKSPACE_COOKIE_NAME);
   const prior = incoming ? await decodeWorkspace(incoming.value) : null;
   if (!prior) {
-    return NextResponse.json(
-      { error: 'No workspace cookie' },
-      { status: 401 },
-    );
+    return NextResponse.json({ error: 'No workspace cookie' }, { status: 401 });
   }
 
   let body: unknown;

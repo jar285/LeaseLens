@@ -1,12 +1,13 @@
 #!/usr/bin/env node
+
 // LeaseLens MCP Server
 // Exposes the LeaseLens tool surface over the Model Context Protocol (stdio transport)
 // Usage: npx tsx mcp/leaselens-server.ts
 
+import { join } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import Database from 'better-sqlite3';
-import { join } from 'path';
 import { z } from 'zod';
 import type { Role } from '../src/lib/auth/types';
 import { createToolRegistry } from '../src/lib/tools/create-registry';

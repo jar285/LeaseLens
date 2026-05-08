@@ -3,8 +3,8 @@
 import { PenTool, User } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
-import { renderMarkdown } from '@/lib/chat/render-markdown';
 import type { FollowUpPrompt } from '@/lib/chat/follow-up-prompts';
+import { renderMarkdown } from '@/lib/chat/render-markdown';
 import { ToolCard } from './ToolCard';
 import { TypingIndicator } from './TypingIndicator';
 

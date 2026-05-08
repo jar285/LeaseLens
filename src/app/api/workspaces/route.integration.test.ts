@@ -17,7 +17,8 @@ function makeFormData(opts: {
 }): FormData {
   const fd = new FormData();
   if (opts.name !== undefined) fd.append('name', opts.name);
-  if (opts.description !== undefined) fd.append('description', opts.description);
+  if (opts.description !== undefined)
+    fd.append('description', opts.description);
   for (const f of opts.files ?? []) {
     fd.append(
       'files',

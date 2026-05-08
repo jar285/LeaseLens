@@ -8,18 +8,18 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import { WORKSPACE_TTL_SECONDS } from '@/lib/workspaces/constants';
 import {
   decodeWorkspace,
   encodeWorkspace,
   WORKSPACE_COOKIE_NAME,
 } from '@/lib/workspaces/cookie';
-import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import {
   ingestUpload,
+  type UploadFile,
   UploadValidationError,
   validateUpload,
-  type UploadFile,
 } from '@/lib/workspaces/ingest-upload';
 
 export const runtime = 'nodejs';
@@ -63,7 +63,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       created_workspace_ids,
     });
 
-    const res = NextResponse.json({ workspace_id: workspaceId }, { status: 200 });
+    const res = NextResponse.json(
+      { workspace_id: workspaceId },
+      { status: 200 },
+    );
     res.cookies.set(WORKSPACE_COOKIE_NAME, token, {
       httpOnly: true,
       sameSite: 'lax',

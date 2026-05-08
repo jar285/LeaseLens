@@ -12,8 +12,16 @@ export interface CockpitDashboardProps {
 }
 
 export function CockpitDashboard({ initialData }: CockpitDashboardProps) {
-  const { recentAudit, scheduled, approvals, evalHealth, spend, role, userId } =
-    initialData;
+  const {
+    recentAudit,
+    scheduled,
+    approvals,
+    evalHealth,
+    leaseGrading,
+    spend,
+    role,
+    userId,
+  } = initialData;
   const isAdmin = role === 'Admin';
 
   return (
@@ -27,7 +35,10 @@ export function CockpitDashboard({ initialData }: CockpitDashboardProps) {
       </div>
       <div className="flex min-w-0 flex-col gap-4">
         <SpendPanel initialSnapshot={spend} />
-        <EvalHealthPanel initialSnapshot={evalHealth} />
+        <EvalHealthPanel
+          initialSnapshot={evalHealth}
+          initialLeaseGradingSnapshot={leaseGrading}
+        />
         <SchedulePanel initialItems={scheduled} />
         {isAdmin && <ApprovalsPanel initialItems={approvals} />}
       </div>

@@ -4,7 +4,10 @@ import { cookies } from 'next/headers';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
-import { getLatestEvalReport } from '@/lib/cockpit/eval-reports';
+import {
+  getLatestEvalReport,
+  getLatestLeaseGradingReport,
+} from '@/lib/cockpit/eval-reports';
 import {
   getTodaySpend,
   listRecentApprovals,
@@ -15,6 +18,7 @@ import type {
   ApprovalRecord,
   CockpitAuditRow,
   EvalHealthSnapshot,
+  LeaseGradingSnapshot,
   ScheduledItem,
   SpendSnapshot,
 } from '@/lib/cockpit/types';
@@ -141,7 +145,11 @@ export async function refreshSpend(): Promise<{ spend: SpendSnapshot }> {
 
 export async function refreshEvalHealth(): Promise<{
   snapshot: EvalHealthSnapshot | null;
+  leaseGrading: LeaseGradingSnapshot | null;
 }> {
   requireOperator(await resolveSession());
-  return { snapshot: getLatestEvalReport() };
+  return {
+    snapshot: getLatestEvalReport(),
+    leaseGrading: getLatestLeaseGradingReport(),
+  };
 }

@@ -8,7 +8,10 @@ import { WorkspaceHeader } from '@/components/cockpit/WorkspaceHeader';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
-import { getLatestEvalReport } from '@/lib/cockpit/eval-reports';
+import {
+  getLatestEvalReport,
+  getLatestLeaseGradingReport,
+} from '@/lib/cockpit/eval-reports';
 import {
   getTodaySpend,
   listRecentApprovals,
@@ -94,6 +97,7 @@ export default async function CockpitPage() {
         })
       : [],
     evalHealth: getLatestEvalReport(),
+    leaseGrading: getLatestLeaseGradingReport(),
     spend: getTodaySpend(db),
     role,
     userId,

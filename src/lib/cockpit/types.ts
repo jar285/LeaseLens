@@ -49,12 +49,33 @@ export interface EvalHealthSnapshot {
   reportPath: string; // server-side debug only — not exposed to client
 }
 
+/**
+ * Sprint 14 / Phase 12 — Tier 2 lease-grading snapshot. Projects the
+ * lease-grading-*.json report shape (see lease-grading-runner.ts) into
+ * the four spec §3i metrics + latency rollups for cockpit display.
+ */
+export interface LeaseGradingSnapshot {
+  totalCases: number;
+  precision: number; // [0, 1]
+  recall: number; // [0, 1]
+  f1: number; // [0, 1]
+  groundedness: number; // [0, 1] — % of cases that completed without tool error
+  exactMatch: number; // [0, 1] — % where actualSeverity == expectedSeverity
+  statuteHitRate: number; // [0, 1] — % where citation contained expected prefix
+  latencyP50Ms: number;
+  latencyP95Ms: number;
+  lastRunAt: string;
+  reportPath: string;
+}
+
 export interface CockpitInitialData {
   recentAudit: CockpitAuditRow[];
   scheduled: ScheduledItem[];
   /** Empty array for Editor sessions (panel hidden). Spec §4.5 / §6.4. */
   approvals: ApprovalRecord[];
   evalHealth: EvalHealthSnapshot | null;
+  /** Sprint 14 / Phase 12 — null when no Tier 2 report has been written. */
+  leaseGrading: LeaseGradingSnapshot | null;
   spend: SpendSnapshot;
   role: Role;
   userId: string;

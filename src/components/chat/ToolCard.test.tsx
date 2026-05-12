@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useRollback } from '@/lib/audit/use-rollback';
 import type { ToolInvocation } from './ChatMessage';
+import { ChatStreamProvider } from './ChatStreamContext';
 import { ToolCard } from './ToolCard';
 
 vi.mock('@/lib/audit/use-rollback', () => ({
@@ -43,7 +44,16 @@ function renderToolCard(invocation: Partial<ToolInvocation> = {}) {
     ...invocation,
   };
 
-  return render(<ToolCard invocation={baseInvocation} />);
+  // Sprint 18 §3 — the grade_clause_severity branch reads pdfViewerRef
+  // and setActiveClauseId from ChatStreamContext for the View-on-page
+  // wiring. Wrap unconditionally so both legacy and new tests share a
+  // single render shape; ToolCard ignores the context when the branch
+  // doesn't fire.
+  return render(
+    <ChatStreamProvider>
+      <ToolCard invocation={baseInvocation} />
+    </ChatStreamProvider>,
+  );
 }
 
 describe('ToolCard', () => {
@@ -160,6 +170,91 @@ describe('ToolCard', () => {
       );
       const wrapper = container.querySelector('[data-testid="expanded-body"]');
       expect(wrapper?.getAttribute('data-motion')).toBe('off');
+    });
+  });
+
+  // Sprint 18 §3 — tenant-friendly grade_clause_severity body.
+  describe('grade_clause_severity tenant-friendly branch', () => {
+    const goodGrading = {
+      clause_id: 'c1',
+      severity: 'high',
+      statute_citation: 'NJ Stat 46:8-19',
+      chunk_id: 'security-deposit-cap#section:1',
+      reasoning: 'Two months exceeds the NJ 1.5-month cap.',
+      recommended_action: 'Cap deposit at 1.5 months rent.',
+      clause_type: 'security_deposit',
+      clause_index: 2,
+      page_number: 4,
+    };
+
+    it('renders the polished GradingDetailBlock in the expanded body for a valid grading', () => {
+      renderToolCard({
+        name: 'grade_clause_severity',
+        input: { clause_id: 'c1' },
+        result: goodGrading,
+      });
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Expand tool details' }),
+      );
+      const block = screen.getByTestId('grading-detail-block');
+      expect(block).toBeInTheDocument();
+      expect(block.getAttribute('data-severity')).toBe('high');
+      expect(screen.getByText(/Security deposit · §3/)).toBeInTheDocument();
+      expect(screen.getByText(/NJ Stat 46:8-19/)).toBeInTheDocument();
+      expect(screen.getByText(/Recommended action/i)).toBeInTheDocument();
+      expect(screen.getByText(/View on page 4/)).toBeInTheDocument();
+      // JSON fallback is suppressed when the polished body renders.
+      expect(screen.queryByText('Input')).not.toBeInTheDocument();
+      expect(screen.queryByText('Result')).not.toBeInTheDocument();
+    });
+
+    it('falls back to JSON view for a non-grading tool', () => {
+      renderToolCard({
+        name: 'search_corpus',
+        input: { query: 'security deposit' },
+        result: { hits: [] },
+      });
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Expand tool details' }),
+      );
+      expect(
+        screen.queryByTestId('grading-detail-block'),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText('Input')).toBeInTheDocument();
+      expect(screen.getByText('Result')).toBeInTheDocument();
+    });
+
+    it('falls back to JSON view when grade_clause_severity errored (result is an error envelope)', () => {
+      renderToolCard({
+        name: 'grade_clause_severity',
+        input: { clause_id: 'c1' },
+        error: 'corpus lookup failed',
+        result: { error: 'corpus lookup failed' },
+      });
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Expand tool details' }),
+      );
+      expect(
+        screen.queryByTestId('grading-detail-block'),
+      ).not.toBeInTheDocument();
+      // JSON view still surfaces the error payload for debugging.
+      expect(screen.getByText('Result')).toBeInTheDocument();
+    });
+
+    it('falls back to JSON view when grade_clause_severity returned malformed shape', () => {
+      renderToolCard({
+        name: 'grade_clause_severity',
+        input: { clause_id: 'c1' },
+        // Missing severity field — the typeguard rejects it.
+        result: { clause_id: 'c1', statute_citation: 'foo' },
+      });
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Expand tool details' }),
+      );
+      expect(
+        screen.queryByTestId('grading-detail-block'),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText('Result')).toBeInTheDocument();
     });
   });
 });

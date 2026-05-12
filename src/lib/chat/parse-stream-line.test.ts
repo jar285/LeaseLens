@@ -50,4 +50,25 @@ describe('parseStreamLine', () => {
     expect(parseStreamLine(JSON.stringify({ quota: 'bad' }))).toBeNull();
     expect(parseStreamLine(JSON.stringify({ quota: null }))).toBeNull();
   });
+
+  it('parses a max_tokens truncation event', () => {
+    const result = parseStreamLine(
+      JSON.stringify({ truncated: true, reason: 'max_tokens' }),
+    );
+    expect(result).toEqual({ truncated: true, reason: 'max_tokens' });
+  });
+
+  it('returns null when truncated is missing reason or has unknown reason', () => {
+    expect(parseStreamLine(JSON.stringify({ truncated: true }))).toBeNull();
+    expect(
+      parseStreamLine(
+        JSON.stringify({ truncated: true, reason: 'something_else' }),
+      ),
+    ).toBeNull();
+    expect(
+      parseStreamLine(
+        JSON.stringify({ truncated: false, reason: 'max_tokens' }),
+      ),
+    ).toBeNull();
+  });
 });

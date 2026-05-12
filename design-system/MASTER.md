@@ -41,6 +41,41 @@ The system prompt at [`src/lib/chat/system-prompt.ts`](../src/lib/chat/system-pr
 3. **Always disclaim.** The `LEASELENS_DISCLAIMER` constant ([`src/lib/lease/disclaimer.ts`](../src/lib/lease/disclaimer.ts)) is the single source for the "not legal advice" wording. Used in the home page, chat empty state, system prompt, and any negotiation-email surface.
 4. **Privacy by default.** Lease PDFs are session input — the binary isn't persisted; only parsed clauses go to SQLite. Surface this when relevant (upload-area microcopy, negotiation-email draft footer).
 
+### Brand mark
+
+Implementation: [`src/components/brand/LeaseLensMark.tsx`](../src/components/brand/LeaseLensMark.tsx).
+
+The mark is a bespoke inline SVG of a document with three text lines and a magnifying glass overlapping the bottom-right corner. It literalises the product — a lens reviewing a lease — and replaces the generic lucide `FileSearch` that shipped through Sprint 17.1. Stroke is `currentColor`, so the mark inherits whatever text colour its container sets (white on the accent-600 badge in the chat header; accent-600 on neutral surfaces).
+
+**Anatomy**
+
+- 24 × 24 viewBox, all geometry stroke-based (no fills) so it scales cleanly from 14 px to 120 px without rasterising.
+- Three text lines of varying width (`x2 = 14, 14, 11.5`) — a deliberate ragged-right that reads as natural prose, not a checklist.
+- Magnifying glass `cx=17, cy=17, r=3` plus a `(19.2, 19.2) → (21, 21)` handle. The glass intentionally clips outside the document frame on the bottom-right; it should look like a tool reviewing the page, not a UI element inside it.
+
+**Motion contract**
+
+| Surface       | Default                                      | On hover                       | `prefers-reduced-motion`         |
+| ------------- | -------------------------------------------- | ------------------------------ | -------------------------------- |
+| Chat header   | One-shot scan sweep on mount (~900 ms ease-out-soft), then static | Lens scales to `1.08`, 220 ms | Static — no scan, no hover scale |
+| Anywhere else | Pass `animated={false}` if the mark sits in a context that already has motion (cards animating in, etc.) | — | — |
+
+The scan sweep is a thin horizontal stroke that translates `y: 5 → 18.5` with opacity `0 → 1 → 0` so it fades in, sweeps the document, and fades out at the bottom. It runs once per mount, never loops — legal-tech reads as calm, and a constantly-moving brand mark undercuts that. The `useReducedMotion()` gate is non-negotiable: users who opt out get the static frame and never see the sweep.
+
+**Where the mark may appear**
+
+- Chat home header — small, 14 px inside the accent-600 chip.
+- Chat welcome state hero — large, 28 px inside a 56 px (`h-14 w-14`) `bg-accent-50` chip with a continuous 4-second "breathing" pulse on the surrounding badge. The mark inside still does its one-shot scan on mount; the badge pulse and the scan are independent layers and coexist cleanly.
+- Loading splash, error pages, or external surfaces (favicon, README, share images) — always at minimum 14 px so the text lines remain legible.
+- **Not** in the cockpit header — that view uses the lucide `Layers` icon with the "Operator Cockpit" wordmark, intentionally distinct from the chat surface so a glance tells you which view you're in.
+
+**Anti-patterns**
+
+- Don't fill the document or lens (we are stroke-only).
+- Don't loop the scan animation.
+- Don't recolour the scan stroke to a different hue (warning amber, danger red, etc.) — it's always `currentColor`.
+- Don't combine the mark with a different wordmark — it's "LeaseLens" or nothing.
+
 ---
 
 ## 2. Colour system

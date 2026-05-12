@@ -2,13 +2,19 @@
 
 import {
   AlertTriangle,
+  FileSearch,
   FileText,
+  Flag,
+  Info,
   Mail,
+  MessageSquare,
   ScrollText,
-  Sparkles,
+  Upload,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
+import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
+import { LEASELENS_DISCLAIMER } from '@/lib/lease/disclaimer';
 
 interface SuggestedPrompt {
   label: string;
@@ -54,6 +60,16 @@ function buildSuggestedPrompts(_workspaceName: string): SuggestedPrompt[] {
   ];
 }
 
+// Sprint 17 §5.3 — "How it works" strip. Four steps in a row with subtle
+// separators. Each step is icon + label; no descriptions to keep the
+// strip compact. Sits below the starter cards and above the disclaimer.
+const HOW_IT_WORKS_STEPS = [
+  { label: 'Upload lease', Icon: Upload },
+  { label: 'Scan clauses', Icon: FileSearch },
+  { label: 'Review red flags', Icon: Flag },
+  { label: 'Ask follow-ups', Icon: MessageSquare },
+] as const;
+
 interface ChatEmptyStateProps {
   workspaceName: string;
   onSelectPrompt?: (prompt: string) => void;
@@ -74,9 +90,24 @@ export function ChatEmptyState({
 
   return (
     <div
-      className="flex min-h-[60vh] w-full flex-1 flex-col items-center justify-center px-6 py-12 text-center"
+      // `justify-center-safe` (Tailwind v4) falls back to flex-start when
+      // the content is taller than the container. With plain `justify-center`
+      // the welcome state overflowed symmetrically on shorter viewports —
+      // the Sparkle hero + H1 ended up at a negative y inside the scroll
+      // wrapper, so neither the auto-scroll-to-bottom nor an upward wheel
+      // could bring them back. The safe variant pins the top to 0 when
+      // overflowing and centres only when there's room.
+      className="flex min-h-[60vh] w-full flex-1 flex-col items-center justify-center-safe px-6 py-12 text-center"
       data-testid="chat-empty-state"
     >
+      {/*
+        Sprint 17.2 — welcome hero now carries the real brand mark
+        instead of lucide's generic Sparkles. The outer badge keeps its
+        4-second "breathing" pulse (calm "AI is alive" cue); the mark
+        inside scans once on its own mount and then rests. The two
+        animations stack: continuous gentle pulse on the surface +
+        one-shot scan inside.
+      */}
       {animate ? (
         <motion.div
           aria-hidden="true"
@@ -88,11 +119,11 @@ export function ChatEmptyState({
             repeat: Infinity,
           }}
         >
-          <Sparkles className="h-7 w-7" aria-hidden="true" strokeWidth={1.5} />
+          <LeaseLensMark size={28} />
         </motion.div>
       ) : (
         <div className="mb-8 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-50 text-accent-500 dark:bg-accent-500/15 dark:text-accent-300">
-          <Sparkles className="h-7 w-7" aria-hidden="true" strokeWidth={1.5} />
+          <LeaseLensMark size={28} animated={false} />
         </div>
       )}
 
@@ -171,6 +202,55 @@ export function ChatEmptyState({
           ))}
         </div>
       )}
+
+      {/*
+        Sprint 17 §5.3 — "How it works" strip. Inline four-step
+        progression below the starter cards. Subtle, low-emphasis,
+        gives a first-time visitor the mental model in one glance
+        without competing with the cards for attention.
+      */}
+      <div
+        data-testid="chat-empty-how-it-works"
+        className="mt-10 flex w-full max-w-lg flex-wrap items-center justify-center gap-x-2 gap-y-1.5 text-[11px] text-fg-subtle"
+      >
+        {HOW_IT_WORKS_STEPS.map(({ label, Icon }, index) => (
+          <span
+            key={label}
+            className="inline-flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <Icon
+              className="h-3 w-3 text-accent-500 dark:text-accent-300"
+              aria-hidden="true"
+              strokeWidth={2}
+            />
+            <span>{label}</span>
+            {index < HOW_IT_WORKS_STEPS.length - 1 ? (
+              <span aria-hidden="true" className="ml-2 text-fg-subtle/50">
+                ·
+              </span>
+            ) : null}
+          </span>
+        ))}
+      </div>
+
+      {/*
+        Sprint 17 §5.6 — Trust block. Renders the LEASELENS_DISCLAIMER
+        constant verbatim so the legal copy stays a single source of
+        truth (also in the system prompt + README). Sits below the
+        how-it-works strip; disappears as soon as the user sends the
+        first message (the whole empty state unmounts).
+      */}
+      <div
+        data-testid="chat-empty-disclaimer"
+        className="mt-6 inline-flex w-full max-w-lg items-start gap-2 rounded-lg border border-neutral-200 bg-surface-card p-3 text-left text-xs leading-relaxed text-fg-muted dark:border-neutral-800 dark:bg-neutral-900"
+      >
+        <Info
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-subtle"
+          aria-hidden="true"
+          strokeWidth={2}
+        />
+        <span>{LEASELENS_DISCLAIMER}</span>
+      </div>
     </div>
   );
 }

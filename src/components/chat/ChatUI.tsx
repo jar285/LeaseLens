@@ -222,6 +222,20 @@ export function ChatUI({
                 audit_id: data.tool_result.audit_id,
               });
             }
+          } else if ('truncated' in data) {
+            // Sprint 18 — Anthropic stopped the model mid-output because
+            // we hit max_tokens. Tag the message so it renders the cut-
+            // off notice. The flag is set once; subsequent stream lines
+            // can still arrive (Anthropic flushes whatever it already
+            // generated before the stop), so we preserve any text that
+            // followed and don't truncate the buffer ourselves.
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMessageId
+                  ? { ...m, truncated: true, truncatedReason: data.reason }
+                  : m,
+              ),
+            );
           }
         }
       }

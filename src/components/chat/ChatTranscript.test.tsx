@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessageProps } from './ChatMessage';
 import { ChatTranscript } from './ChatTranscript';
+import { withChatStream } from './test-helpers';
 
 const baseMessages: ChatMessageProps[] = [
   { id: 'user-1', role: 'user', content: 'Hello' },
@@ -45,7 +46,9 @@ describe('ChatTranscript', () => {
 
   it('scrolls to the bottom when pinned and content updates', () => {
     const { rerender } = render(
-      <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+      withChatStream(
+        <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+      ),
     );
     const scrollContainer = screen.getByTestId('chat-transcript-scroll');
     setScrollMetrics(scrollContainer, {
@@ -57,13 +60,15 @@ describe('ChatTranscript', () => {
 
     fireEvent.scroll(scrollContainer);
     rerender(
-      <ChatTranscript
-        messages={[
-          baseMessages[0],
-          { ...baseMessages[1], content: 'First response plus more text' },
-        ]}
-        workspaceName="Test"
-      />,
+      withChatStream(
+        <ChatTranscript
+          messages={[
+            baseMessages[0],
+            { ...baseMessages[1], content: 'First response plus more text' },
+          ]}
+          workspaceName="Test"
+        />,
+      ),
     );
 
     expect(scrollTo).toHaveBeenCalledWith({
@@ -74,7 +79,9 @@ describe('ChatTranscript', () => {
 
   it('does not scroll streamed content when the user has scrolled away', () => {
     const { rerender } = render(
-      <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+      withChatStream(
+        <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+      ),
     );
     const scrollContainer = screen.getByTestId('chat-transcript-scroll');
     setScrollMetrics(scrollContainer, {
@@ -86,13 +93,15 @@ describe('ChatTranscript', () => {
 
     fireEvent.scroll(scrollContainer);
     rerender(
-      <ChatTranscript
-        messages={[
-          baseMessages[0],
-          { ...baseMessages[1], content: 'First response plus more text' },
-        ]}
-        workspaceName="Test"
-      />,
+      withChatStream(
+        <ChatTranscript
+          messages={[
+            baseMessages[0],
+            { ...baseMessages[1], content: 'First response plus more text' },
+          ]}
+          workspaceName="Test"
+        />,
+      ),
     );
 
     expect(scrollTo).not.toHaveBeenCalled();
@@ -100,7 +109,9 @@ describe('ChatTranscript', () => {
 
   it('resets to pinned and scrolls when message count increases', () => {
     const { rerender } = render(
-      <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+      withChatStream(
+        <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+      ),
     );
     const scrollContainer = screen.getByTestId('chat-transcript-scroll');
     setScrollMetrics(scrollContainer, {
@@ -112,13 +123,15 @@ describe('ChatTranscript', () => {
 
     fireEvent.scroll(scrollContainer);
     rerender(
-      <ChatTranscript
-        messages={[
-          ...baseMessages,
-          { id: 'assistant-2', role: 'assistant', content: 'New response' },
-        ]}
-        workspaceName="Test"
-      />,
+      withChatStream(
+        <ChatTranscript
+          messages={[
+            ...baseMessages,
+            { id: 'assistant-2', role: 'assistant', content: 'New response' },
+          ]}
+          workspaceName="Test"
+        />,
+      ),
     );
 
     expect(scrollTo).toHaveBeenCalledWith({
@@ -147,11 +160,13 @@ describe('ChatTranscript', () => {
     const onSelectPrompt = vi.fn();
 
     render(
-      <ChatTranscript
-        messages={baseMessages}
-        onSelectPrompt={onSelectPrompt}
-        workspaceName="Side Quest Syndicate"
-      />,
+      withChatStream(
+        <ChatTranscript
+          messages={baseMessages}
+          onSelectPrompt={onSelectPrompt}
+          workspaceName="Side Quest Syndicate"
+        />,
+      ),
     );
 
     // Phase 10.8 — follow-ups rewritten for LeaseLens. The first chip
@@ -170,11 +185,13 @@ describe('ChatTranscript', () => {
     const onSelectPrompt = vi.fn();
 
     render(
-      <ChatTranscript
-        messages={baseMessages}
-        onSelectPrompt={onSelectPrompt}
-        workspaceName="Side Quest Syndicate"
-      />,
+      withChatStream(
+        <ChatTranscript
+          messages={baseMessages}
+          onSelectPrompt={onSelectPrompt}
+          workspaceName="Side Quest Syndicate"
+        />,
+      ),
     );
 
     fireEvent.click(screen.getByRole('button', { name: /What to fix first/i }));

@@ -100,6 +100,14 @@ export function ChatComposer({
           disabled={isLocked}
           placeholder="Ask about a lease clause, NJ tenant law, or upload a lease to start a scan…"
           aria-describedby="composer-hint"
+          // Sprint 17 §5.4 — `inputMode="text"` so mobile keyboards
+          // show the standard text layout (no numeric/decimal hint
+          // bleed-through from autodetection). `autoCapitalize` +
+          // `spellCheck` defaults are appropriate for natural-language
+          // questions; setting them explicitly documents intent.
+          inputMode="text"
+          autoCapitalize="sentences"
+          spellCheck
           className="min-h-[38px] flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm text-fg-default outline-none placeholder:text-fg-subtle focus:ring-0"
           rows={1}
         />

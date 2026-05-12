@@ -1,8 +1,8 @@
-import { ScrollText } from 'lucide-react';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
 import { ThemeToggle } from '@/components/auth/ThemeToggle';
+import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
 import { WorkspaceHeader } from '@/components/cockpit/WorkspaceHeader';
 import { LeaseLensWorkspaceShell } from '@/components/lease/LeaseLensWorkspaceShell';
@@ -124,11 +124,14 @@ export default async function Home() {
             className="flex items-center gap-2.5 rounded-md text-[15px] font-semibold tracking-tight text-neutral-800 transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-100"
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-600 text-white">
-              <ScrollText
-                className="h-3.5 w-3.5"
-                aria-hidden="true"
-                strokeWidth={2.5}
-              />
+              {/*
+                Sprint 17.2 — bespoke LeaseLensMark replaces the generic
+                lucide FileSearch. Same metaphor (document + magnifying
+                glass), but custom geometry plus a one-shot scan sweep on
+                mount give the brand a real visual signature. See
+                design-system/MASTER.md → Brand mark for the rules.
+              */}
+              <LeaseLensMark className="h-3.5 w-3.5" />
             </span>
             LeaseLens
           </Link>
@@ -157,6 +160,7 @@ export default async function Home() {
         initialMessages={initialMessages}
         conversationId={conversationId}
         workspaceName={workspace.name}
+        viewerRole={currentRole}
       />
     </main>
   );

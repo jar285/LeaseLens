@@ -3,6 +3,11 @@
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
+import { GradingDetailBlock } from '@/components/lease/GradingDetailBlock';
+import {
+  type GradingResult,
+  isGradingResult,
+} from '@/components/lease/grading';
 import { LoadingState } from '@/components/states/LoadingState';
 import { useRollback } from '@/lib/audit/use-rollback';
 import type { ToolInvocation } from './ChatMessage';
@@ -52,6 +57,20 @@ export function ToolCard({ invocation }: ToolCardProps) {
     isDiagramResult(invocation.result);
   const diagramResult = isDiagramInvocation
     ? (invocation.result as DiagramResult)
+    : null;
+
+  // Sprint 18 §3 — when the invocation is a successful grade_clause_severity
+  // call, the expanded body swaps the raw JSON for a tenant-friendly card
+  // (severity badge, clause label, reasoning, citation, recommended
+  // action, jump-to-page). Errored or malformed gradings fall through to
+  // the JSON view so reviewers can still debug what came back.
+  const isGradingInvocation =
+    invocation.name === 'grade_clause_severity' &&
+    hasResult &&
+    !hasError &&
+    isGradingResult(invocation.result);
+  const gradingResult: GradingResult | null = isGradingInvocation
+    ? (invocation.result as GradingResult)
     : null;
 
   const canUndo =
@@ -158,9 +177,11 @@ export function ToolCard({ invocation }: ToolCardProps) {
         </div>
       )}
 
-      {/* Expanded content — `AnimatePresence` smooths the height
-          transition. Reduced-motion drops to a plain div with no
-          animation props (data-motion="off"). */}
+      {/* Expanded content — shared body between the motion and the
+          reduced-motion paths. The body content is identical; only the
+          wrapper (motion.div vs plain div) differs. Factored out to
+          avoid duplicating the per-tool branching (grading vs JSON)
+          across both branches. */}
       <AnimatePresence initial={false}>
         {isExpanded &&
           (animate ? (
@@ -174,64 +195,23 @@ export function ToolCard({ invocation }: ToolCardProps) {
               transition={{ duration: 0.22, ease: 'easeOut' }}
               style={{ overflow: 'hidden' }}
             >
-              <div className="border-t border-neutral-100 px-3 py-2 dark:border-neutral-800">
-                {/* Input */}
-                <div className="mb-3">
-                  <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
-                    Input
-                  </div>
-                  <pre className="max-h-32 overflow-auto rounded bg-surface-muted p-2 text-xs text-fg-default dark:bg-neutral-800">
-                    {formatJson(invocation.input)}
-                  </pre>
-                </div>
-
-                {/* Result or Error */}
-                {hasResult && (
-                  <div>
-                    <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
-                      Result
-                    </div>
-                    <pre
-                      className={`max-h-48 overflow-auto rounded p-2 text-xs ${
-                        hasError
-                          ? 'bg-danger-100/60 text-danger-600 dark:bg-danger-600/15 dark:text-danger-100'
-                          : 'bg-surface-muted text-fg-default dark:bg-neutral-800'
-                      }`}
-                    >
-                      {formatJson(invocation.result)}
-                    </pre>
-                  </div>
-                )}
-              </div>
+              <ExpandedBody
+                gradingResult={gradingResult}
+                hasResult={hasResult}
+                hasError={hasError}
+                input={invocation.input}
+                result={invocation.result}
+              />
             </motion.div>
           ) : (
             <div key="body" data-testid="expanded-body" data-motion="off">
-              <div className="border-t border-neutral-100 px-3 py-2 dark:border-neutral-800">
-                <div className="mb-3">
-                  <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
-                    Input
-                  </div>
-                  <pre className="max-h-32 overflow-auto rounded bg-surface-muted p-2 text-xs text-fg-default dark:bg-neutral-800">
-                    {formatJson(invocation.input)}
-                  </pre>
-                </div>
-                {hasResult && (
-                  <div>
-                    <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
-                      Result
-                    </div>
-                    <pre
-                      className={`max-h-48 overflow-auto rounded p-2 text-xs ${
-                        hasError
-                          ? 'bg-danger-100/60 text-danger-600 dark:bg-danger-600/15 dark:text-danger-100'
-                          : 'bg-surface-muted text-fg-default dark:bg-neutral-800'
-                      }`}
-                    >
-                      {formatJson(invocation.result)}
-                    </pre>
-                  </div>
-                )}
-              </div>
+              <ExpandedBody
+                gradingResult={gradingResult}
+                hasResult={hasResult}
+                hasError={hasError}
+                input={invocation.input}
+                result={invocation.result}
+              />
             </div>
           ))}
       </AnimatePresence>
@@ -251,5 +231,67 @@ export function ToolCard({ invocation }: ToolCardProps) {
     </motion.div>
   ) : (
     <div className={containerClass}>{card}</div>
+  );
+}
+
+/*
+ * Expanded body content for a ToolCard. Branches on whether the
+ * invocation is a successful grade_clause_severity call: if so, render
+ * the tenant-friendly GradingDetailBlock; otherwise fall back to the
+ * pretty-printed JSON view (input + result) that all other tools share.
+ *
+ * Extracted as a stable sub-component so the motion + reduced-motion
+ * wrappers above don't have to duplicate the branching.
+ */
+interface ExpandedBodyProps {
+  gradingResult: GradingResult | null;
+  hasResult: boolean;
+  hasError: boolean;
+  input: Record<string, unknown>;
+  result: unknown;
+}
+
+function ExpandedBody({
+  gradingResult,
+  hasResult,
+  hasError,
+  input,
+  result,
+}: ExpandedBodyProps): React.JSX.Element {
+  if (gradingResult) {
+    return (
+      <div className="border-t border-neutral-100 px-3 py-3 dark:border-neutral-800">
+        <GradingDetailBlock grading={gradingResult} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-neutral-100 px-3 py-2 dark:border-neutral-800">
+      <div className="mb-3">
+        <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
+          Input
+        </div>
+        <pre className="max-h-32 overflow-auto rounded bg-surface-muted p-2 text-xs text-fg-default dark:bg-neutral-800">
+          {formatJson(input)}
+        </pre>
+      </div>
+      {hasResult && (
+        <div>
+          <div className="mb-1 text-xs font-semibold text-fg-muted uppercase">
+            Result
+          </div>
+          <pre
+            className={`max-h-48 overflow-auto rounded p-2 text-xs ${
+              hasError
+                ? 'bg-danger-100/60 text-danger-600 dark:bg-danger-600/15 dark:text-danger-100'
+                : 'bg-surface-muted text-fg-default dark:bg-neutral-800'
+            }`}
+          >
+            {formatJson(result)}
+          </pre>
+        </div>
+      )}
+    </div>
   );
 }

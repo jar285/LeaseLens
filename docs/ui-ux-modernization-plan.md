@@ -158,6 +158,8 @@ The primitives are **ready** when the right consumer appears.
 
 ## 5. Sprint 17 — Homepage Workspace Modernization
 
+> **Status: shipped.** Welcome-state How-it-works strip + disclaimer trust block, red-flags empty-state examples, dropzone privacy/legal microcopy, composer `inputMode="text"` + autocapitalize/spellcheck, responsive grid (single-column below `lg`, three-pane at `lg`+). 550/550 tests pass, 0 lint, typecheck green. See §5.8 for what was actually delivered vs originally scoped.
+
 ### Scope
 
 Modernize the existing `/` page so it feels like a premium landing-page/workspace hybrid. **`/` stays as the full LeaseLens experience.** No route migration.
@@ -238,6 +240,75 @@ Walk every Sprint 17 motion site with `prefers-reduced-motion` emulated. Confirm
 Low risk. Sprint 17 is additive — adding sections to the welcome state, adding microcopy to the dropzone. The only meaningful regression vector is if the new welcome-state height pushes the composer below the fold on small viewports. Mitigation: cap welcome-state max-height at 80vh and let it scroll internally.
 
 Rollback: `git revert` the Sprint 17 commit. Welcome state returns to pre-17 (which is post-15 = already shipped).
+
+### 5.8 What actually shipped vs originally scoped
+
+**Welcome state (centre pane)** — [`src/components/chat/ChatEmptyState.tsx`](../src/components/chat/ChatEmptyState.tsx)
+
+- ✅ "How it works" inline strip — four steps (`Upload lease · Scan clauses · Review red flags · Ask follow-ups`) with lucide icons (`Upload`, `FileSearch`, `Flag`, `MessageSquare`) and subtle middle-dot separators. Token-driven (`text-fg-subtle` + accent icons), wraps gracefully on narrow widths.
+- ✅ Disclaimer trust block — renders the `LEASELENS_DISCLAIMER` constant verbatim inside a hairline-bordered card with an `Info` icon. Disappears with the rest of the empty state on first message send.
+- 🟡 "Use sample lease" CTA — **deferred.** The sample workspace already auto-loads the seeded lease, so the standard-scan starter card works immediately. Adding a separate "Use sample lease" affordance would duplicate that path; the AC #1/#2 gap from the Sprint 13 backlog could be closed by relabeling the starter card if it ever becomes a real confusion source.
+
+**Left pane (dropzone)** — [`src/components/lease/LeaseUploadDropzone.tsx`](../src/components/lease/LeaseUploadDropzone.tsx)
+
+- ✅ Idle-state hint block expanded from a single line ("PDF files up to 10 MB") to three: file requirements, session-only privacy note, "informational analysis, not legal advice." Each is `text-[11px] text-fg-subtle` so they're informative without crowding the CTA.
+
+**Right pane (red flags)** — [`src/components/lease/RedFlagReport.tsx`](../src/components/lease/RedFlagReport.tsx)
+
+- ✅ Empty state grew an "EXAMPLES" eyebrow + four-bullet list (security-deposit overcharges, one-way attorney's-fee clauses, unenforceable late-fee structures, blanket sublet bans). Passed to the `<EmptyState>` primitive via its `actions` slot — proves the primitive's slot API works as intended.
+
+**Composer** — [`src/components/chat/ChatComposer.tsx`](../src/components/chat/ChatComposer.tsx)
+
+- ✅ `inputMode="text"` + `autoCapitalize="sentences"` + `spellCheck` explicitly set on the textarea so mobile keyboards show the standard layout with sensible defaults for natural-language questions.
+
+**Responsive grid** — [`src/components/lease/LeaseLensWorkspaceShell.tsx`](../src/components/lease/LeaseLensWorkspaceShell.tsx)
+
+- ✅ Below `lg` (1024px), the grid collapses from `[20rem 1fr 20rem]` to a single column and the side panes are `hidden lg:flex`. Centre pane fills the viewport. **No horizontal scroll at any breakpoint.**
+- 🟡 Mobile upload + red-flags reachability — **deferred to Sprint 18** as the plan calls out. On mobile (< 1024px), users currently see only the chat. The Sprint 18 work brings the dropzone + red-flags back via a tabs / drawer pattern.
+
+**Items deliberately deferred** (consistent with the plan's "do the minimum that ships cleanly"):
+
+- Role-tab touch-target audit (the buttons are h-7 = 28px; plan §5.1 flagged 44×44px as the bar but this is part of Sprint 18's broader mobile pass).
+- Header padding / theme-toggle responsive tuning — non-blocking.
+- Welcome-state max-height cap — not needed yet; the new content fits comfortably at the seeded sample's workspace name length.
+
+**Visual smoke checklist** (works in both light + dark; reduced-motion gated):
+
+- Welcome state shows serif H1 + 4 staggered starter cards + How-it-works strip + disclaimer trust block.
+- Drop a PDF → privacy hint disappears; dropzone shifts to uploading state.
+- Red-flags pane shows examples list when no scan has run; populates with severity cards when a scan completes.
+- Resize the browser below 1024px → side panes hide, chat fills the viewport, composer stays sticky at the bottom.
+
+### 5.9 Follow-up patches (Sprint 17.1 / 17.2)
+
+Three small, scoped patches shipped after Sprint 17 main to address specific user feedback that surfaced once the new welcome state was in the user's hands.
+
+**Sprint 17.1 — Logo + sticky cockpit header**
+
+- ✅ Chat header logo icon: lucide `ScrollText` → lucide `FileSearch`. The scroll metaphor read as "historical document"; FileSearch (document + magnifying glass) reads directly as "Lease + Lens".
+- ✅ Cockpit header: added `sticky top-0 z-20`. Cockpit uses natural document scroll (unlike the chat page, which is `h-dvh + overflow-hidden`), so its header needed `position: sticky` to stay visible while the dashboard panels scrolled.
+
+**Sprint 17.1.1 — Chat welcome-state scroll fix** ([`ChatTranscript.tsx`](../src/components/chat/ChatTranscript.tsx), [`ChatEmptyState.tsx`](../src/components/chat/ChatEmptyState.tsx))
+
+User report: "the scrolling for the logo isn't working inside the chat." Playwright probing showed the chat header was correctly pinned at `y=0` at every viewport — but the welcome-state hero (Sparkle badge + serif H1) was scrolling off-screen on mount, making the page look like the logo had moved. Root cause was two compounding layout bugs:
+
+1. **Unsafe `justify-center` on the empty-state container.** When the welcome content was taller than the available pane (anything below ~720 px viewport height), flexbox centred it symmetrically — the top of the content ended up at a negative y inside the scroll wrapper, unreachable by scrolling up. Fixed by switching to Tailwind v4's `justify-center-safe` (`justify-content: safe center`), which falls back to flex-start when content overflows.
+2. **Auto-scroll-to-bottom firing on empty-state mount.** `pinnedToBottom` defaulted to `true`, so the pin-to-bottom effect ran on first render for both the messages and empty-state branches. Worse, React reuses the same scroll container across the two branches, so a clamped scrollTop from a prior conversation bled through. Fixed in `ChatTranscript`'s effect: early-return when `messages.length === 0`, and explicitly reset `scrollTop = 0` to clear any clamped-but-preserved value.
+
+After the fix, on a cramped 1440×600 viewport: Sparkle goes from `y=-96` (hidden) to `y=128` (visible), H1 from `y=-35` to `y=188`. Header was always at `y=0`.
+
+**Sprint 17.2 — Bespoke brand mark** ([`src/components/brand/LeaseLensMark.tsx`](../src/components/brand/LeaseLensMark.tsx))
+
+User feedback: "can we change the logo to something that will suit us more and can it be animated if possible?" — referring originally to the **welcome-state hero icon** (the lucide `Sparkles` star above the H1). Lucide's `Sparkles` was generic AI-shorthand that read as "any chatbot" rather than LeaseLens. The fix bundles a new bespoke mark + both placements:
+
+- New component `LeaseLensMark`: inline SVG of a document with three text lines and a magnifying glass overlapping the bottom-right corner. Same metaphor as lucide's `FileSearch` (which we used briefly in Sprint 17.1), but custom geometry and animatable.
+- One-shot scan sweep on mount: a thin horizontal stroke translates `y: 5 → 18.5` over ~900 ms with `0 → 1 → 0` opacity, then never re-runs. Hover gives the lens a `1.08` scale, 220 ms.
+- `useReducedMotion()` gated — users who opt out get the static frame, no scan, no hover scale.
+- **Header placement** (small, 14 px): replaces the lucide `FileSearch` chip from Sprint 17.1. Gives the global identity a bespoke silhouette.
+- **Welcome-state hero placement** (large, 28 px): replaces the lucide `Sparkles` inside the existing 56 px accent badge. The badge keeps its 4-second breathing pulse (calm "AI is alive" cue); the mark inside still scans once on its own mount, so the two animations stack as independent layers.
+- Cockpit kept its lucide `Layers` icon by design: the two views are distinct workspaces and the icon difference helps tell them apart at a glance.
+
+See [design-system/MASTER.md → Brand mark](../design-system/MASTER.md#brand-mark) for the full motion contract and placement rules.
 
 ---
 
@@ -348,6 +419,70 @@ Higher risk than Sprint 17. Three changes carry real regression vectors:
 1. **ToolCard polished view** — strict `isGradingResult()` typeguard; if a malformed grading result lands, the card falls back to JSON. Test coverage: unit test the typeguard with malformed inputs.
 2. **Mobile workspace** — new component, new logic. Mitigation: build as a sibling, NOT a refactor of `LeaseLensWorkspaceShell`. Desktop path is unchanged.
 3. **Scan-progress counting logic** — derived from `toolEvents` state; if the count is wrong (e.g. inflight counts include errored grades), the progress label confuses the user. Mitigation: explicit unit test for the count helper.
+
+### 6.9 What's shipped in Sprint 18 so far
+
+**§1 + §2 — Scan progress label + skeleton cards (paired story)**
+
+The two pieces share a "scan in flight" state, so they landed together.
+
+- ✅ New hook [`useScanProgress`](../src/components/lease/use-scan-progress.ts) collapses the `toolEvents` stream into a single phase tag (`idle | extracting | grading | complete`) plus `total`, `attempted`, and a status `label`. Pure derivation — no extra state. Counts by `input.clause_id` (always present on a tool call) rather than `result.clause_id` (missing on error), so errored gradings still tick progress forward. Seven unit tests in [`use-scan-progress.test.ts`](../src/components/lease/use-scan-progress.test.ts) cover the empty case, mid-scan counting, the dedupe (re-grade of the same clause), the re-scan reset, and the success+error mixed regression case.
+- ✅ Extracted [`RedFlagsPaneHeader`](../src/components/lease/RedFlagsPaneHeader.tsx) out of the shell. The eyebrow ("Red flags") is unchanged; an inline progress label appears only when the phase is in flight. A spinning ring sits next to the label (static dot under reduced motion). `aria-live="polite"` so screen readers announce phase transitions.
+- ✅ New [`RedFlagSkeletonCard`](../src/components/lease/RedFlagSkeletonCard.tsx) mirrors the real card silhouette (left bar + header row + two reasoning lines + citation). Each bar pulses opacity `[0.55, 1, 0.55]` over 1.4 s with a 50–80 ms per-bar stagger; cards in a list get an 80 ms per-card stagger. Severity bar placeholder is neutral grey — does not pre-commit to a severity.
+- ✅ [`RedFlagReport`](../src/components/lease/RedFlagReport.tsx) gained two new branches: (a) `phase === 'extracting'` and `gradings.length === 0` renders one skeleton per known clause (replaces the empty-state examples list during a scan); (b) `phase === 'grading'` renders the real graded cards *plus* trailing skeletons for the still-unattempted clauses — `scan.total - scan.attempted`, not `scan.total - gradings.length` — so a clause that errored doesn't leave a permanent ghost placeholder. The truly-idle examples list is preserved for first visits.
+
+**Label transitions actually shipped** (slightly different from the §6.1 spec):
+
+| Phase | Label |
+| --- | --- |
+| `extracting` | `Scanning lease — N clauses found` |
+| `grading` | `Grading M of N…` (M = attempts so far, success + error) |
+| `complete` | (label hidden, eyebrow only) |
+
+The spec called out "Parsing lease… → Extracting clauses… → Scanning clause N of M… → Generating summary…" — we didn't emit those four sub-phases because the tool stream only has two boundaries (`extract_clauses` returned / each `grade_clause_severity` returned). Adding parser sub-phases would require new server-side events; deferred until needed.
+
+**Files touched** — 5 added, 1 edited:
+
+- `src/components/lease/use-scan-progress.ts` (new)
+- `src/components/lease/use-scan-progress.test.ts` (new)
+- `src/components/lease/RedFlagsPaneHeader.tsx` (new)
+- `src/components/lease/RedFlagSkeletonCard.tsx` (new)
+- `src/components/lease/RedFlagReport.tsx` (edited — phase branches added; behaviour for `idle` and `complete` unchanged)
+- `src/components/lease/LeaseLensWorkspaceShell.tsx` (edited — inline header replaced with `<RedFlagsPaneHeader />`)
+
+See the design-system page [Red flags panel §4 — Scanning state](../design-system/pages/red-flags-panel.md#4-scanning-state-sprint-18) for the visual contract.
+
+**§3 — Tenant-friendly ToolCard render for `grade_clause_severity`**
+
+The chat ToolCard previously dumped the raw grading JSON when a user expanded a `grade_clause_severity` row. Per §6.2, the expanded body now renders a polished severity card body — same anatomy as the right-pane RedFlagReport card — while every other tool keeps the existing JSON view.
+
+- ✅ New shared module [`src/components/lease/grading.ts`](../src/components/lease/grading.ts) holds `Severity`, `GradingResult`, the four severity dictionaries (`SEVERITY_BAR`, `SEVERITY_BADGE`, `SEVERITY_LABEL`, `SEVERITY_ORDER`), the clause-type label dictionary, the `isGradingResult` typeguard, and the `clauseLabel` formatter. RedFlagReport was refactored to import from it instead of redefining everything inline. Removes the drift surface that would have produced "Auto-renewal" in one pane and "Automatic renewal" in another the moment a new clause type was added.
+- ✅ New component [`src/components/lease/GradingDetailBlock.tsx`](../src/components/lease/GradingDetailBlock.tsx) renders the polished body: left severity bar, severity badge + clause label header row, full reasoning text, citation chip, recommended action under a hairline, and the View-on-page button when `page_number` is set. Reads `pdfViewerRef` + `setActiveClauseId` from ChatStreamContext so the cross-pane highlight + PDF scroll match the right-pane card exactly.
+- ✅ [`src/components/chat/ToolCard.tsx`](../src/components/chat/ToolCard.tsx) branches on `invocation.name === 'grade_clause_severity' && isGradingResult(result)`. When the branch fires, the expanded body renders `<GradingDetailBlock />`. Errored gradings (`{ error: '…' }`), malformed payloads, and every non-grading tool fall back to the existing JSON view — reviewers/admins can still debug the raw shape when something goes wrong.
+- ✅ Refactor: the expanded body content was duplicated across the motion and reduced-motion wrappers. Extracted into a local `<ExpandedBody />` sub-component so the per-tool branching lives in one place.
+- ✅ 13 tests for the shared module (`grading.test.ts`), 7 tests for the new component (`GradingDetailBlock.test.tsx`), and 4 new tests on the ToolCard branch (polished body for valid grading, JSON fallback for non-grading tool, JSON fallback for errored grading, JSON fallback for malformed grading). Existing RedFlagReport tests continue to pass against the shared-module refactor with no changes.
+
+**§4 — CitationChip pulse on click**
+
+The spec called for "fade in over 200 ms, hold ~3.6 s, fade out over 200 ms — instead of snapping on/off." Scope expanded once I looked at the actual code: `CitationChip` was unused dead code (production rendered citations inline with `Paperclip + text` in both the right-pane card and the chat-side `GradingDetailBlock`), used `📎` emoji (violates the design-system anti-emoji rule), and the active-card ring snapped via className-swap. Fixed all three at once:
+
+- ✅ Modernised [`CitationChip.tsx`](../src/components/lease/CitationChip.tsx) — dropped the emoji + monospace pill, mirrored the inline visual (lucide `Paperclip` + accent text), gave it two render modes: real `<button>` when `onClick` is provided, plain `<span>` when omitted. Added hover (`bg-accent-50/60`) + `focus-visible:ring-2 ring-accent-300` for keyboard activation.
+- ✅ Replaced inline citation render in [`RedFlagReport.tsx`](../src/components/lease/RedFlagReport.tsx) with `<CitationChip />`. The citation row was lifted out of the expand-toggle button into a sibling div — nested buttons are invalid HTML, and the new layout gives users a one-click jump from the always-visible chip instead of requiring expand-first-then-button.
+- ✅ Replaced inline citation render in [`GradingDetailBlock.tsx`](../src/components/lease/GradingDetailBlock.tsx) with `<CitationChip />` driving the same `handleJumpToPage` flow that the chat-side "View on page N" button already used.
+- ✅ Extracted [`jumpToClausePage`](../src/components/lease/RedFlagReport.tsx) helper inside the per-card scope so the citation chip and the in-body "View on page N" button share one code path. The chip's onClick is passed in only when `page_number` is set — otherwise the chip falls back to its static-span mode.
+- ✅ New `<ActiveRing />` sub-component replaces the old className-swap with an `AnimatePresence`-driven overlay: 200 ms fade-in → 3.6 s hold → 200 ms fade-out. Uses `ring-2 ring-inset` so the overlay's ring isn't clipped by the card's `overflow-hidden`. Reduced-motion path keeps the same on/off behaviour without the fade (`data-motion="off"` for test assertions).
+- ✅ Tests: 5 CitationChip variants (button mode, span mode, page-aware aria-label, missing-page aria-label, callback firing), 2 new GradingDetailBlock cases (chip click drives scrollToPage, chip renders as span when page_number absent), 2 new RedFlagReport cases (chip click jumps without expanding the card, chip renders as span when no page). Existing "View on page N" assertion updated to target the new overlay testId.
+
+**Bonus fix — `max_tokens` truncation** ([`src/app/api/chat/route.ts`](../src/app/api/chat/route.ts), [`src/components/chat/ChatMessage.tsx`](../src/components/chat/ChatMessage.tsx))
+
+User surfaced this while sanity-checking the scan-progress UI: a 15-clause scan finished, but the assistant's final summary text ended mid-token at `**✅` with no indication of why. Root cause was a hard-coded `max_tokens: 1024` on both Anthropic call paths in the chat route; the final summary blew past it, Anthropic returned `stop_reason: "max_tokens"`, and the route never checked the field — so the truncated text streamed to the client as if it had ended normally.
+
+- ✅ Introduced `MAX_OUTPUT_TOKENS = 8192` constant — the documented max for Haiku 4.5 (default model). Same value used in the streaming and non-streaming paths so we don't pay attention drift the next time the cap matters. Anthropic only bills tokens actually generated, so raising the ceiling has zero cost impact on shorter turns.
+- ✅ Server checks `finalMessage.stop_reason === 'max_tokens'` on the streamed final message, logs a structured warning to the server console, and emits a `{ truncated: true, reason: 'max_tokens' }` NDJSON frame to the client.
+- ✅ `parseStreamLine` extended with the new `truncated` variant + tests for the happy path and three null cases (missing reason, unknown reason, `truncated: false`).
+- ✅ `ChatUI` flips a `truncated` flag on the in-flight message when the event arrives.
+- ✅ `ChatMessage` renders an inline amber notice ("Response was cut short — ask me to continue…") under the bubble when `truncated` is set. Only shows on assistant messages; never on user turns. Reduced-motion safe (it's a static notice, no animation).
+- ✅ 5 tests added: 2 parser variants (happy + null cases) and 3 component cases (renders on assistant when truncated, hidden when not, hidden on user even if flagged).
 
 Rollback: each subsection lands in its own commit so partial revert is clean. The most likely revert candidate is the mobile workspace (highest novelty); reverting it returns the three-pane layout at all viewports (slightly broken on mobile but at least consistent with Sprint 17 baseline).
 
@@ -582,26 +717,27 @@ Repeating the brief's anti-patterns + audit's "do not change yet" list so this f
 
 ## 13. Safest next step
 
-**Sprint 17** — Homepage Workspace Modernization.
+**Sprint 18** — App / Chat Workspace Polish.
 
-Sprint 16A (docs) and 16B (primitives) are now complete. The runway for Sprint 17 is:
+Sprints 16A (docs), 16B (primitives), and 17 (homepage polish) are now complete. The runway for Sprint 18 is:
 
-- The design system is documented in [`design-system/MASTER.md`](../design-system/MASTER.md) + four page overrides.
-- The state primitives (`<EmptyState>`, `<LoadingState>`, `<ErrorState>`) are tested and consumed by `ToolCard` + `RedFlagReport` — ready for `ChatEmptyState`'s Sprint 17 redesign.
-- The layout primitives (`<PageShell>`, `<Container>`, `<Stack>`) are tested and ready for any new welcome-state sections that need consistent rhythm.
-- All 541 tests pass; 0 lint errors; typecheck green.
+- Welcome state, dropzone, red-flag empty state, and disclaimer surfaces are all in place. First-time visitor experience is solid.
+- 550/550 tests pass; 0 lint errors; typecheck green.
+- The mobile layout below `lg` currently hides the side panes — Sprint 18 owns bringing them back via tabs / drawer.
+- ToolCard still shows raw JSON for tenant-facing tool results; Sprint 18 §6.2 owns the polished severity-card body for `grade_clause_severity`.
+- Scan progress isn't surfaced at the top level yet; Sprint 18 §6.1 owns the "Scanning clause 6 of 15…" header label + skeleton red-flag cards.
 
-Sprint 17's surfaces (welcome-state polish, upload microcopy, red-flag examples, trust block) build naturally on top of the primitives. Start with the smallest visible win:
+Sprint 18's order (start with the smallest visible win, save the higher-novelty mobile work for last):
 
-1. **Welcome-state "How it works" strip** — four-step inline (Upload → Scan → Review → Ask). Pure presentation; no behaviour change.
-2. **Disclaimer trust block** — uses `LEASELENS_DISCLAIMER` constant in a token-driven Info icon container under the starter cards.
-3. **Red-flag empty-state examples** — four bullets ("Security deposit issues, attorneys' fees, late fees, sublet bans") under the existing copy via the primitive's `actions` slot.
-4. **Upload-area microcopy refinements** — privacy line + "informational analysis, not legal advice" line.
-5. **Composer `inputMode="text"`** — explicit mobile keyboard hint.
+1. **Scan progress label** in the right-pane header — derive from `toolEvents` count vs `extract_clauses` total. Pure presentation, no new state.
+2. **Skeleton red-flag cards** during a scan — uses the existing `<LoadingState>` primitive; one skeleton per inflight grade.
+3. **ToolCard tenant-friendly render for `grade_clause_severity`** — strict typeguard + polished card body; falls back to JSON for non-grading tools.
+4. **CitationChip pulse on click** — fade-in over 200ms / hold 3.6s / fade-out over 200ms instead of the current snap-on/snap-off ring.
+5. **Mobile workspace** (highest-novelty piece) — new `<MobileWorkspace>` sibling component selected by `useIsDesktop()` hook. Tabs or drawer pattern for chat / lease / red-flags.
 
-Detail in §5 of this file (Sprint 17 — Homepage Workspace Modernization).
+Detail in §6 of this file (Sprint 18 — App / Chat Workspace Polish).
 
-Each step in its own commit. Manual visual smoke after each commit.
+Each step in its own commit. Visual smoke + dark-mode walk + reduced-motion verification after each commit.
 
 ---
 

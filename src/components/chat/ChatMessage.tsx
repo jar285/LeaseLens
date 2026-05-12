@@ -1,12 +1,26 @@
 'use client';
 
-import { PenTool, User } from 'lucide-react';
+import { AlertTriangle, PenTool, User } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
+import { ScanTimeline } from '@/components/lease/ScanTimeline';
 import type { FollowUpPrompt } from '@/lib/chat/follow-up-prompts';
 import { renderMarkdown } from '@/lib/chat/render-markdown';
+import { useChatStream } from './ChatStreamContext';
 import { ToolCard } from './ToolCard';
 import { TypingIndicator } from './TypingIndicator';
+
+/*
+ * Sprint 18 §5 — names of the tool calls that make up a scan turn. When
+ * the viewer is a Tenant AND a message's invocations include any of
+ * these, ChatMessage renders the conversational <ScanTimeline /> instead
+ * of the inline tool-card stack. Other tool calls (e.g. search_corpus,
+ * render_workflow_diagram, draft_negotiation_email) keep rendering as
+ * tool cards in every role — they're either neutral (search) or
+ * meaningful as a visible action card to the tenant (a drafted email
+ * SHOULD be visible inline; that's the user's deliverable).
+ */
+const SCAN_TOOL_NAMES = new Set(['extract_clauses', 'grade_clause_severity']);
 
 export interface ToolInvocation {
   id: string;
@@ -31,6 +45,12 @@ export interface ChatMessageProps {
    *  (set by ChatTranscript on the last message). Drives the in-bubble
    *  TypingIndicator visibility under the four-clause condition. */
   isStreaming?: boolean;
+  /** Sprint 18 — set when the server received `stop_reason: "max_tokens"`
+   *  from Anthropic on this message. Renders an inline "response was
+   *  cut short" notice under the bubble so the user understands the
+   *  text intentionally stops mid-thought. */
+  truncated?: boolean;
+  truncatedReason?: 'max_tokens';
 }
 
 export function ChatMessage({
@@ -40,7 +60,9 @@ export function ChatMessage({
   followUpPrompts,
   onSelectPrompt,
   isStreaming,
+  truncated,
 }: ChatMessageProps) {
+  const { viewerRole } = useChatStream();
   const isUser = role === 'user';
   const showTypingIndicator =
     isStreaming === true &&
@@ -83,13 +105,21 @@ export function ChatMessage({
         <div className="mb-0.5 text-[13px] font-semibold text-fg-default">
           {isUser ? 'You' : 'Editorial Assistant'}
         </div>
-        {/* Tool invocations */}
+        {/*
+          Tool invocations.
+
+          Sprint 18 §5 — Tenant viewers (DB role `Creator`) see a
+          conversational <ScanTimeline /> instead of the linear tool-card
+          stack whenever the message includes a scan tool call. Reviewer
+          and Admin keep the existing inline cards — they're auditors,
+          the trace IS the value. Non-scan tool calls (search_corpus,
+          draft_negotiation_email, etc.) render as cards in every role.
+        */}
         {toolInvocations && toolInvocations.length > 0 && (
-          <div className="my-2">
-            {toolInvocations.map((invocation) => (
-              <ToolCard key={invocation.id} invocation={invocation} />
-            ))}
-          </div>
+          <ToolInvocationsBlock
+            viewerRole={viewerRole}
+            invocations={toolInvocations}
+          />
         )}
         {followUpPrompts && followUpPrompts.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -119,6 +149,28 @@ export function ChatMessage({
             </div>
           )
         )}
+        {/* Sprint 18 — truncation notice. Renders only when the server
+            saw `stop_reason: "max_tokens"` on this assistant message.
+            Sits below the body so the user reads the (possibly mid-
+            thought) text first, then learns it was cut short. */}
+        {truncated && role === 'assistant' && (
+          <div
+            data-testid="message-truncated-notice"
+            role="status"
+            className="mt-3 flex items-start gap-2 rounded-md border border-warning-100 bg-warning-100/60 px-3 py-2 text-[12px] leading-snug text-warning-600 dark:border-warning-600/30 dark:bg-warning-600/10 dark:text-warning-100"
+          >
+            <AlertTriangle
+              className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+              strokeWidth={2}
+            />
+            <span>
+              Response was cut short — the model reached its output limit before
+              finishing. Ask me to continue, or to summarise the remaining
+              clauses, to see the rest.
+            </span>
+          </div>
+        )}
       </div>
     </>
   );
@@ -137,5 +189,48 @@ export function ChatMessage({
     <li data-motion="off" className={className}>
       {inner}
     </li>
+  );
+}
+
+/*
+ * Sprint 18 §5 — role-aware tool-invocation render.
+ *
+ * Three render paths share this block:
+ *  1. Tenant + scan invocations → <ScanTimeline />, with the original
+ *     ToolCard stack hidden behind the (Phase-1-disabled) drawer toggle.
+ *  2. Tenant + non-scan invocations only → inline ToolCard stack (a
+ *     drafted negotiation email is the user's deliverable; it stays
+ *     visible).
+ *  3. Reviewer / Admin (any invocations) → inline ToolCard stack
+ *     unchanged. They're auditors; trace fidelity is the value.
+ */
+function ToolInvocationsBlock({
+  viewerRole,
+  invocations,
+}: {
+  viewerRole: 'Creator' | 'Editor' | 'Admin';
+  invocations: ToolInvocation[];
+}): React.JSX.Element {
+  const scanInvocations = invocations.filter((inv) =>
+    SCAN_TOOL_NAMES.has(inv.name),
+  );
+  const nonScanInvocations = invocations.filter(
+    (inv) => !SCAN_TOOL_NAMES.has(inv.name),
+  );
+  const showTimeline = viewerRole === 'Creator' && scanInvocations.length > 0;
+
+  return (
+    <div className="my-2">
+      {showTimeline ? (
+        <ScanTimeline invocationCount={scanInvocations.length} />
+      ) : (
+        scanInvocations.map((invocation) => (
+          <ToolCard key={invocation.id} invocation={invocation} />
+        ))
+      )}
+      {nonScanInvocations.map((invocation) => (
+        <ToolCard key={invocation.id} invocation={invocation} />
+      ))}
+    </div>
   );
 }

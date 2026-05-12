@@ -106,7 +106,13 @@ export default async function CockpitPage() {
 
   return (
     <>
-      <header className="z-10 flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
+      {/*
+        Sprint 17.1 — header is sticky so the LeaseLens identity + role
+        switcher + theme toggle stay reachable while the dashboard panels
+        scroll. The chat page header is pinned by its h-dvh + flex-col
+        layout; cockpit uses natural document scroll and needs sticky.
+      */}
+      <header className="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
         <div className="flex items-center gap-4">
           <Link
             href="/"

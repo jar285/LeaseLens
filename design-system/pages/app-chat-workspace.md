@@ -139,11 +139,36 @@ Hover lift via `motion.div` (already shipped Sprint 15.6); reduced-motion drops 
 
 When the tool hasn't returned yet, the card body shows three `animate-pulse` bars. Not a spinner — calmer.
 
-### Sprint 18 polish
+### Sprint 18 — Tenant-friendly grading body (shipped)
 
-For `grade_clause_severity` results specifically, the expanded body should render a polished card (severity badge + clause label + plain-English issue + citation chip + recommended action) instead of pretty-printed JSON. JSON fallback stays for tools that don't have a polished view (`search_corpus`, `list_documents`, `render_workflow_diagram`).
+For `grade_clause_severity` results, the expanded body renders [`GradingDetailBlock`](../../src/components/lease/GradingDetailBlock.tsx) instead of pretty-printed JSON. The block has the same anatomy as the right-pane RedFlagReport card so the tenant sees a consistent surface in both places:
 
-Detail in Sprint 18 of [`docs/ui-ux-modernization-plan.md`](../../docs/ui-ux-modernization-plan.md).
+```
+┌──────────────────────────────────────────┐
+│ ▌ [HIGH]  Security deposit · §3          │  ← severity bar + pill + label
+│                                          │
+│   Two months exceeds NJ 1.5-month cap.   │  ← reasoning (full, not clamped)
+│                                          │
+│   📎 NJ Stat 46:8-19                     │  ← citation chip
+│   ──────────────                         │  ← hairline separator
+│   RECOMMENDED ACTION                     │
+│   Cap deposit at 1.5 months rent.        │  ← labelled "what to do next"
+│                                          │
+│   [↗ View on page 4]                     │  ← jumps PDF + pulses right-pane card
+└──────────────────────────────────────────┘
+```
+
+The block reads `pdfViewerRef` and `setActiveClauseId` from `ChatStreamContext` directly, so clicking "View on page N" drives the same cross-pane highlight + PDF scroll as the right-pane card. Auto-clears after 4 s.
+
+**Fallback contract.** The polished body renders only when:
+
+1. `invocation.name === 'grade_clause_severity'`
+2. The result is present and not an error
+3. `isGradingResult(result)` returns true (severity, statute_citation, clause_id all valid)
+
+Any other combination — non-grading tools (`search_corpus`, `list_documents`, `render_workflow_diagram`), errored gradings (`{ error: '…' }`), malformed payloads — falls through to the existing pretty-printed JSON view. Reviewers/admins can still debug the raw shape when something goes wrong.
+
+**Shared module.** Severity styling and helpers live in [`src/components/lease/grading.ts`](../../src/components/lease/grading.ts) so the chat block and the right-pane card never drift on labels, colours, or the typeguard. If you add a new clause_type or severity value, update the dictionaries in that one file — both surfaces pick it up automatically.
 
 ---
 

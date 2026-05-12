@@ -32,6 +32,24 @@ export function ChatTranscript({
 
   // Adapted from docs/_references/ai_mcp_chat_ordo/src/hooks/useChatScroll.ts.
   useEffect(() => {
+    // The empty-state branch renders the welcome hero (Sparkle + H1 +
+    // starter cards) which is anchored to the top of the pane. Running
+    // the pin-to-bottom logic against it scrolls the hero off-screen on
+    // mount when the welcome content is taller than the available pane,
+    // making the page look "auto-scrolled" the moment it loads.
+    if (messages.length === 0) {
+      previousMessageCount.current = 0;
+      // React reuses the same scroll container across the empty/messages
+      // branches (both top-level <div> at the same position). When the
+      // previous render was a long transcript scrolled to the bottom,
+      // the browser clamps the old scrollTop to the new (smaller) max
+      // and the empty-state hero ends up scrolled off the top. Reset
+      // to the top explicitly so the welcome state always lands above
+      // the fold.
+      if (scrollRef.current) scrollRef.current.scrollTop = 0;
+      return;
+    }
+
     const messageCountChanged =
       messages.length !== previousMessageCount.current;
     previousMessageCount.current = messages.length;

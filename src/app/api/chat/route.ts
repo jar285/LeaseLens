@@ -47,6 +47,18 @@ const SPEND_CEILING_MESSAGE =
 // the daily spend ceiling, not this cap. See agent-guidelines §1 Anthropic SDK.
 const MAX_TOOL_ITERATIONS = 15;
 
+// Output ceiling per Anthropic call. 8192 is the documented max for Haiku
+// 4.5 (the default LEASELENS_ANTHROPIC_MODEL) and well within Sonnet's
+// limit too, so we can keep one constant for both paths. Sprint 13's
+// original value was 1024, which silently truncated standard-scan
+// summaries with 12+ clauses — Anthropic returned `stop_reason: "max_tokens"`
+// and the client never knew. Anthropic only bills the tokens actually
+// generated, not the cap, so raising the ceiling has no cost impact on
+// shorter turns. The `'max_tokens'` stop_reason is surfaced to the
+// client as a `truncated` event so the user sees a clear notice when it
+// still happens (e.g. a 20-clause lease with verbose grading).
+const MAX_OUTPUT_TOKENS = 8192;
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
@@ -400,7 +412,7 @@ export async function POST(req: NextRequest) {
                 // that file stays SDK-agnostic. The cast here re-asserts
                 // the structured-block shape to the Anthropic types.
                 messages: contextMessages as MessageParam[],
-                max_tokens: 1024,
+                max_tokens: MAX_OUTPUT_TOKENS,
                 tools:
                   availableTools.length > 0
                     ? (availableTools as Tool[])
@@ -419,6 +431,29 @@ export async function POST(req: NextRequest) {
               tokensIn += finalMessage.usage.input_tokens;
               tokensOut += finalMessage.usage.output_tokens;
               finalResponse = appendWithSeparator(finalResponse, streamText);
+
+              // Sprint 18 — surface output truncation. Anthropic emits
+              // `stop_reason: "max_tokens"` when the model hit the cap
+              // mid-token. Without this notice the client only sees a
+              // chat message that abruptly ends; with it the user gets a
+              // clear "response was cut short" affordance under the
+              // bubble. The event is emitted before `controller.close()`
+              // so the frontend processes it on the same stream.
+              if (finalMessage.stop_reason === 'max_tokens') {
+                console.warn('[chat] response truncated by max_tokens', {
+                  conversation_id: resolvedConversationId,
+                  output_tokens: finalMessage.usage.output_tokens,
+                  cap: MAX_OUTPUT_TOKENS,
+                });
+                controller.enqueue(
+                  encoder.encode(
+                    `${JSON.stringify({
+                      truncated: true,
+                      reason: 'max_tokens',
+                    })}\n`,
+                  ),
+                );
+              }
 
               // Check for tool_use in streaming response (rare but possible)
               const toolUseBlocks = finalMessage.content.filter(
@@ -457,7 +492,7 @@ export async function POST(req: NextRequest) {
                 // that file stays SDK-agnostic. The cast here re-asserts
                 // the structured-block shape to the Anthropic types.
                 messages: contextMessages as MessageParam[],
-                max_tokens: 1024,
+                max_tokens: MAX_OUTPUT_TOKENS,
                 tools:
                   availableTools.length > 0
                     ? (availableTools as Tool[])

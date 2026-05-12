@@ -13,7 +13,11 @@ export type StreamLineMessage =
         audit_id?: string;
         compensating_available?: boolean;
       };
-    };
+    }
+  // Sprint 18 — Anthropic returned stop_reason: "max_tokens" on the
+  // final streamed message. The model's output is partial; the client
+  // should render a "response was cut short" notice under the message.
+  | { truncated: true; reason: 'max_tokens' };
 
 export function parseStreamLine(line: string): StreamLineMessage | null {
   try {
@@ -99,6 +103,19 @@ export function parseStreamLine(line: string): StreamLineMessage | null {
         }
       ).tool_result;
       return { tool_result: toolResult };
+    }
+
+    // Truncation event (Sprint 18)
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'truncated' in parsed &&
+      (parsed as { truncated?: unknown }).truncated === true
+    ) {
+      const reason = (parsed as { reason?: unknown }).reason;
+      if (reason === 'max_tokens') {
+        return { truncated: true, reason: 'max_tokens' };
+      }
     }
 
     return null;

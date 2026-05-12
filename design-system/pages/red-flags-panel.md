@@ -111,32 +111,60 @@ Add a short list of examples below the empty-state body so a first-time visitor 
 
 ## 4. Scanning state (Sprint 18)
 
-When a `grade_clause_severity` tool starts but hasn't returned yet, the panel shows skeleton cards so the user understands work is in progress.
+While a standard scan is in flight, the panel shows skeleton cards instead of the static examples list, and the header carries a live progress label so the user knows work is happening even before any real cards arrive.
+
+**Implementation files**
+
+- [`src/components/lease/use-scan-progress.ts`](../../src/components/lease/use-scan-progress.ts) — derived state hook; reads `toolEvents` and returns `{ phase, total, graded, label }`
+- [`src/components/lease/RedFlagsPaneHeader.tsx`](../../src/components/lease/RedFlagsPaneHeader.tsx) — pane header with eyebrow + in-flight progress label
+- [`src/components/lease/RedFlagSkeletonCard.tsx`](../../src/components/lease/RedFlagSkeletonCard.tsx) — placeholder card
+
+**Phase machine**
+
+The hook counts **attempts**, not successes — a `grade_clause_severity` tool_result that *errored* still ticks progress forward, because the work for that clause is done (just unsuccessful). Counting only successes would leave the rail stuck whenever the corpus failed on some clauses; the user-reported "Grading 8 of 15 with 5 ghost skeletons after the scan finished" bug came from exactly that.
+
+| Phase        | Trigger                                                                  | Label                                          | Rail content                                          |
+| ------------ | ------------------------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------------- |
+| `idle`       | No `extract_clauses` tool_result yet                                     | (no label, eyebrow only)                       | Empty state + examples list                           |
+| `extracting` | `extract_clauses` returned; zero `grade_clause_severity` attempts        | `Scanning lease — N clauses found`             | N skeleton cards                                      |
+| `grading`    | M attempts so far (success + error), M < N                               | `Grading M of N…`                              | (M − errors) real cards + (N − M) trailing skeletons  |
+| `complete`   | Every clause has at least one `grade_clause_severity` tool_result        | (no label, eyebrow only)                       | Real cards for successes only — no skeletons          |
+
+A re-scan (`extract_clauses` fires again with a new clause set) resets the counter: tool_results from prior scans no longer count toward the current phase. The hook handles this by finding the *last* extract event and only counting attempts that came after it.
+
+**Counting rule (important)**
+
+Count by `event.input.clause_id`, **not** `event.result.clause_id`. The input is always populated on tool calls; the result lacks the grading shape when the tool errored. If we counted by result, errored gradings would invisibly skip the progress bar and leave skeletons behind permanently.
 
 ```
 ┌──────────────────────────────────┐
-│ RED FLAGS · Scanning 6 of 15…    │
+│ RED FLAGS         ◐ Grading 6/15 │  ← header eyebrow + spinner + label
 ├──────────────────────────────────┤
-│ ┃ ░░░░  ░░░░░░░░░░░░             │  ← skeleton card 1
+│ ▌ [HIGH] Security deposit · §3   │  ← real card (graded)
+│   exceeds NJ statutory cap…      │
+├──────────────────────────────────┤
+│ ┃ ░░░░  ░░░░░░░░░░░░             │  ← skeleton card (ungraded)
 │   ░░░░░░░░ ░░░░░░░░              │
-├──────────────────────────────────┤
-│ ┃ ░░░░  ░░░░░░░░░░░░             │  ← skeleton card 2
-│   ░░░░░░░░ ░░░░░░░░              │
-├──────────────────────────────────┤
-│   ┊  ╲    /                      │
-│       ╲  /                       │  ← real cards land in place
-│        ╲/                        │
 └──────────────────────────────────┘
 ```
 
-Skeleton card structure:
+**Skeleton card structure**
 
-- Same layout as a real card (severity bar, badge, label, body text positions)
-- Each placeholder text region: `animate-pulse rounded bg-neutral-100 dark:bg-neutral-800`
-- Severity bar: `bg-neutral-200 dark:bg-neutral-700` (neutral placeholder; doesn't promise a severity)
-- Count: derived from `toolEvents` filter (`grade_clause_severity` tool_use without matching tool_result) vs total expected clauses (passed from the most-recent `extract_clauses` result)
+- Same outer silhouette as a real card (`rounded-lg border bg-surface-card shadow-hairline`)
+- Severity bar placeholder: `bg-neutral-200 dark:bg-neutral-700` (neutral — doesn't promise a severity)
+- Badge + clause-label placeholders: small `bg-neutral-200` bars (8 px + 12 px tall) on the header row
+- Reasoning placeholders: two `bg-neutral-150 dark:bg-neutral-800` bars (`w-full` then `w-3/4`)
+- Citation placeholder: short `bg-neutral-150` bar (`w-20`)
+- Each bar pulses opacity `[0.55, 1, 0.55]` over 1.4 s with a 50–80 ms stagger across bars and an 80 ms stagger across cards in the list — gentle "this is alive" cue without a hard shimmer.
+- `aria-hidden="true"` on the card and every bar — the progress label in the header already announces state via `aria-live="polite"`.
 
-Reduced-motion: keep the layout but drop `animate-pulse` (replace with static muted background). Users with motion sensitivity still see "something is happening here" via the count label.
+**Reduced motion**
+
+The `useReducedMotion()` hook is consulted in both the header and the skeleton card:
+
+- Header swaps the spinning ring for a static accent dot.
+- Skeleton bars drop the opacity pulse and render at a fixed `opacity-60`.
+- The label text still updates as the phase advances, so screen-reader users hear the count progress regardless of motion preference.
 
 ---
 
@@ -212,15 +240,21 @@ The `reasoning` field from the grading result. Truncated to 2 lines via `line-cl
 
 ### Citation chip
 
-Renders the `statute_citation` string. Click → scrolls the PdfViewer to the cited clause's page AND pulses the matching card.
+Single source: [`src/components/lease/CitationChip.tsx`](../../src/components/lease/CitationChip.tsx). Used by both the right-pane RedFlagReport card and the chat-side `GradingDetailBlock` so the citation visual never drifts between surfaces.
+
+Renders the `statute_citation` string with a lucide `Paperclip` icon. Two modes:
+
+- **Clickable** — when `onClick` is provided (parent passes a `jumpToClausePage` handler), the chip renders as a real `<button>` with hover + focus-visible affordances. Activates with mouse or keyboard; calls `setActiveClauseId` + `scrollToPage` (parent-supplied).
+- **Static** — when `onClick` is omitted (e.g. clause has no `page_number`), the chip renders as a `<span>` with the same visual but no interaction. Aria-label drops the "jump to page N" suffix.
 
 Treatment:
 
-- `text-[11px] font-medium text-accent-600 dark:text-accent-300`
-- Paperclip icon `h-3 w-3` to the left
-- Hover: cursor-pointer; subtle underline
+- `text-[12px] font-medium text-accent-600 dark:text-accent-300`
+- Paperclip icon `h-3 w-3` in accent-500
+- Hover (button mode only): `bg-accent-50/60 dark:bg-accent-500/10`
+- Focus-visible: 2 px accent-300 ring with 1 px offset
 
-The chip is its own focusable button (Tab in the keyboard order). Keyboard activate triggers the same `scrollToPage` + active-card pulse as a mouse click.
+`pageNumber` is informational only — it enriches the aria-label (`"NJ Stat 46:8-19, jump to page 4"`). The actual scroll is fired by the parent's onClick handler.
 
 ### Expanded body
 
@@ -246,33 +280,47 @@ Sprint 18 may add a secondary action ("Draft a response") that pre-fills the com
 
 ---
 
-## 6. Active-card highlight (citation jump)
+## 6. Active-card highlight (citation jump) — Sprint 18 §4 shipped
 
-When a CitationChip is clicked (in chat OR in the panel itself) or "View on page N" is pressed:
+Two entry points trigger the same flow:
+
+1. **Citation chip click** — the always-visible `<CitationChip />` in the card header (a real `<button>` when `page_number` is set), OR the citation chip inside the chat-side [`GradingDetailBlock`](../../src/components/lease/GradingDetailBlock.tsx).
+2. **"View on page N" button** — inside the expanded body of the right-pane card.
+
+Both call the same per-card helper `jumpToClausePage(grading)` which:
 
 1. `setActiveClauseId(clauseId)` fires.
 2. `pdfViewerRef.current.scrollToPage(pageNumber)` fires.
-3. The matching card gets `border-accent-300 ring-2 ring-accent-200 dark:border-accent-400/40 dark:ring-accent-500/20`.
-4. The ring stays for `HIGHLIGHT_DURATION_MS = 4000` (4 seconds).
-5. A timer clears `activeClauseId` back to `null`.
+3. `setTimeout(..., HIGHLIGHT_DURATION_MS)` clears `activeClauseId` back to `null` after 4 s.
 
-### Sprint 18 polish — pulse animation
+**Two real-button affordances on one card.** The citation row is a sibling of the expand toggle — not a nested button — so the user can click the chip for a one-click jump without expanding the card, OR click the rest of the card to expand and then use "View on page N". The chip stops short of triggering the toggle; the toggle stops short of stealing the chip's click.
 
-Currently the ring appears + disappears abruptly. Sprint 18 adds a `motion.div` overlay that fades the ring in over 200ms, holds 3.6s, fades out over 200ms:
+### Ring animation (the shipped version)
 
-```jsx
-{isActive && (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    transition={{ duration: 0.2, ease: 'easeOut' }}
-    className="pointer-events-none absolute inset-0 ring-2 ring-accent-300 rounded-lg"
-  />
-)}
+Replaces the className-swap snap with a real cross-fade overlay. The card always carries a neutral border; an `<ActiveRing />` sub-component renders an absolutely-positioned `motion.span` overlay when `isActive` is true:
+
+```tsx
+<AnimatePresence>
+  {isActive ? (
+    <motion.span
+      aria-hidden
+      className="pointer-events-none absolute inset-0 rounded-lg
+                 ring-2 ring-inset ring-accent-300
+                 dark:ring-accent-400/50"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
+    />
+  ) : null}
+</AnimatePresence>
 ```
 
-Reduced-motion: skip fade; ring snaps on/off.
+**Timing math.** `HIGHLIGHT_DURATION_MS` (4000 ms) decomposes as: 200 ms fade-in (motion entry) + ~3600 ms hold + 200 ms fade-out (AnimatePresence exit when `activeClauseId` clears). The 200 ms duration is fixed in the component; the hold + fade-out are gated by the parent's setTimeout.
+
+**`ring-inset`** is important — without it, the ring would extend outward from the overlay's box and get clipped by the card's `overflow-hidden`. Inset draws the ring inside the overlay box, flush with the card's content area.
+
+**Reduced motion** — the overlay still mounts/unmounts on the same `isActive` flag, but the fade is skipped. `data-motion="off"` distinguishes the path in test assertions.
 
 ---
 

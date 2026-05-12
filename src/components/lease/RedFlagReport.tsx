@@ -21,86 +21,19 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStream } from '@/components/chat/ChatStreamContext';
 import { EmptyState } from '@/components/states/EmptyState';
-
-type Severity = 'high' | 'medium' | 'low' | 'ok';
-
-interface GradingResult {
-  clause_id: string;
-  severity: Severity;
-  statute_citation: string;
-  chunk_id: string;
-  reasoning: string;
-  recommended_action: string;
-  // Phase 10.5 — added on the tool side so the card can show clause
-  // type + page number without a second lookup.
-  clause_type?: string;
-  clause_index?: number;
-  page_number?: number;
-}
-
-const SEVERITY_ORDER: Severity[] = ['high', 'medium', 'low', 'ok'];
-
-// Sprint 15 Phase 8 — semantic token classes for the 1px coloured left bar
-// and the inline severity pill. Tailwind v4 generates `bg-danger-600` etc.
-// from the @theme color keys defined in globals.css.
-const SEVERITY_BAR: Record<Severity, string> = {
-  high: 'bg-danger-600',
-  medium: 'bg-warning-600',
-  low: 'bg-info-600',
-  ok: 'bg-success-600',
-};
-
-const SEVERITY_BADGE: Record<Severity, string> = {
-  high: 'bg-danger-100/80 text-danger-600 dark:bg-danger-600/15 dark:text-danger-100',
-  medium:
-    'bg-warning-100/80 text-warning-600 dark:bg-warning-600/15 dark:text-warning-100',
-  low: 'bg-info-100/80 text-info-600 dark:bg-info-600/15 dark:text-info-100',
-  ok: 'bg-success-100/80 text-success-600 dark:bg-success-600/15 dark:text-success-100',
-};
-
-const SEVERITY_LABEL: Record<Severity, string> = {
-  high: 'High',
-  medium: 'Med',
-  low: 'Low',
-  ok: 'OK',
-};
-
-const CLAUSE_TYPE_LABEL: Record<string, string> = {
-  security_deposit: 'Security deposit',
-  late_fee: 'Late fee',
-  early_termination: 'Early termination',
-  sublet: 'Subletting',
-  repair: 'Repairs',
-  entry: 'Landlord entry',
-  retaliation: 'Retaliation',
-  automatic_renewal: 'Auto-renewal',
-  attorneys_fees: "Attorneys' fees",
-  indemnification: 'Indemnification',
-  jury_waiver: 'Jury trial waiver',
-  pet: 'Pets',
-  parking: 'Parking',
-  unknown: 'Other clause',
-};
-
-function isGradingResult(value: unknown): value is GradingResult {
-  if (!value || typeof value !== 'object') return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.clause_id === 'string' &&
-    typeof v.severity === 'string' &&
-    typeof v.statute_citation === 'string' &&
-    SEVERITY_ORDER.includes(v.severity as Severity)
-  );
-}
-
-function clauseLabel(g: GradingResult): string {
-  const typeLabel = g.clause_type
-    ? (CLAUSE_TYPE_LABEL[g.clause_type] ?? CLAUSE_TYPE_LABEL.unknown)
-    : 'Clause';
-  return typeof g.clause_index === 'number'
-    ? `${typeLabel} · §${g.clause_index + 1}`
-    : typeLabel;
-}
+import { CitationChip } from './CitationChip';
+import {
+  clauseLabel,
+  type GradingResult,
+  isGradingResult,
+  SEVERITY_BADGE,
+  SEVERITY_BAR,
+  SEVERITY_LABEL,
+  SEVERITY_ORDER,
+  type Severity,
+} from './grading';
+import { RedFlagSkeletonCard } from './RedFlagSkeletonCard';
+import { useScanProgress } from './use-scan-progress';
 
 // Phase 10.8 — how long the page-level highlight + active-card ring
 // stay on screen after "View on page N" is clicked. Long enough to
@@ -111,6 +44,7 @@ const HIGHLIGHT_DURATION_MS = 4000;
 export function RedFlagReport(): React.JSX.Element {
   const { toolEvents, pdfViewerRef, activeClauseId, setActiveClauseId } =
     useChatStream();
+  const scan = useScanProgress();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const reduced = useReducedMotion();
   const [mounted, setMounted] = useState(false);
@@ -153,6 +87,24 @@ export function RedFlagReport(): React.JSX.Element {
     previousCountRef.current = gradings.length;
   }, [gradings.length]);
 
+  // Sprint 18 §2 — when the scan has started but no clauses have been
+  // graded yet, show one skeleton per known clause instead of the static
+  // examples list. The examples are only for the truly-idle state (no
+  // scan ever started in this session).
+  if (gradings.length === 0 && scan.phase === 'extracting' && scan.total > 0) {
+    return (
+      <div
+        className="flex flex-col gap-3"
+        data-testid="red-flag-report-scanning"
+      >
+        {Array.from({ length: scan.total }).map((_, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders are interchangeable until real cards land
+          <RedFlagSkeletonCard key={`skeleton-${i}`} delay={i * 0.08} />
+        ))}
+      </div>
+    );
+  }
+
   if (gradings.length === 0) {
     return (
       <EmptyState
@@ -167,6 +119,50 @@ export function RedFlagReport(): React.JSX.Element {
           <p className="text-[12px] text-fg-muted">
             Red flags will appear here as I grade each clause.
           </p>
+        }
+        actions={
+          // Sprint 17 §5.5 — concrete examples so a first-time visitor
+          // knows what LeaseLens looks for, not just that "something
+          // will appear here". Token-driven, low-emphasis, no severity
+          // colours yet (those land when real cards arrive).
+          <div
+            data-testid="red-flag-report-empty-examples"
+            className="mt-6 w-full"
+          >
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+              Examples
+            </p>
+            <ul className="space-y-1 text-left text-[11px] leading-tight text-fg-muted">
+              <li className="flex items-start gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
+                />
+                <span>Security-deposit overcharges</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
+                />
+                <span>One-way attorney's-fee clauses</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
+                />
+                <span>Unenforceable late-fee structures</span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
+                />
+                <span>Blanket sublet bans</span>
+              </li>
+            </ul>
+          </div>
         }
       />
     );
@@ -228,11 +224,28 @@ export function RedFlagReport(): React.JSX.Element {
             });
           };
 
-          const cardClass = `relative overflow-hidden rounded-lg border bg-surface-card shadow-hairline transition-shadow hover:shadow-lift dark:bg-neutral-900 ${
-            isActive
-              ? 'border-accent-300 ring-2 ring-accent-200 dark:border-accent-400/40 dark:ring-accent-500/20'
-              : 'border-neutral-200 dark:border-neutral-800'
-          }`;
+          // Sprint 18 §4 — single jump-to-page handler shared by the
+          // CitationChip (above the fold) and the in-body
+          // "View on page N" button (expanded view). Both surfaces drive
+          // the same activeClauseId broadcast + PDF scroll so the ring
+          // animation kicks off identically regardless of entry point.
+          const jumpToClausePage = (clause: GradingResult) => {
+            if (typeof clause.page_number !== 'number') return;
+            setActiveClauseId(clause.clause_id);
+            window.setTimeout(
+              () => setActiveClauseId(null),
+              HIGHLIGHT_DURATION_MS,
+            );
+            pdfViewerRef.current?.scrollToPage(clause.page_number);
+          };
+
+          // Sprint 18 §4 — the active-card ring used to be a class swap
+          // that snapped on/off. Now the card always carries a neutral
+          // border; a separately-rendered <ActiveRing /> overlay handles
+          // the highlight with a 200ms fade-in → 3.6s hold → 200ms
+          // fade-out (driven by HIGHLIGHT_DURATION_MS in the setTimeout).
+          const cardClass =
+            'relative overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline transition-shadow hover:shadow-lift dark:border-neutral-800 dark:bg-neutral-900';
 
           const cardInner = (
             <>
@@ -240,8 +253,15 @@ export function RedFlagReport(): React.JSX.Element {
                 aria-hidden="true"
                 className={`absolute top-0 left-0 h-full w-1 ${SEVERITY_BAR[g.severity]}`}
               />
+              <ActiveRing isActive={isActive} reduced={reduced ?? false} />
 
               {/* Always-visible header. Click anywhere to expand/collapse. */}
+              {/* Sprint 18 §4 — the expand toggle covers the severity row +
+                  reasoning but NOT the citation. The citation now lives
+                  outside this button so it can be its own real <button>
+                  (nested buttons are invalid HTML), giving the user a
+                  one-click jump-to-page without having to expand the card
+                  first. */}
               <button
                 type="button"
                 onClick={toggle}
@@ -267,18 +287,6 @@ export function RedFlagReport(): React.JSX.Element {
                   >
                     {g.reasoning}
                   </p>
-                  <div className="mt-1.5 flex min-w-0 items-center gap-1">
-                    <Paperclip
-                      className="h-3 w-3 shrink-0 text-accent-500 dark:text-accent-300"
-                      aria-hidden="true"
-                    />
-                    <span
-                      data-testid="red-flag-citation"
-                      className="truncate text-[11px] font-medium text-accent-600 dark:text-accent-300"
-                    >
-                      {g.statute_citation}
-                    </span>
-                  </div>
                 </div>
                 <ChevronDown
                   aria-hidden="true"
@@ -287,6 +295,21 @@ export function RedFlagReport(): React.JSX.Element {
                   }`}
                 />
               </button>
+              {/* Citation row — sibling of the toggle, click-isolated.
+                  When page_number is set the chip becomes clickable and
+                  drives the same activeClauseId + scrollToPage flow as
+                  the in-body "View on page N" button below. */}
+              <div data-testid="red-flag-citation-row" className="px-4 pb-3">
+                <CitationChip
+                  statuteCitation={g.statute_citation}
+                  pageNumber={g.page_number}
+                  onClick={
+                    typeof g.page_number === 'number'
+                      ? () => jumpToClausePage(g)
+                      : undefined
+                  }
+                />
+              </div>
 
               {/* Expanded body — recommended action + jump-to-page. */}
               {isExpanded ? (
@@ -306,19 +329,7 @@ export function RedFlagReport(): React.JSX.Element {
                       data-testid="red-flag-jump-to-page"
                       onClick={(e) => {
                         e.stopPropagation();
-                        // Phase 10.8 — set the active-clause connection
-                        // BEFORE scrolling so the receiver pane sees the
-                        // id by the time the scroll lands. Auto-clear
-                        // after HIGHLIGHT_DURATION_MS so the ring fades
-                        // and the user can click another card cleanly.
-                        setActiveClauseId(g.clause_id);
-                        window.setTimeout(
-                          () => setActiveClauseId(null),
-                          HIGHLIGHT_DURATION_MS,
-                        );
-                        pdfViewerRef.current?.scrollToPage(
-                          g.page_number as number,
-                        );
+                        jumpToClausePage(g);
                       }}
                       className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
                     >
@@ -360,6 +371,79 @@ export function RedFlagReport(): React.JSX.Element {
           );
         })}
       </AnimatePresence>
+
+      {/*
+        Sprint 18 §2 — trailing skeletons for clauses the scan hasn't yet
+        attempted. We base the count on `scan.attempted` (success + error)
+        rather than `gradings.length` (success only) so a clause whose
+        grading errored doesn't leave a permanent ghost skeleton in the
+        rail. Once the phase reaches 'complete' (every clause processed),
+        no skeletons render even if some gradings failed — the user sees
+        only the cards we actually have data for.
+      */}
+      {scan.phase === 'grading' && scan.total > scan.attempted
+        ? Array.from({ length: scan.total - scan.attempted }).map((_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders are interchangeable until real cards land
+            <RedFlagSkeletonCard key={`pending-${i}`} delay={i * 0.08} />
+          ))
+        : null}
     </div>
+  );
+}
+
+/*
+ * Sprint 18 §4 — active-card ring overlay.
+ *
+ * Replaces the className-swap snap with a true cross-fade. The overlay
+ * is absolutely positioned, pointer-events:none (clicks pass through to
+ * the card), and aria-hidden (purely decorative — the active-card state
+ * is already conveyed by the card border + scroll behaviour). With
+ * reduced motion, the overlay still shows when active but skips the
+ * fade — the user sees the same on/off behaviour as before the polish.
+ *
+ * Duration math: HIGHLIGHT_DURATION_MS (4000ms) is split as
+ * ~200ms fade-in (motion default) + ~3600ms hold + ~200ms fade-out.
+ * The hold + fade-out are gated by the parent's setTimeout that clears
+ * activeClauseId; once cleared, AnimatePresence runs the exit transition.
+ */
+function ActiveRing({
+  isActive,
+  reduced,
+}: {
+  isActive: boolean;
+  reduced: boolean;
+}): React.JSX.Element {
+  // Reduced motion: render the static overlay directly (no fade), to
+  // preserve the visual cue without animation. The exit / enter is
+  // instant because we conditionally render the element itself.
+  if (reduced) {
+    return (
+      <>
+        {isActive ? (
+          <span
+            aria-hidden="true"
+            data-testid="red-flag-active-ring"
+            data-motion="off"
+            className="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-accent-300 ring-inset dark:ring-accent-400/50"
+          />
+        ) : null}
+      </>
+    );
+  }
+  return (
+    <AnimatePresence>
+      {isActive ? (
+        <motion.span
+          aria-hidden="true"
+          data-testid="red-flag-active-ring"
+          data-motion="on"
+          className="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-accent-300 ring-inset dark:ring-accent-400/50"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+        />
+      ) : null}
+    </AnimatePresence>
   );
 }

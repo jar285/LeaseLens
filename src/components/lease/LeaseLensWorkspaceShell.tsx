@@ -32,14 +32,24 @@ import {
   ChatUI,
   type ChatUIProps,
 } from '@/components/chat/ChatUI';
+import type { Role } from '@/lib/auth/types';
 import { LeaseUploadDropzone, type UploadResult } from './LeaseUploadDropzone';
 import { PdfViewer } from './PdfViewer';
 import { RedFlagReport } from './RedFlagReport';
+import { RedFlagsPaneHeader } from './RedFlagsPaneHeader';
 
 export interface LeaseLensWorkspaceShellProps {
   initialMessages: ChatUIProps['initialMessages'];
   conversationId: ChatUIProps['conversationId'];
   workspaceName: ChatUIProps['workspaceName'];
+  /**
+   * Sprint 18 §5 — viewer role from the server-rendered page. Threads
+   * straight into `ChatStreamProvider` so descendants (`ChatMessage`,
+   * future `ScanTimeline`) can branch tenant-friendly vs. trace-fidelity
+   * rendering. Defaults to `Creator` (the most-restrictive, tenant view)
+   * if a caller forgets to pass it.
+   */
+  viewerRole?: Role;
 }
 
 interface ActiveLease extends UploadResult {
@@ -51,7 +61,7 @@ export function LeaseLensWorkspaceShell(
   props: LeaseLensWorkspaceShellProps,
 ): React.JSX.Element {
   return (
-    <ChatStreamProvider>
+    <ChatStreamProvider viewerRole={props.viewerRole}>
       <ShellInner {...props} />
     </ChatStreamProvider>
   );
@@ -92,14 +102,21 @@ function ShellInner({
     // min-h-0 + overflow-hidden on each <section> makes the inner
     // scroll regions take over. The grid itself takes flex-1 + min-h-0
     // so it consumes exactly the height its parent (page main) gives it.
+    // Sprint 17 §5.7 — responsive minimum. Below `lg` (1024px) the
+    // three-pane grid would force the side columns (20rem each = 640px)
+    // to overflow on tablets and phones. For Sprint 17 the bar is "no
+    // horizontal scroll"; the proper mobile layout (drawer / tabs)
+    // lands in Sprint 18. Until then, hide the side panes on small
+    // viewports and let the centre pane fill the width — the user can
+    // still read the welcome state and send messages from any device.
     <div
       data-testid="shell-root"
       data-shell-route-mode="three-pane"
-      className="grid min-h-0 w-full flex-1 grid-cols-[20rem_minmax(0,1fr)_20rem] overflow-hidden"
+      className="grid min-h-0 w-full flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[20rem_minmax(0,1fr)_20rem]"
     >
       <section
         data-testid="shell-left-pane"
-        className="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-neutral-100 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900"
+        className="hidden min-h-0 min-w-0 flex-col overflow-hidden border-r border-neutral-100 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900 lg:flex"
       >
         {activeLease ? (
           <PdfViewer
@@ -130,17 +147,10 @@ function ShellInner({
 
       <aside
         data-testid="shell-right-pane"
-        className="flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-neutral-100 bg-surface-base dark:border-neutral-800 dark:bg-neutral-950"
+        className="hidden min-h-0 min-w-0 flex-col overflow-hidden border-l border-neutral-100 bg-surface-base dark:border-neutral-800 dark:bg-neutral-950 lg:flex"
         aria-label="Red-flag report"
       >
-        <header
-          data-testid="shell-right-pane-header"
-          className="flex shrink-0 items-center border-b border-neutral-100 bg-surface-card px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900"
-        >
-          <h2 className="text-[11px] font-semibold tracking-[0.14em] text-fg-muted uppercase">
-            Red flags
-          </h2>
-        </header>
+        <RedFlagsPaneHeader />
         <div
           data-testid="shell-right-pane-scroll-area"
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain p-4"

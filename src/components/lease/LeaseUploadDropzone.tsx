@@ -266,9 +266,17 @@ export function LeaseUploadDropzone({
         </label>
       ) : null}
 
-      {/* Hint */}
+      {/*
+        Hints — idle state only. Sprint 17 §5.2 added the privacy + legal
+        disclaimer lines so a tenant pausing before uploading a real
+        document sees what LeaseLens does (and doesn't) do.
+      */}
       {status === 'idle' ? (
-        <p className="text-[11px] text-fg-subtle">PDF files up to 10 MB</p>
+        <div className="space-y-1 text-[11px] leading-tight text-fg-subtle">
+          <p>PDF up to 10 MB · text-layer required</p>
+          <p>Your lease text stays in this session.</p>
+          <p>Informational analysis, not legal advice.</p>
+        </div>
       ) : null}
 
       <input

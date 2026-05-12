@@ -9,6 +9,8 @@ This audit captures the current state of LeaseLens's UI/UX, ranks weaknesses by 
 
 - ✅ Sprint 16A: docs created (this audit + 5 design-system files + modernization plan).
 - ✅ Sprint 16B: six shared primitives (`<EmptyState>`, `<LoadingState>`, `<ErrorState>`, `<PageShell>`, `<Container>`, `<Stack>`) + 34 tests. Two consumer refactors (ToolCard pending → `<LoadingState>`; RedFlagReport empty → `<EmptyState>`). Dropzone error refactor deliberately deferred to Sprint 19. 541/541 tests pass.
+- ✅ Sprint 16B.1 (patch): PdfViewer dark-mode token sweep (12+ classes), GFM table support in `renderMarkdown` (+ 9 tests). 550/550 tests pass.
+- ✅ Sprint 17: welcome-state "How it works" strip + disclaimer trust block, red-flags empty-state examples list, dropzone privacy / not-legal-advice microcopy, composer `inputMode="text"` + autocapitalize/spellcheck, responsive grid (single-column below `lg`, side panes hidden). First-time-visitor context now reads as a calm landing-AND-workspace hybrid. 550/550 tests pass.
 
 ---
 
@@ -179,22 +181,22 @@ When the assistant emits an inline statute citation in chat text (e.g. "NJ Stat 
 
 ## 3. Priority ranking
 
-| Priority | Issue | Sprint |
-|---|---|---|
-| P0 | First-time user context too light | 17 |
-| P0 | `/` feels like a tool screen, not a product | 17 |
-| P0 | Disclaimer visibility (UI-side, beyond the empty state) | 17 |
-| P1 | Empty state lacks "how it works" + sample + rhythm | 17 |
-| P1 | Upload area feels generic; missing privacy/process copy | 17 |
-| P1 | Red flags empty state is passive | 17 |
-| P1 | Scan progress not visible at top-level | 18 |
-| P1 | ToolCard raw JSON for tenant-facing tools | 18 |
-| P2 | Mobile layout broken below 1024px | 18 |
-| P2 | Disclaimer in cockpit | 18 |
-| P3 | Inline citation chips in chat transcript | 18 |
-| P3 | Scanned-PDF fallback (paste text) | 19 |
-| P3 | PDF page-position indicator on long leases | 18 |
-| P3 | RefreshButton focus rings (cockpit only) | 18 |
+| Priority | Issue | Sprint | Status |
+|---|---|---|---|
+| P0 | First-time user context too light | 17 | ✅ Sprint 17 — How-it-works strip + disclaimer trust block |
+| P0 | `/` feels like a tool screen, not a product | 17 | ✅ Sprint 17 — welcome state now reads as landing+workspace hybrid |
+| P0 | Disclaimer visibility (UI-side, beyond the empty state) | 17 | ✅ Sprint 17 — visible trust block under starter cards |
+| P1 | Empty state lacks "how it works" + sample + rhythm | 17 | ✅ Sprint 17 — How-it-works strip added |
+| P1 | Upload area feels generic; missing privacy/process copy | 17 | ✅ Sprint 17 — privacy + legal microcopy added |
+| P1 | Red flags empty state is passive | 17 | ✅ Sprint 17 — examples list added |
+| P1 | Scan progress not visible at top-level | 18 | 🟡 Pending |
+| P1 | ToolCard raw JSON for tenant-facing tools | 18 | 🟡 Pending |
+| P2 | Mobile layout broken below 1024px | 17 + 18 | 🟡 Sprint 17 hid the side panes (no horizontal scroll); Sprint 18 brings them back via tabs/drawer |
+| P2 | Disclaimer in cockpit | 18 | 🟡 Pending |
+| P3 | Inline citation chips in chat transcript | 18 | 🟡 Pending |
+| P3 | Scanned-PDF fallback (paste text) | 19 | 🟡 Pending |
+| P3 | PDF page-position indicator on long leases | 18 | 🟡 Pending |
+| P3 | RefreshButton focus rings (cockpit only) | 18 | 🟡 Pending |
 
 P0 = first-time-user-blocking. P1 = active-use-friction. P2 = cross-device or admin-surface. P3 = polish.
 

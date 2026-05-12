@@ -251,18 +251,23 @@ describe('RedFlagReport', () => {
     );
 
     const card = screen.getByTestId('red-flag-card');
-    // Default: no active state.
+    // Default: no active state, no overlay ring rendered.
     expect(card.getAttribute('data-active')).toBe('false');
+    expect(
+      screen.queryByTestId('red-flag-active-ring'),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('red-flag-card-toggle'));
     fireEvent.click(screen.getByTestId('red-flag-jump-to-page'));
 
-    // Active ring is applied via data-attr + ring classes.
+    // Sprint 18 §4 — active state still flips on the card's data-active,
+    // but the visual ring is now a separately-mounted overlay that fades
+    // in/out via AnimatePresence (covered in detail in its own test).
     expect(card.getAttribute('data-active')).toBe('true');
-    expect(card.className).toMatch(/ring-2/);
-    // Sprint 15 Phase 8 — accent palette migrated from indigo-* to
-    // semantic accent-* tokens (keyed on #6E5CE6 in @theme).
-    expect(card.className).toMatch(/border-accent-300/);
+    const overlay = screen.getByTestId('red-flag-active-ring');
+    expect(overlay).toBeInTheDocument();
+    expect(overlay.className).toMatch(/ring-2/);
+    expect(overlay.className).toMatch(/ring-accent-300/);
   });
 
   it('"View on page N" inside the expanded body calls scrollToPage', () => {
@@ -286,6 +291,56 @@ describe('RedFlagReport', () => {
     fireEvent.click(screen.getByTestId('red-flag-card-toggle'));
     fireEvent.click(screen.getByTestId('red-flag-jump-to-page'));
     expect(scrollToPage).toHaveBeenCalledWith(7);
+  });
+
+  // Sprint 18 §4 — citation chip in the always-visible header is now its
+  // own button driving the same activeClauseId + scrollToPage flow.
+  it('clicking the citation chip jumps to page and pulses the active ring without expanding the card', () => {
+    const scrollToPage = vi.fn();
+    function Wired() {
+      const { pdfViewerRef } = useChatStream();
+      pdfViewerRef.current = { scrollToPage };
+      return <RedFlagReport />;
+    }
+    render(
+      <ProviderWithEvents events={[grade()]}>
+        <Wired />
+      </ProviderWithEvents>,
+    );
+
+    const card = screen.getByTestId('red-flag-card');
+    expect(card.getAttribute('data-expanded')).toBe('false');
+    expect(card.getAttribute('data-active')).toBe('false');
+
+    // The citation row hosts the CitationChip; click the chip's button.
+    const chip = screen.getByRole('button', { name: /NJ Stat 46:8-21\.2/i });
+    fireEvent.click(chip);
+
+    // PDF scroll fires, ring overlay mounts, AND the card stays collapsed
+    // (because the chip is now a sibling of the expand toggle).
+    expect(scrollToPage).toHaveBeenCalledWith(4);
+    expect(card.getAttribute('data-active')).toBe('true');
+    expect(card.getAttribute('data-expanded')).toBe('false');
+    expect(screen.getByTestId('red-flag-active-ring')).toBeInTheDocument();
+  });
+
+  it('renders the citation as a non-interactive span when the clause has no page_number', () => {
+    const baseGrade = grade();
+    const baseResult = baseGrade.result as Record<string, unknown>;
+    const { page_number: _ignored, ...withoutPage } = baseResult;
+    render(
+      <ProviderWithEvents events={[grade({ result: withoutPage })]}>
+        <RedFlagReport />
+      </ProviderWithEvents>,
+    );
+    // Citation row still renders, but contains a span (not a button)
+    // because there's no page to jump to.
+    const row = screen.getByTestId('red-flag-citation-row');
+    expect(row).toBeInTheDocument();
+    expect(row.querySelector('button[data-testid="citation-chip"]')).toBeNull();
+    expect(
+      row.querySelector('span[data-testid="citation-chip"]'),
+    ).toBeInTheDocument();
   });
 
   it('latest grading per clause wins (re-runs replace prior result)', () => {
@@ -314,5 +369,118 @@ describe('RedFlagReport', () => {
     const cards = screen.getAllByTestId('red-flag-card');
     expect(cards).toHaveLength(1);
     expect(cards[0].getAttribute('data-severity')).toBe('high');
+  });
+
+  // Sprint 18 §2 — scanning state branches.
+  describe('scanning state', () => {
+    const extractEvent = (clauseIds: string[]): ToolEvent => ({
+      tool_name: 'extract_clauses',
+      input: { lease_id: 'l1' },
+      result: { clauses: clauseIds.map((id) => ({ clause_id: id })) },
+      audit_id: undefined,
+    });
+
+    it('renders one skeleton per extracted clause when no gradings yet', () => {
+      render(
+        <ProviderWithEvents events={[extractEvent(['c1', 'c2', 'c3'])]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      // No empty-state examples while a scan is mid-flight.
+      expect(
+        screen.queryByTestId('red-flag-report-empty-examples'),
+      ).not.toBeInTheDocument();
+      expect(screen.getAllByTestId('red-flag-skeleton-card')).toHaveLength(3);
+    });
+
+    it('renders real cards plus trailing skeletons for ungraded clauses', () => {
+      render(
+        <ProviderWithEvents
+          events={[
+            extractEvent(['c1', 'c2', 'c3']),
+            grade({
+              input: { clause_id: 'c1' },
+              result: {
+                ...(grade().result as object),
+                clause_id: 'c1',
+                severity: 'high',
+              },
+            }),
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(screen.getAllByTestId('red-flag-card')).toHaveLength(1);
+      expect(screen.getAllByTestId('red-flag-skeleton-card')).toHaveLength(2);
+    });
+
+    it('drops all skeletons once every clause has been graded', () => {
+      render(
+        <ProviderWithEvents
+          events={[
+            extractEvent(['c1', 'c2']),
+            grade({
+              input: { clause_id: 'c1' },
+              result: {
+                ...(grade().result as object),
+                clause_id: 'c1',
+                severity: 'high',
+              },
+            }),
+            grade({
+              input: { clause_id: 'c2' },
+              result: {
+                ...(grade().result as object),
+                clause_id: 'c2',
+                severity: 'medium',
+              },
+            }),
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(screen.getAllByTestId('red-flag-card')).toHaveLength(2);
+      expect(
+        screen.queryByTestId('red-flag-skeleton-card'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('drops skeletons when every clause has a tool_result, even if some errored', () => {
+      // Regression: a real scan returning 1 success + 2 errors across
+      // 3 clauses used to leave 2 ghost skeletons because the hook only
+      // counted successful gradings. Now we count attempts (success +
+      // error), so the rail clears as soon as the scan is truly done.
+      const erroredGrade = (clauseId: string): ToolEvent => ({
+        tool_name: 'grade_clause_severity',
+        input: { clause_id: clauseId },
+        result: { error: 'corpus lookup failed' },
+        audit_id: undefined,
+      });
+      render(
+        <ProviderWithEvents
+          events={[
+            extractEvent(['c1', 'c2', 'c3']),
+            grade({
+              input: { clause_id: 'c1' },
+              result: {
+                ...(grade().result as object),
+                clause_id: 'c1',
+                severity: 'high',
+              },
+            }),
+            erroredGrade('c2'),
+            erroredGrade('c3'),
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(screen.getAllByTestId('red-flag-card')).toHaveLength(1);
+      expect(
+        screen.queryByTestId('red-flag-skeleton-card'),
+      ).not.toBeInTheDocument();
+    });
   });
 });

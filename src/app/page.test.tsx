@@ -7,6 +7,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatUI } from '@/components/chat/ChatUI';
+import { withChatStream } from '@/components/chat/test-helpers';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -88,7 +89,9 @@ describe('Homepage Chat UI', () => {
   });
 
   it('renders the initial empty state correctly', () => {
-    render(<ChatUI workspaceName="LeaseLens — NJ Tenant Law" />);
+    render(
+      withChatStream(<ChatUI workspaceName="LeaseLens — NJ Tenant Law" />),
+    );
     expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: /LeaseLens/i }),
@@ -98,7 +101,9 @@ describe('Homepage Chat UI', () => {
   });
 
   it('submits an empty-state suggested prompt', async () => {
-    render(<ChatUI workspaceName="LeaseLens — NJ Tenant Law" />);
+    render(
+      withChatStream(<ChatUI workspaceName="LeaseLens — NJ Tenant Law" />),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /standard scan/i }));
 
@@ -118,7 +123,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('allows typing and disables submit when empty', () => {
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
 
     const input = screen.getByLabelText('Type a message');
     const submitBtn = screen.getByRole('button', { name: 'Send message' });
@@ -133,7 +138,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('ignores whitespace-only submissions', () => {
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
 
     const input = screen.getByLabelText('Type a message');
     fireEvent.change(input, { target: { value: '   ' } });
@@ -146,7 +151,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('submits on Enter but not on Shift+Enter', () => {
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
 
     const input = screen.getByLabelText('Type a message');
 
@@ -160,7 +165,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('streams the assistant response deterministically and locks composer', async () => {
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
 
     const input = screen.getByLabelText('Type a message');
     const submitBtn = screen.getByRole('button', { name: 'Send message' });
@@ -197,7 +202,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('renders the error state upon "throw error" prompt', async () => {
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
 
     const input = screen.getByLabelText('Type a message');
     const submitBtn = screen.getByRole('button', { name: 'Send message' });
@@ -220,7 +225,7 @@ describe('Homepage Chat UI', () => {
   });
 
   it('does not show the new conversation button on empty state', () => {
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
     const toolbar = screen.getByTestId('conversation-toolbar');
     // The toolbar is kept in the DOM (to reserve layout space) but hidden via
     // the `invisible` class when there are no messages.
@@ -229,11 +234,13 @@ describe('Homepage Chat UI', () => {
 
   it('resets to empty state when new conversation is clicked', async () => {
     render(
-      <ChatUI
-        initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]}
-        conversationId="conv-1"
-        workspaceName="Side Quest Syndicate"
-      />,
+      withChatStream(
+        <ChatUI
+          initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]}
+          conversationId="conv-1"
+          workspaceName="Side Quest Syndicate"
+        />,
+      ),
     );
 
     // Conversation is visible and button is present
@@ -261,13 +268,15 @@ describe('Homepage Chat UI', () => {
 
   it('shows "Continue previous" after clicking New conversation, restores the prior thread on click', () => {
     render(
-      <ChatUI
-        initialMessages={[
-          { id: 'msg-1', role: 'user', content: 'What is our brand voice?' },
-        ]}
-        conversationId="conv-1"
-        workspaceName="Side Quest Syndicate"
-      />,
+      withChatStream(
+        <ChatUI
+          initialMessages={[
+            { id: 'msg-1', role: 'user', content: 'What is our brand voice?' },
+          ]}
+          conversationId="conv-1"
+          workspaceName="Side Quest Syndicate"
+        />,
+      ),
     );
 
     expect(screen.getByText('What is our brand voice?')).toBeInTheDocument();
@@ -296,11 +305,13 @@ describe('Homepage Chat UI', () => {
 
   it('does not show Continue previous on initial empty state (no stash yet)', () => {
     render(
-      <ChatUI
-        initialMessages={[]}
-        conversationId={null}
-        workspaceName="Side Quest Syndicate"
-      />,
+      withChatStream(
+        <ChatUI
+          initialMessages={[]}
+          conversationId={null}
+          workspaceName="Side Quest Syndicate"
+        />,
+      ),
     );
     expect(
       screen.queryByTestId('continue-previous-btn'),
@@ -313,24 +324,28 @@ describe('Homepage Chat UI', () => {
     // workspace's initialMessages — preventing the GitLab thread from
     // surviving into the MailChimp chat after upload.
     const { rerender } = render(
-      <ChatUI
-        key="ws-gitlab"
-        initialMessages={[
-          { id: 'msg-old', role: 'user', content: 'GitLab question' },
-        ]}
-        conversationId="conv-gitlab"
-        workspaceName="GitLab"
-      />,
+      withChatStream(
+        <ChatUI
+          key="ws-gitlab"
+          initialMessages={[
+            { id: 'msg-old', role: 'user', content: 'GitLab question' },
+          ]}
+          conversationId="conv-gitlab"
+          workspaceName="GitLab"
+        />,
+      ),
     );
     expect(screen.getByText('GitLab question')).toBeInTheDocument();
 
     rerender(
-      <ChatUI
-        key="ws-mailchimp"
-        initialMessages={[]}
-        conversationId={null}
-        workspaceName="MailChimp"
-      />,
+      withChatStream(
+        <ChatUI
+          key="ws-mailchimp"
+          initialMessages={[]}
+          conversationId={null}
+          workspaceName="MailChimp"
+        />,
+      ),
     );
     expect(screen.queryByText('GitLab question')).not.toBeInTheDocument();
     expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();

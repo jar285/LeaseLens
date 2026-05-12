@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { Role } from '@/lib/auth/types';
 
 export interface ToolEvent {
   tool_name: string;
@@ -44,6 +45,16 @@ interface ChatStreamContextValue {
    */
   activeClauseId: string | null;
   setActiveClauseId: (id: string | null) => void;
+  /**
+   * Sprint 18 §5 — viewer role (DB literal: `Creator` | `Editor` |
+   * `Admin`). Set once from the server-rendered page and propagated
+   * via the provider; never mutated client-side. Drives the tenant-
+   * friendly ScanTimeline vs. the inline ToolCard stack on the chat
+   * surface. Defaults to `Creator` for safety — if a consumer
+   * forgets to set the prop, we default to the most-restrictive
+   * (tenant) view rather than leaking developer trace by accident.
+   */
+  viewerRole: Role;
 }
 
 const ChatStreamContext = createContext<ChatStreamContextValue | null>(null);
@@ -51,9 +62,11 @@ const ChatStreamContext = createContext<ChatStreamContextValue | null>(null);
 export function ChatStreamProvider({
   children,
   initialEvents = [],
+  viewerRole = 'Creator',
 }: {
   children: ReactNode;
   initialEvents?: ToolEvent[];
+  viewerRole?: Role;
 }): React.JSX.Element {
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>(initialEvents);
   const [activeClauseId, setActiveClauseId] = useState<string | null>(null);
@@ -70,8 +83,9 @@ export function ChatStreamProvider({
       pdfViewerRef,
       activeClauseId,
       setActiveClauseId,
+      viewerRole,
     }),
-    [toolEvents, pushToolEvent, activeClauseId],
+    [toolEvents, pushToolEvent, activeClauseId, viewerRole],
   );
 
   return (

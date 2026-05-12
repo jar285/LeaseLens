@@ -2,6 +2,8 @@
 node_modules/
 .pnp
 .pnp.js
+__pycache__/
+graphify-out/
 
 # Next.js / TypeScript
 .next/

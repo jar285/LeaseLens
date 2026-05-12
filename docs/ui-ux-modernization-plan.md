@@ -69,6 +69,8 @@ Rollback: `git revert <commit>` of the Sprint 16A commit. No code regression.
 
 ## 4. Sprint 16B — Shared UI Primitives
 
+> **Status: shipped.** Six primitives + 34 new tests + 2 consumer refactors. 541/541 vitest pass, lint 0, typecheck green. See §4.6 for what was actually delivered vs originally scoped.
+
 ### Scope
 
 Extract three layout primitives and three state primitives from inline patterns currently duplicated across the codebase. **The UI looks the same after this sprint.**
@@ -126,6 +128,31 @@ Mitigation:
 - Visual smoke test (manual browser walk) at every commit.
 
 Rollback: `git revert` the specific consumer-refactor commit while keeping the primitive in place.
+
+### 4.6 What actually shipped vs originally scoped
+
+**All six primitives + tests landed as planned:**
+
+- [`src/components/states/EmptyState.tsx`](../src/components/states/EmptyState.tsx) — slot-based (icon · title · description · actions); `align` prop for centered vs top layout; 5 tests
+- [`src/components/states/LoadingState.tsx`](../src/components/states/LoadingState.tsx) — bars array OR custom children; `ariaLabel` required for screen-reader announcement; biome-ignore comment on the `key={index}` (decorative skeletons never reorder); 6 tests
+- [`src/components/states/ErrorState.tsx`](../src/components/states/ErrorState.tsx) — `centered` vs `inline` variant; `role="alert"` default for immediate screen-reader announcement; 7 tests
+- [`src/components/layout/PageShell.tsx`](../src/components/layout/PageShell.tsx) — `fixed` (h-dvh, overflow-hidden) vs `page` (min-h-screen) layout prop; outer `<main>` with token-driven background/text/font; 6 tests
+- [`src/components/layout/Container.tsx`](../src/components/layout/Container.tsx) — `sm | md | lg | xl | 2xl` sizes mapping to max-w-3xl through max-w-7xl; `as` prop for semantic element choice; 5 tests
+- [`src/components/layout/Stack.tsx`](../src/components/layout/Stack.tsx) — vertical flex with `gap` prop (0 through 8); `as` prop for `<ul>`/`<ol>`/`<section>`/etc.; 5 tests
+
+**Consumer refactors:**
+
+| Consumer | Status | Notes |
+|---|---|---|
+| `ToolCard` pending body | ✅ Refactored to `<LoadingState>` | Drops 3 inline `animate-pulse` bars + sr-only label; primitive supplies all of them. 10/10 tests still pass. |
+| `RedFlagReport` empty state | ✅ Refactored to `<EmptyState align="top">` | Paperclip icon + microcopy preserved; uses the primitive's wrapper. 10/10 tests still pass. |
+| `LeaseUploadDropzone` error state | 🟡 **Deferred** | The dropzone's `<section>` is a single surface that reshapes per `data-status` (idle / dragover / uploading / error / success); each status shares the section's drag handlers, ARIA label, and icon container. Pulling just the error branch out means duplicating the section scaffolding AND adding an `<ErrorState>` wrapper — net more code, no clarity gain. The primitive's first real consumer will be Sprint 19's paste-text ingestion errors (separable surface). |
+| `<ChatEmptyState>` body | 🟡 **Not in 16B scope** | Sprint 17 owns the welcome-state redesign. Refactoring to `<EmptyState>` lands then. |
+| `<PageShell>` / `<Container>` consumers | 🟡 **Not in 16B scope** | Plan §13 marked these as "optional" if the slot pattern proves clean. They are available and tested; consumer refactors land when Sprint 17 needs them. |
+
+**Why some deferrals are right:** the plan's principle "Replace repeated UI patterns only when safe" means refactoring should reduce code AND clarify intent. The dropzone error refactor would do neither — the state machine itself is the design. ChatEmptyState's serif H1 + 4 motion-staggered cards are surface-specific and benefit more from the Sprint 17 redesign than a mechanical primitive swap.
+
+The primitives are **ready** when the right consumer appears.
 
 ---
 
@@ -555,25 +582,26 @@ Repeating the brief's anti-patterns + audit's "do not change yet" list so this f
 
 ## 13. Safest next step
 
-**Sprint 16B** — extract the layout + state primitives.
+**Sprint 17** — Homepage Workspace Modernization.
 
-Why safest:
+Sprint 16A (docs) and 16B (primitives) are now complete. The runway for Sprint 17 is:
 
-- The docs are now in place (Sprint 16A complete).
-- The primitives match patterns already inline in the code, so the visual output is identical post-refactor.
-- Each primitive has clear acceptance criteria from its consumer.
-- Sprint 17 + 18 are easier to ship cleanly once the primitives exist (fewer one-off `<EmptyState>`-style ad-hoc components in those sprints).
+- The design system is documented in [`design-system/MASTER.md`](../design-system/MASTER.md) + four page overrides.
+- The state primitives (`<EmptyState>`, `<LoadingState>`, `<ErrorState>`) are tested and consumed by `ToolCard` + `RedFlagReport` — ready for `ChatEmptyState`'s Sprint 17 redesign.
+- The layout primitives (`<PageShell>`, `<Container>`, `<Stack>`) are tested and ready for any new welcome-state sections that need consistent rhythm.
+- All 541 tests pass; 0 lint errors; typecheck green.
 
-Order within 16B:
+Sprint 17's surfaces (welcome-state polish, upload microcopy, red-flag examples, trust block) build naturally on top of the primitives. Start with the smallest visible win:
 
-1. Write `<EmptyState>`, `<LoadingState>`, `<ErrorState>` with their tests.
-2. Write `<PageShell>`, `<Container>`, `<Stack>` with their tests.
-3. Refactor `LeaseUploadDropzone`'s error state to use `<ErrorState>` (lowest-risk consumer).
-4. Refactor `RedFlagReport`'s empty state to use `<EmptyState>`.
-5. Refactor `ToolCard`'s pending body to use `<LoadingState>`.
-6. (Optional) Refactor `app/page.tsx` + `app/cockpit/page.tsx` to use `<PageShell>` if the slot pattern proves clean.
+1. **Welcome-state "How it works" strip** — four-step inline (Upload → Scan → Review → Ask). Pure presentation; no behaviour change.
+2. **Disclaimer trust block** — uses `LEASELENS_DISCLAIMER` constant in a token-driven Info icon container under the starter cards.
+3. **Red-flag empty-state examples** — four bullets ("Security deposit issues, attorneys' fees, late fees, sublet bans") under the existing copy via the primitive's `actions` slot.
+4. **Upload-area microcopy refinements** — privacy line + "informational analysis, not legal advice" line.
+5. **Composer `inputMode="text"`** — explicit mobile keyboard hint.
 
-Each step in its own commit. Visual smoke test after each step.
+Detail in §5 of this file (Sprint 17 — Homepage Workspace Modernization).
+
+Each step in its own commit. Manual visual smoke after each commit.
 
 ---
 

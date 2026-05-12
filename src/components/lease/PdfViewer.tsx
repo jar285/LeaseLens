@@ -26,13 +26,7 @@ export const PdfViewer = dynamic(
     loading: () => (
       <div
         data-testid="pdf-viewer-loading"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100%',
-          opacity: 0.6,
-        }}
+        className="flex h-full items-center justify-center bg-surface-muted text-sm text-fg-muted dark:bg-neutral-950"
       >
         <p>Loading PDF viewer…</p>
       </div>

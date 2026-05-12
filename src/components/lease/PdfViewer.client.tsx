@@ -167,9 +167,9 @@ export function PdfViewerClient({
     return (
       <div
         data-testid="pdf-viewer-empty"
-        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-gray-50/60 p-8 text-center"
+        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface-muted p-8 text-center dark:bg-neutral-900"
       >
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-fg-muted">
           Upload a NJ lease PDF to view it here.
         </p>
       </div>
@@ -179,28 +179,28 @@ export function PdfViewerClient({
   return (
     <div
       data-testid="pdf-viewer"
-      className="flex h-full min-h-0 w-full flex-1 flex-col bg-gray-50/80"
+      className="flex h-full min-h-0 w-full flex-1 flex-col bg-surface-muted dark:bg-neutral-950"
     >
       {/* Header chrome — filename, page count, status pill. */}
       <header
         data-testid="pdf-viewer-header"
-        className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 bg-white px-4 py-2.5"
+        className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 bg-surface-card px-4 py-2.5 dark:border-neutral-800 dark:bg-neutral-900"
       >
         <div className="flex min-w-0 items-center gap-2.5">
           <span
             aria-hidden="true"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300"
           >
             <ScrollText className="h-3.5 w-3.5" strokeWidth={2.25} />
           </span>
           <div className="min-w-0">
             <p
               data-testid="pdf-viewer-filename"
-              className="truncate text-[13px] font-medium leading-tight text-gray-900"
+              className="truncate text-[13px] font-medium leading-tight text-fg-default"
             >
               {filename ?? 'Lease document'}
             </p>
-            <p className="mt-0.5 text-[11px] leading-tight text-gray-500">
+            <p className="mt-0.5 text-[11px] leading-tight text-fg-muted">
               {numPages > 0 ? pluralize(numPages, 'page') : 'Loading…'}
               {typeof clauseCount === 'number'
                 ? ` · ${pluralize(clauseCount, 'clause')}`
@@ -209,11 +209,11 @@ export function PdfViewerClient({
           </div>
         </div>
         {loadError ? (
-          <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700">
+          <span className="rounded-full bg-danger-100 px-2 py-0.5 text-[11px] font-medium text-danger-600 dark:bg-danger-600/15 dark:text-danger-100">
             Failed
           </span>
         ) : numPages > 0 ? (
-          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+          <span className="rounded-full bg-success-100 px-2 py-0.5 text-[11px] font-medium text-success-600 dark:bg-success-600/15 dark:text-success-100">
             Parsed
           </span>
         ) : null}
@@ -238,7 +238,7 @@ export function PdfViewerClient({
             data-testid="pdf-viewer-active-callout"
             className="pointer-events-none sticky top-0 z-10 mb-2 flex justify-center"
           >
-            <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white/95 px-3 py-1 text-[11px] font-medium text-indigo-700 shadow-sm backdrop-blur">
+            <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-accent-200 bg-surface-card/95 px-3 py-1 text-[11px] font-medium text-accent-700 shadow-sm backdrop-blur dark:border-accent-500/40 dark:bg-neutral-900/95 dark:text-accent-300">
               <MapPin className="h-3 w-3" aria-hidden="true" />
               {activeLabel ?? 'Clause'}
               {typeof activeClauseIndex === 'number'
@@ -262,12 +262,12 @@ export function PdfViewerClient({
               console.error('[PdfViewer] Document load failed:', err);
             }}
             loading={
-              <div className="flex items-center justify-center rounded-md border border-dashed border-gray-200 bg-white px-6 py-12 text-sm text-gray-500">
+              <div className="flex items-center justify-center rounded-md border border-dashed border-neutral-200 bg-surface-card px-6 py-12 text-sm text-fg-muted dark:border-neutral-700 dark:bg-neutral-900">
                 Loading PDF…
               </div>
             }
             error={
-              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <div className="rounded-md border border-danger-100 bg-danger-100/40 px-4 py-3 text-sm text-danger-600 dark:border-danger-600/40 dark:bg-danger-600/10 dark:text-danger-100">
                 Failed to load PDF.
               </div>
             }
@@ -285,8 +285,8 @@ export function PdfViewerClient({
                   data-active-page={isActivePage ? 'true' : 'false'}
                   className={`overflow-hidden rounded-md bg-white shadow-sm transition-all duration-300 ${
                     isActivePage
-                      ? 'ring-4 ring-indigo-300 ring-offset-2'
-                      : 'ring-1 ring-gray-200'
+                      ? 'ring-4 ring-accent-300 ring-offset-2 ring-offset-surface-muted dark:ring-offset-neutral-950'
+                      : 'ring-1 ring-neutral-200 dark:ring-neutral-700'
                   }`}
                 >
                   <Page

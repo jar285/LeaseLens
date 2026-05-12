@@ -1,9 +1,14 @@
 # LeaseLens UI/UX Audit — Sprint 16A
 
-**Status:** Sprint 16A documentation, post-Sprint-15.3 codebase.
+**Status:** Sprint 16A documentation, post-Sprint-16B codebase (six shared primitives shipped).
 **Cross-references:** [`design-system/MASTER.md`](../design-system/MASTER.md), [`design-system/pages/*`](../design-system/pages/), [`docs/ui-ux-modernization-plan.md`](ui-ux-modernization-plan.md).
 
 This audit captures the current state of LeaseLens's UI/UX, ranks weaknesses by user impact, and bounds what should and should NOT change in upcoming sprints. It exists to anchor the modernization sprints in honesty: most of the foundation is good, a few visible gaps are obvious, and the worst trap would be redoing what already works.
+
+**Sprint history annotations:**
+
+- ✅ Sprint 16A: docs created (this audit + 5 design-system files + modernization plan).
+- ✅ Sprint 16B: six shared primitives (`<EmptyState>`, `<LoadingState>`, `<ErrorState>`, `<PageShell>`, `<Container>`, `<Stack>`) + 34 tests. Two consumer refactors (ToolCard pending → `<LoadingState>`; RedFlagReport empty → `<EmptyState>`). Dropzone error refactor deliberately deferred to Sprint 19. 541/541 tests pass.
 
 ---
 

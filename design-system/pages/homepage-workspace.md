@@ -43,6 +43,64 @@ The same `/` route serves all three audiences. State transitions cleanly between
 
 Three-pane grid (`20rem 1fr 20rem`) is locked at ≥ 1024px. Mobile collapse rules in §7.
 
+### Layout zones (Mermaid)
+
+Logical breakdown of every layout zone on `/`, with their owning component, default scroll behaviour, and responsive collapse target.
+
+```mermaid
+flowchart TB
+    Page["<b>Page root</b><br/>flex flex-col h-dvh overflow-hidden<br/>bg-surface-base"]
+
+    Header["<b>Header zone</b><br/>shrink-0 · border-b · bg-surface-card<br/>Owner: app/page.tsx · py-3"]
+
+    Grid["<b>Workspace grid</b><br/>grid grid-cols-[20rem_1fr_20rem]<br/>flex-1 min-h-0 overflow-hidden<br/>Owner: LeaseLensWorkspaceShell"]
+
+    Left["<b>Left pane (≈20rem)</b><br/>border-r · bg-surface-card<br/>scrolls its child PdfViewer<br/>Owner: shell-left-pane"]
+    Center["<b>Center pane (1fr)</b><br/>bg-surface-card<br/>scrolls its ChatTranscript<br/>Owner: shell-center-pane"]
+    Right["<b>Right pane (≈20rem)</b><br/>border-l · bg-surface-base<br/>scrolls its RedFlagReport<br/>Owner: shell-right-pane"]
+
+    LeftIdle["Idle: LeaseUploadDropzone"]
+    LeftActive["Uploaded: PdfViewer"]
+    CenterEmpty["messages=0: ChatEmptyState"]
+    CenterChat["messages>0: ChatTranscript + ChatMessage × N"]
+    Composer["Sticky-bottom: ChatComposer"]
+    RightEmpty["No gradings: empty state"]
+    RightActive["Has gradings: SeverityCard × N"]
+
+    Page --> Header
+    Page --> Grid
+    Grid --> Left
+    Grid --> Center
+    Grid --> Right
+
+    Left --> LeftIdle
+    Left --> LeftActive
+    Center --> CenterEmpty
+    Center --> CenterChat
+    Center --> Composer
+    Right --> RightEmpty
+    Right --> RightActive
+
+    Mobile["<b>&lt; 1024px (Sprint 18)</b><br/>Grid collapses to single-pane view<br/>Header gains [Chat · Lease · Flags] tabs<br/>Active tab fills viewport<br/>Composer sticky to bottom of viewport"]
+
+    Grid -. mobile breakpoint .-> Mobile
+
+    classDef container fill:#fafaf9,stroke:#a3a39a,color:#1a1a1c
+    classDef pane fill:#f4f4f2,stroke:#c9c9c0,color:#1a1a1c
+    classDef leaf fill:#ffffff,stroke:#e2e2dc,color:#1a1a1c
+    classDef mobile fill:#fcf1d6,stroke:#b07410,color:#1a1a1c
+
+    class Page,Grid container
+    class Header,Left,Center,Right pane
+    class LeftIdle,LeftActive,CenterEmpty,CenterChat,Composer,RightEmpty,RightActive leaf
+    class Mobile mobile
+```
+
+Two invariants this diagram makes explicit:
+
+- **Each pane is its own `min-h-0 overflow-hidden` region.** The page itself never scrolls; the child (PdfViewer, ChatTranscript, RedFlagReport scroll area) decides scroll behaviour. This is what lets the three panes scroll independently without breaking the sticky composer.
+- **The mobile breakpoint is a separate component, not a CSS-only collapse.** Sprint 18's `<MobileWorkspace>` is a sibling of `<LeaseLensWorkspaceShell>`; a media-query hook picks which to render. Desktop path stays unchanged.
+
 ---
 
 ## 3. Header

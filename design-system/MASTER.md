@@ -521,6 +521,112 @@ flowchart LR
 
 ---
 
+## 13. User journey (Mermaid)
+
+Canonical happy-path: a tenant lands on `/`, uploads a lease, runs the standard scan, reviews red flags, and drafts a negotiation email. Annotated with the tool name + audit outcome at each step.
+
+```mermaid
+flowchart LR
+    Land(["Visitor lands on / — sees welcome state + dropzone"])
+    Upload["Drops PDF onto left pane<br/>(POST /api/leases)"]
+    Parse["Server parses + segments + classifies clauses<br/>(parse-pdf · segment-clauses · classify-clause)"]
+    Ready["Lease ready: PdfViewer replaces dropzone<br/>(active_lease_id set on conversation)"]
+    Ask["Sends 'Run the standard scan' from composer"]
+    Extract["Iteration 1: extract_clauses tool<br/>(read-only · no audit row)"]
+    Grade["Iterations 2–N: grade_clause_severity per clause<br/>(citation-grounded · no audit row)"]
+    Report["RedFlagReport populates as gradings stream in<br/>(sorted by severity)"]
+    Review["Tenant reviews flags · clicks citation chip<br/>(scrollToPage + 4s ring pulse)"]
+    Draft["Asks 'Draft a polite email for clause X'"]
+    Email["draft_negotiation_email tool<br/>(mutating · audit row + Undo button)"]
+
+    Land --> Upload --> Parse --> Ready
+    Ready --> Ask --> Extract --> Grade --> Report --> Review
+    Review --> Draft --> Email
+    Email -. Undo .-> Review
+
+    classDef start fill:#fafaf9,stroke:#a3a39a
+    classDef readonly fill:#dbeefd,stroke:#1e6fb8
+    classDef mutating fill:#fcf1d6,stroke:#b07410
+    classDef result fill:#ddf4e6,stroke:#1f8b4c
+
+    class Land,Ready,Review start
+    class Upload,Parse,Ask,Extract,Grade readonly
+    class Draft,Email mutating
+    class Report result
+```
+
+Key UX invariants surfaced by this journey:
+
+- **No friction between landing and first action.** Steps 1 → 2 happen in the same viewport — no marketing-page detour.
+- **No audit rows on read-only steps.** `extract_clauses` + `grade_clause_severity` are observation; only `draft_negotiation_email` mutates.
+- **Citation grounding gate.** Step 5 (Grade) is the only place an Anthropic-driven citation must verify against retrieval before the result reaches the user.
+- **Reversibility on every mutation.** The Undo button on the draft email's ToolCard is the user's safety net.
+
+---
+
+## 14. Component hierarchy (Mermaid)
+
+The component tree from RootLayout down to the leaf cards. Only the LeaseLens-specific surfaces; framework-level shells (Next's metadata, theme script) are noted but not exploded.
+
+```mermaid
+flowchart TD
+    Layout["RootLayout<br/>app/layout.tsx<br/>(html · ThemeScript · body)"]
+    HomePage["HomePage<br/>app/page.tsx"]
+    CockpitPage["CockpitPage<br/>app/cockpit/page.tsx"]
+
+    Layout --> HomePage
+    Layout --> CockpitPage
+
+    HomePage --> Header1["Header<br/>(LeaseLens · WorkspaceMenu · ThemeToggle · RoleSwitcher)"]
+    HomePage --> Shell["LeaseLensWorkspaceShell"]
+
+    Shell --> Left["Left pane<br/>LeaseUploadDropzone ↔ PdfViewer"]
+    Shell --> Center["Center pane<br/>ChatUI"]
+    Shell --> Right["Right pane<br/>RedFlagReport"]
+
+    Center --> Transcript["ChatTranscript<br/>(scroll · pin-to-bottom)"]
+    Transcript --> EmptyOrList{{"messages.length === 0?"}}
+    EmptyOrList -- "yes" --> Empty["ChatEmptyState<br/>(serif H1 · 4 cards · sparkle)"]
+    EmptyOrList -- "no" --> Messages["ChatMessage × N"]
+    Messages --> ToolCards["ToolCard × N inline"]
+    Messages --> Markdown["renderMarkdown(content)"]
+    Center --> Composer["ChatComposer<br/>(textarea · AttachButton · Send)"]
+
+    Right --> RedFlagEmpty{{"toolEvents has gradings?"}}
+    RedFlagEmpty -- "no" --> RedFlagEmptyState["empty state<br/>(paperclip · examples Sprint 17)"]
+    RedFlagEmpty -- "yes" --> RedFlagList["SeverityCard × N<br/>(motion.article · slide-in)"]
+    RedFlagList --> CitationChip["CitationChip<br/>(click → scrollToPage)"]
+
+    CockpitPage --> Header2["Header<br/>(LeaseLens · Cockpit · ThemeToggle · RoleSwitcher)"]
+    CockpitPage --> Dashboard["CockpitDashboard"]
+    Dashboard --> AuditPanel["AuditFeedPanel"]
+    Dashboard --> SpendPanel["SpendPanel"]
+    Dashboard --> EvalPanel["EvalHealthPanel<br/>(Tier 1 + Tier 2)"]
+    Dashboard --> SchedulePanel["SchedulePanel"]
+    Dashboard --> ApprovalsPanel["ApprovalsPanel<br/>(Admin only)"]
+
+    classDef framework fill:#fafaf9,stroke:#a3a39a
+    classDef page fill:#e6e0fb,stroke:#5a47dc,color:#1a1a1c
+    classDef pane fill:#f4f4f2,stroke:#c9c9c0
+    classDef leaf fill:#ffffff,stroke:#e2e2dc
+    classDef decision fill:#fcf1d6,stroke:#b07410
+
+    class Layout framework
+    class HomePage,CockpitPage page
+    class Header1,Header2,Shell,Center,Right,Left,Dashboard pane
+    class Transcript,Empty,Messages,Composer,ToolCards,Markdown,RedFlagEmptyState,RedFlagList,CitationChip,AuditPanel,SpendPanel,EvalPanel,SchedulePanel,ApprovalsPanel leaf
+    class EmptyOrList,RedFlagEmpty decision
+```
+
+Reading this tree confirms the design-system primitives Sprint 16B will extract:
+
+- **`<PageShell>`** abstracts the repeating Layout → Page → Header → Main pattern (HomePage + CockpitPage both implement this inline today).
+- **`<EmptyState>`** has three current callers (ChatEmptyState, RedFlagReport empty, dropzone idle) plus future callers (paste-text fallback states, Sprint 19).
+- **`<LoadingState>`** has one caller today (ToolCard pending body) and two known callers in Sprint 18 (red-flag skeleton cards, scan-progress indicator).
+- **`<ErrorState>`** has one caller (dropzone error state) and two future callers (chat-route 5xx, paste-text ingestion errors).
+
+---
+
 **End of MASTER.md.**
 
 Page-level overrides live in [`design-system/pages/`](pages/). Audit + sprint plan live in [`docs/ui-ux-audit.md`](../docs/ui-ux-audit.md) and [`docs/ui-ux-modernization-plan.md`](../docs/ui-ux-modernization-plan.md). When the design direction changes, update this file in the same commit as the code so they stay in sync.

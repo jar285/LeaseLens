@@ -1,7 +1,7 @@
 // Tiny line-by-line markdown subset for assistant chat responses.
 //
 // Supports: headings (#, ##, ###, ####, #####, ######), unordered + ordered
-// lists, horizontal rule (---), inline bold (**), inline code (`).
+// lists, horizontal rule (---), GFM tables, inline bold (**), inline code (`).
 // Everything else falls through to a paragraph.
 //
 // The page already owns a global <h1> (the workspace title), so a single
@@ -146,6 +146,140 @@ function parseListItem(trimmed: string): string | null {
   return match ? match[1] : null;
 }
 
+// --- Tables (GitHub-flavored markdown) ---------------------------------------
+//
+// A table is recognised when we see two consecutive lines:
+//   1. A row line: `| col1 | col2 | col3 |` — has at least one `|`
+//      separator and starts/ends with `|`.
+//   2. A separator line: `|---|---|---|` — pipes + hyphens + optional
+//      colons for alignment. Same column count as the row above.
+//
+// Subsequent rows are data until the first non-row line. This handles the
+// common assistant output `| Clause | Issue | Statute | |---|---|---|`
+// instead of falling through to paragraph rendering.
+
+// Matches `| anything | anything |` etc. — at least one inner `|`.
+const TABLE_ROW_RE = /^\|(.+)\|$/;
+// Matches `|---|---|` or `| :--- | ---: |` with optional alignment colons.
+const TABLE_SEPARATOR_RE = /^\|(\s*:?-+:?\s*\|)+$/;
+
+interface ParsedTable {
+  header: string[];
+  rows: string[][];
+  /** Per-column alignment derived from the separator line. */
+  align: ('left' | 'center' | 'right')[];
+}
+
+function parseTableRow(trimmed: string): string[] | null {
+  const match = TABLE_ROW_RE.exec(trimmed);
+  if (!match) return null;
+  // Split on `|` and trim each cell. The regex captures content between
+  // the outer pipes, so we don't need to discard empty edge cells.
+  return match[1].split('|').map((cell) => cell.trim());
+}
+
+function parseTableAlign(
+  separator: string,
+): ('left' | 'center' | 'right')[] | null {
+  if (!TABLE_SEPARATOR_RE.test(separator)) return null;
+  return separator
+    .slice(1, -1) // drop outer pipes
+    .split('|')
+    .map((cell) => {
+      const c = cell.trim();
+      const left = c.startsWith(':');
+      const right = c.endsWith(':');
+      if (left && right) return 'center';
+      if (right) return 'right';
+      return 'left';
+    });
+}
+
+/**
+ * Try to parse a table starting at `startIdx`. Returns the parsed shape +
+ * how many lines were consumed (header + separator + N data rows), or
+ * null if the lines don't form a valid table.
+ */
+function tryParseTable(
+  lines: string[],
+  startIdx: number,
+): { table: ParsedTable; consumed: number } | null {
+  const header = parseTableRow(lines[startIdx]?.trim() ?? '');
+  if (!header) return null;
+
+  const align = parseTableAlign(lines[startIdx + 1]?.trim() ?? '');
+  if (!align) return null;
+  // Header + separator must have matching column counts.
+  if (align.length !== header.length) return null;
+
+  const rows: string[][] = [];
+  let i = startIdx + 2;
+  while (i < lines.length) {
+    const row = parseTableRow(lines[i].trim());
+    if (!row) break;
+    // Pad / truncate so every row matches the header column count.
+    if (row.length < header.length) {
+      while (row.length < header.length) row.push('');
+    } else if (row.length > header.length) {
+      row.length = header.length;
+    }
+    rows.push(row);
+    i++;
+  }
+
+  return { table: { header, rows, align }, consumed: i - startIdx };
+}
+
+const ALIGN_CLASS: Record<'left' | 'center' | 'right', string> = {
+  left: 'text-left',
+  center: 'text-center',
+  right: 'text-right',
+};
+
+function renderTable(table: ParsedTable, key: string): React.ReactNode {
+  return (
+    <div
+      key={key}
+      className="my-3 overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800"
+    >
+      <table className="w-full border-collapse text-left text-[13px]">
+        <thead className="bg-surface-muted dark:bg-neutral-800/60">
+          <tr>
+            {table.header.map((cell, ci) => (
+              <th
+                // biome-ignore lint/suspicious/noArrayIndexKey: header cells are positional; column count is fixed by the separator line, never reorders.
+                key={ci}
+                className={`border-b border-neutral-200 px-3 py-2 font-semibold text-fg-default dark:border-neutral-800 ${ALIGN_CLASS[table.align[ci] ?? 'left']}`}
+              >
+                {renderInline(cell, `${key}-h-${ci}`)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, ri) => (
+            <tr
+              // biome-ignore lint/suspicious/noArrayIndexKey: streaming markdown rows are positional — the assistant emits them in a fixed order, content can repeat (e.g. same severity word in multiple rows), no row identity to key by.
+              key={ri}
+              className="border-t border-neutral-100 dark:border-neutral-800"
+            >
+              {row.map((cell, ci) => (
+                <td
+                  // biome-ignore lint/suspicious/noArrayIndexKey: positional column cells, fixed by the header.
+                  key={ci}
+                  className={`px-3 py-2 align-top text-fg-default ${ALIGN_CLASS[table.align[ci] ?? 'left']}`}
+                >
+                  {renderInline(cell, `${key}-${ri}-${ci}`)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // --- Top-level renderer ------------------------------------------------------
 
 export function renderMarkdown(content: string): React.ReactNode {
@@ -172,11 +306,24 @@ export function renderMarkdown(content: string): React.ReactNode {
     flushList();
   };
 
-  for (const line of content.split('\n')) {
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
 
     if (!trimmed) {
       flushBlocks();
+      continue;
+    }
+
+    // Tables claim priority over paragraphs — a table-row line followed
+    // by a separator line must be parsed as a table, not as two pipe-
+    // delimited paragraphs. Tables consume 2 + N lines.
+    const tableResult = tryParseTable(lines, i);
+    if (tableResult) {
+      flushBlocks();
+      elements.push(renderTable(tableResult.table, `t-${elements.length}`));
+      i += tableResult.consumed - 1; // for-loop's i++ adds one more
       continue;
     }
 

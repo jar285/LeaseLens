@@ -20,6 +20,7 @@ import { ChevronDown, ExternalLink, Paperclip } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStream } from '@/components/chat/ChatStreamContext';
+import { EmptyState } from '@/components/states/EmptyState';
 
 type Severity = 'high' | 'medium' | 'low' | 'ok';
 
@@ -154,17 +155,20 @@ export function RedFlagReport(): React.JSX.Element {
 
   if (gradings.length === 0) {
     return (
-      <div
-        data-testid="red-flag-report-empty"
-        className="flex flex-col items-center justify-center gap-2 px-2 py-12 text-center"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-fg-subtle dark:bg-neutral-800 dark:text-neutral-500">
-          <Paperclip className="h-4 w-4" aria-hidden="true" />
-        </div>
-        <p className="text-[12px] text-fg-muted">
-          Red flags will appear here as I grade each clause.
-        </p>
-      </div>
+      <EmptyState
+        testId="red-flag-report-empty"
+        align="top"
+        icon={
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-fg-subtle dark:bg-neutral-800 dark:text-neutral-500">
+            <Paperclip className="h-4 w-4" aria-hidden="true" />
+          </div>
+        }
+        title={
+          <p className="text-[12px] text-fg-muted">
+            Red flags will appear here as I grade each clause.
+          </p>
+        }
+      />
     );
   }
 

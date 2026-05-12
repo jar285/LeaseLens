@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
+import { LoadingState } from '@/components/states/LoadingState';
 import { useRollback } from '@/lib/audit/use-rollback';
 import type { ToolInvocation } from './ChatMessage';
 import { MermaidDiagram } from './MermaidDiagram';
@@ -139,17 +140,10 @@ export function ToolCard({ invocation }: ToolCardProps) {
       </div>
 
       {isPending && (
-        <div
-          role="status"
+        <LoadingState
+          ariaLabel="Tool is running"
           className="border-t border-neutral-100 px-3 py-2.5 text-xs text-fg-muted dark:border-neutral-800"
-        >
-          <span className="sr-only">Tool is running</span>
-          <div className="space-y-1.5" aria-hidden="true">
-            <div className="h-2 w-2/3 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-            <div className="h-2 w-1/2 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-            <div className="h-2 w-3/4 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-          </div>
-        </div>
+        />
       )}
 
       {/* Sprint 12: render the diagram inline above the collapsible

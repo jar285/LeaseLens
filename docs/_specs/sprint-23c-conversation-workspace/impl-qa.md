@@ -1,9 +1,9 @@
 # Sprint 23c — Implementation QA
 
-**Status:** Implementation complete (Phases 1-4), awaiting user smoke walk.
+**Status:** Implementation complete (Phases 1-4 shipped 2026-05-13; Phase 5 polish addendum shipped same day).
 **Date:** 2026-05-13.
 **Baseline tests at start:** 765/765.
-**Tests at finish:** 780/780 (+15 new sprint-23c tests).
+**Tests at finish:** 782/782 (+17: 15 from the Phases 1-4 implementation + 2 from the Phase 5 polish addendum).
 
 ## Phase 0 — Pre-flight
 
@@ -102,3 +102,40 @@ Breakdown of +15:
 - Implementer: jar285 (via Claude Opus 4.7 / 1M context)
 - Reviewer: _pending_
 - Date: 2026-05-13
+
+---
+
+## Phase 5 — UploadedLeaseCard fade-in (polish addendum)
+
+**Surfaced during the user's smoke walk after the Phases 1-4 commits landed.** The synthetic intro card popped in **instantly** when `scan-narrative.computeScanNarrative()` produced the intro on upload-parse — no entry animation, in contrast to the rest of the conversation surface (ChatEmptyState card stagger, ChatMessage bubble entry, RedFlag card slide-in all use 200-350ms motion).
+
+**Fix:** Wrap the card root in `motion.div` with the standard entry curve (`opacity: 0 → 1`, `y: 8 → 0`, `duration: 0.25`, ease `[0.22, 1, 0.36, 1]` — the `ease-out-soft` curve used by ChatEmptyState card stagger and ChatMessage). `useReducedMotion()` gate renders a plain `<div>` with `data-motion="off"`; the animated path carries `data-motion="on"` for test introspection.
+
+**TDD red-green:**
+
+- [x] RED: 2 new tests added (data-motion attribute reflects animate state; content + chip dispatch unchanged in the motion path); 1 failing (the data-motion attribute didn't exist).
+- [x] GREEN: motion wrapper added, `useReducedMotion()` + mounted-effect gate applied; both tests pass.
+- [x] All 6 existing UploadedLeaseCard tests still pass.
+
+**Visual delta:**
+
+| Element | Phases 1-4 end | Phase 5 end |
+|---|---|---|
+| Card mount | Instant pop-in | 250ms fade-in + 8px y-translate |
+| Reduced motion | Same instant pop-in | Plain DOM, instant (no animation, but also no jank) |
+
+**Files touched:**
+
+| File | Change |
+|---|---|
+| `src/components/lease/UploadedLeaseCard.tsx` | Add `motion` + `useReducedMotion` imports, mount gate, animate-vs-static branch |
+| `src/components/lease/UploadedLeaseCard.test.tsx` | +2 tests (motion-on attribute, no-regression check) |
+
+**Test delta:**
+
+| Metric | Before | After | Delta |
+|---|---|---|---|
+| UploadedLeaseCard tests | 6 | 8 | +2 |
+| Total tests | 794 (with sprint-23e in working tree) | 796 | +2 |
+| Lint errors | 0 | 0 | 0 |
+| Build | green | green | unchanged |

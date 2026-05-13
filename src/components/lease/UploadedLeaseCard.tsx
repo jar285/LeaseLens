@@ -12,10 +12,19 @@
  * meta, a paragraph body, and four action chips on a sunken surface as
  * the call-to-action.
  *
- * Pure presentation. Props in, JSX out. The card owns no state.
+ * Sprint 23c Phase 5 (polish addendum) — fades the card in on mount
+ * with a 250ms opacity + 8px y-translate so it doesn't pop in
+ * instantly when the upload parse completes. Matches the entry-
+ * animation budget used by ChatEmptyState card stagger + ChatMessage
+ * (250ms, ease-out-soft curve). Reduced motion renders plain DOM.
+ *
+ * Pure presentation. Props in, JSX out. The card owns no state beyond
+ * the mount-flag used to gate the entry animation against SSR.
  */
 
 import { ScrollText } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
+import { useEffect, useState } from 'react';
 import type { FollowUpPrompt } from '@/lib/chat/follow-up-prompts';
 
 function pluralize(n: number, word: string): string {
@@ -30,6 +39,17 @@ export interface UploadedLeaseCardProps {
   onSelectPrompt: (prompt: string) => void;
 }
 
+// Sprint 23c Phase 5 — entry transition. Same opacity-and-y pattern as
+// ChatEmptyState card stagger and ChatMessage bubble entry; 250ms feels
+// instantaneous enough for an information-bearing surface but still
+// signals "this just arrived" rather than "this has always been here".
+const ENTRY_INITIAL = { opacity: 0, y: 8 } as const;
+const ENTRY_ANIMATE = { opacity: 1, y: 0 } as const;
+const ENTRY_TRANSITION = {
+  duration: 0.25,
+  ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+} as const;
+
 export function UploadedLeaseCard({
   filename,
   pageCount,
@@ -39,12 +59,18 @@ export function UploadedLeaseCard({
 }: UploadedLeaseCardProps): React.JSX.Element {
   const hasMeta =
     typeof pageCount === 'number' && typeof clauseCount === 'number';
+  const reduced = useReducedMotion();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const animate = mounted && !reduced;
 
-  return (
-    <div
-      data-testid="uploaded-lease-card"
-      className="my-4 overflow-hidden rounded-xl border border-neutral-200 bg-surface-elevated shadow-hairline dark:border-neutral-800"
-    >
+  const cardClassName =
+    'my-4 overflow-hidden rounded-xl border border-neutral-200 bg-surface-elevated shadow-hairline dark:border-neutral-800';
+
+  const cardInner = (
+    <>
       {/* Card body — filename + meta + paragraph */}
       <div className="px-5 py-4">
         <div className="flex items-start gap-2.5">
@@ -90,6 +116,31 @@ export function UploadedLeaseCard({
           </button>
         ))}
       </div>
+    </>
+  );
+
+  if (animate) {
+    return (
+      <motion.div
+        data-testid="uploaded-lease-card"
+        data-motion="on"
+        className={cardClassName}
+        initial={ENTRY_INITIAL}
+        animate={ENTRY_ANIMATE}
+        transition={ENTRY_TRANSITION}
+      >
+        {cardInner}
+      </motion.div>
+    );
+  }
+
+  return (
+    <div
+      data-testid="uploaded-lease-card"
+      data-motion="off"
+      className={cardClassName}
+    >
+      {cardInner}
     </div>
   );
 }

@@ -117,4 +117,57 @@ describe('UploadedLeaseCard', () => {
     // No meta line rendered when counts are missing.
     expect(card.textContent).not.toMatch(/pages?\s*·\s*\d+\s*clauses?/i);
   });
+
+  // Sprint 23c Phase 5 — fade-in entry animation. Without this, the
+  // card popped in instantly when scan-narrative.computeScanNarrative
+  // produced the synthetic intro on upload-parse, which felt jarring.
+  // The motion wrapper renders only after mount (so SSR + first paint
+  // match) and only when prefers-reduced-motion is off.
+  describe('Sprint 23c Phase 5 — entry animation', () => {
+    it('after mount, the card carries the motion-on data attribute', async () => {
+      render(
+        <UploadedLeaseCard
+          filename="lease.pdf"
+          pageCount={2}
+          clauseCount={15}
+          prompts={sampleChips}
+          onSelectPrompt={vi.fn()}
+        />,
+      );
+      // jsdom runs effects synchronously enough that the post-mount
+      // animate path renders by the time getByTestId returns.
+      const card = screen.getByTestId('uploaded-lease-card');
+      // useReducedMotion in jsdom defaults to false (no media query
+      // matched), so animate path wins.
+      expect(card.getAttribute('data-motion')).toBe('on');
+    });
+
+    it('renders the same content + chips in the motion-on path (no regression)', () => {
+      const onSelectPrompt = vi.fn();
+      render(
+        <UploadedLeaseCard
+          filename="entry.pdf"
+          pageCount={3}
+          clauseCount={12}
+          prompts={sampleChips}
+          onSelectPrompt={onSelectPrompt}
+        />,
+      );
+      // Filename + meta + every chip still present even with motion on.
+      expect(screen.getByText('entry.pdf')).toBeInTheDocument();
+      expect(screen.getByTestId('uploaded-lease-card')).toHaveTextContent(
+        /3 pages/,
+      );
+      for (const chip of sampleChips) {
+        expect(
+          screen.getByRole('button', { name: chip.label }),
+        ).toBeInTheDocument();
+      }
+      // Chip dispatch still works.
+      fireEvent.click(
+        screen.getByRole('button', { name: /Run standard scan/i }),
+      );
+      expect(onSelectPrompt).toHaveBeenCalledWith('PROMPT_RUN');
+    });
+  });
 });

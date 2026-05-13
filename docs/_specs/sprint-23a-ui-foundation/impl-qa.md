@@ -3,7 +3,7 @@
 **Status:** Implementation complete, awaiting human QA.
 **Date:** 2026-05-13.
 **Baseline tests at start:** 777/777.
-**Tests at finish:** 778/778 (one new test for the backdrop-token swap).
+**Tests at finish:** 753/753 (one new test for the backdrop-token swap; 25 tests deleted with the workspace/brand-picker removal in Phase 6).
 
 ---
 
@@ -126,6 +126,54 @@ All within the documented `{ stiffness: 300-500, damping: 25-30 }` envelope. No 
 | `Stack` | [src/components/layout/Stack.tsx](../../../src/components/layout/Stack.tsx) | Vertical/horizontal flex-stack with gap | Document-dock header rows | Scan-timeline rows; composer chip row | Red-flag card body |
 | `ResizableSplitLayout` | [src/components/layout/ResizableSplitLayout.tsx](../../../src/components/layout/ResizableSplitLayout.tsx) | Three-pane CSS-grid with drag handles + persisted widths | n/a (already consumed by shell) | n/a | n/a |
 
+## Phase 6 — Workspace/brand-picker removal (in-scope addendum)
+
+**Surfaced during 23a smoke walk** — the top-bar workspace/brand picker rendered as a broken-looking popover above the chat-home header. The composer paperclip opened a `BrandUploadModal` (wrong flow for LeaseLens). Cleaned up as substrate work.
+
+### Render sites removed
+
+| Site | Change |
+|---|---|
+| [src/app/page.tsx](../../../src/app/page.tsx) | Removed `WorkspaceHeader` import, `otherBrands` derivation (used `listVisitorBrands`), and the `<WorkspaceHeader>` JSX. `listVisitorBrands` import dropped. |
+| [src/app/cockpit/page.tsx](../../../src/app/cockpit/page.tsx) | Same three removals. |
+| [src/components/chat/ChatUI.tsx](../../../src/components/chat/ChatUI.tsx) | Removed `BrandUploadModal`, `FileDropZone`, `useRouter` imports; `pendingFiles` state; `<FileDropZone>` wrapper (replaced with a plain `<div>` flex container); `<BrandUploadModal>` JSX; `onAttachFiles` prop on `<ChatComposer>`. |
+| [src/components/chat/ChatComposer.tsx](../../../src/components/chat/ChatComposer.tsx) | Removed `onAttachFiles?` prop from the interface, the destructured param, the `AttachButton` import, and the conditional `<AttachButton>` render. |
+
+### Components + tests deleted
+
+| File | Lines | Reason |
+|---|---|---|
+| `src/components/cockpit/WorkspaceHeader.tsx` | ~25 | Thin wrapper around WorkspaceMenu; no other consumer |
+| `src/components/workspaces/WorkspaceMenu.tsx` + `.test.tsx` | ~190 + tests | Brand-picker popover; the broken UI in the smoke walk |
+| `src/components/workspaces/BrandUploadModal.tsx` + `.test.tsx` | ~150 + tests | Brand-upload modal; no UI caller after removal |
+| `src/components/chat/AttachButton.tsx` + `.test.tsx` | ~60 + tests | Composer paperclip → brand-upload trigger |
+| `src/components/chat/FileDropZone.tsx` + `.test.tsx` | ~60 + tests | Chat-surface .md file drop → brand-upload trigger |
+| `src/components/chat/ChatUI.upload.integration.test.tsx` | ~100 | Tests the now-removed paperclip→BrandUploadModal flow |
+| `src/components/workspaces/` directory | — | Empty after deletions; removed |
+
+### Preserved (intentionally out of scope)
+
+- The `Workspace` data model and `workspace_id` foreign keys on conversations — sample workspace remains the default container.
+- The `WORKSPACE_COOKIE_NAME` cookie middleware — still issues a sample-workspace cookie on first visit.
+- The `/api/workspaces/*` route handlers — no UI caller but routes remain registered. Future cleanup sprint may delete once verified no callers.
+- `listVisitorBrands` query function — still exported but no caller. Mark for future cleanup.
+
+### Test delta
+
+| Metric | Before | After | Delta |
+|---|---|---|---|
+| Test files | 104 | 99 | −5 (deleted) |
+| Total tests | 778 | 753 | −25 (deleted; zero surviving tests broke) |
+| Lint errors | 0 | 0 | unchanged |
+| Build | green | green | unchanged |
+
+### Visual outcome
+
+- Top-bar now: LeaseLens mark + "LeaseLens" wordmark + (optional) "Cockpit" link + ThemeToggle + RoleSwitcher. No workspace picker. No "ACTIVE BRAND" popover.
+- Composer: textarea + send button only. No paperclip.
+- Chat-surface .md-file drop: silently ignored (FileDropZone removed; browser default drop behavior takes over for non-input drops, which is no-op on the chat surface).
+- Cockpit page: same top-bar cleanup applies; brand-picker gone from cockpit too.
+
 ## Acceptance walk
 
 - [x] AC #1 — Tokens compile. `npm run build` succeeds; utilities resolve in DevTools.
@@ -150,11 +198,12 @@ All within the documented `{ stiffness: 300-500, damping: 25-30 }` envelope. No 
 
 | Commit | SHA | Description |
 |---|---|---|
+| s23a.0 | 44f9f43 | docs(s23a): sprint-23a UI foundation specs and impl audit |
 | s23a.1 | (pending) | Token additions in globals.css (z-index, surface elevation, backdrop) |
 | s23a.2 | (pending) | Inline-value sweep across 6 callsites |
 | s23a.3 | (skipped) | Shell extraction — audit decided SKIP, documented |
 | s23a.4 | (pending) | Motion duration normalisation (2 outliers) |
-| s23a.5 | (pending) | impl-qa documentation finalised |
+| s23a.5 | (pending) | Remove vestigial workspace/brand-picker UI |
 
 ## Sign-off
 

@@ -4,6 +4,7 @@ node_modules/
 .pnp.js
 __pycache__/
 graphify-out/
+ui-ux-pro-max/scripts/__pycache__/
 
 # Next.js / TypeScript
 .next/

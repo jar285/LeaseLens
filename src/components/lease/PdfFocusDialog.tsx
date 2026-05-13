@@ -76,7 +76,11 @@ export function PdfFocusDialog({
       className="fixed inset-0 m-0 h-screen max-h-screen w-screen max-w-none bg-surface-base p-0 backdrop:bg-backdrop dark:bg-neutral-950"
     >
       <div className="flex h-screen min-h-0 flex-col">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 bg-surface-card px-4 py-2 dark:border-neutral-800 dark:bg-neutral-900">
+        {/* Sprint 23b Phase 4 — header uses surface-elevated (auto-flips
+            at :root.dark); close button is a borderless icon-only ghost
+            button with a visible hover state. Touch target preserved at
+            44×44 via min-h-11 / min-w-11. */}
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 bg-surface-elevated px-4 py-2 dark:border-neutral-800">
           <h2
             id={headingId}
             className="truncate text-[13px] font-medium text-fg-default"
@@ -87,7 +91,7 @@ export function PdfFocusDialog({
             type="button"
             aria-label="Close focus mode"
             onClick={onClose}
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-neutral-200 bg-surface-card px-2 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:hover:bg-neutral-800 dark:hover:text-fg-default"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>

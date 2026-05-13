@@ -33,7 +33,14 @@ export interface UploadResult {
 }
 
 export interface LeaseUploadDropzoneProps {
-  onUploaded: (result: UploadResult) => void;
+  /**
+   * Sprint 23b Phase 6.2 — the File object is forwarded alongside the
+   * parsed UploadResult so the parent can build a Blob URL for the
+   * PDF viewer without re-reading `<input>.files`. The earlier DOM-
+   * sniff pattern only worked for the click-to-upload path and broke
+   * silently on drag-drop (the dropzone bypasses the <input> element).
+   */
+  onUploaded: (result: UploadResult, file: File) => void;
   onError?: (message: string) => void;
   conversationId?: string | null;
 }
@@ -109,7 +116,7 @@ export function LeaseUploadDropzone({
       setStatusMsg(
         `${ok.page_count} page${pluralPages} · ${ok.clause_count} clause${pluralClauses}`,
       );
-      onUploaded(ok);
+      onUploaded(ok, file);
     } catch (err) {
       reportError(err instanceof Error ? err.message : 'Upload failed');
     }

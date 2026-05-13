@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { toDbRole } from '@/lib/auth/role-codec';
 import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
@@ -15,7 +16,7 @@ function demoUser(role: Role) {
   return u;
 }
 const ADMIN = demoUser('Admin');
-const EDITOR = demoUser('Editor');
+const EDITOR = demoUser('Reviewer');
 const BASE_URL = 'http://localhost:3000';
 
 async function makeAuditRequest(user?: {
@@ -65,7 +66,7 @@ describe('GET /api/audit', () => {
     );
     const now = Math.floor(Date.now() / 1000);
     for (const u of DEMO_USERS) {
-      insertUser.run(u.id, u.email, u.role, u.display_name, now);
+      insertUser.run(u.id, u.email, toDbRole(u.role), u.display_name, now);
     }
   });
 
@@ -73,7 +74,7 @@ describe('GET /api/audit', () => {
     const adminAuditId = seedAuditRow(ADMIN.id, 'Admin', 'approve_draft');
     const editorAuditId = seedAuditRow(
       EDITOR.id,
-      'Editor',
+      'Reviewer',
       'schedule_content_item',
     );
 
@@ -89,7 +90,7 @@ describe('GET /api/audit', () => {
     seedAuditRow(ADMIN.id, 'Admin', 'approve_draft');
     const editorAuditId = seedAuditRow(
       EDITOR.id,
-      'Editor',
+      'Reviewer',
       'schedule_content_item',
     );
 
@@ -102,7 +103,7 @@ describe('GET /api/audit', () => {
 
   it('No-cookie request: defaults to Creator demo user → zero rows', async () => {
     seedAuditRow(ADMIN.id, 'Admin', 'approve_draft');
-    seedAuditRow(EDITOR.id, 'Editor', 'schedule_content_item');
+    seedAuditRow(EDITOR.id, 'Reviewer', 'schedule_content_item');
 
     const req = await makeAuditRequest(); // no cookie
     const res = await GET(req);

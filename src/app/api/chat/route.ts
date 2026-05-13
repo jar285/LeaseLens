@@ -169,8 +169,8 @@ export async function POST(req: NextRequest) {
 
     // Resolve userId and role from session cookie; fall back to default Creator
     const sessionCookie = req.cookies.get('leaselens_session');
-    let userId = DEMO_USERS.find((u) => u.role === 'Creator')?.id;
-    let role: Role = 'Creator';
+    let userId = DEMO_USERS.find((u) => u.role === 'Tenant')?.id;
+    let role: Role = 'Tenant';
 
     if (sessionCookie) {
       const payload = await decrypt(sessionCookie.value);

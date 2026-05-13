@@ -56,7 +56,7 @@ describe('ToolRegistry', () => {
       registry.register(createMockTool('tool_a', 'ALL'));
       registry.register(createMockTool('tool_b', 'ALL'));
 
-      const tools = registry.getToolsForRole('Creator');
+      const tools = registry.getToolsForRole('Tenant');
 
       expect(tools).toHaveLength(2);
       expect(tools.map((t) => t.name)).toContain('tool_a');
@@ -65,13 +65,13 @@ describe('ToolRegistry', () => {
 
     it('should filter tools by role', () => {
       const registry = new ToolRegistry();
-      registry.register(createMockTool('creator_tool', ['Creator']));
-      registry.register(createMockTool('editor_tool', ['Editor', 'Admin']));
+      registry.register(createMockTool('creator_tool', ['Tenant']));
+      registry.register(createMockTool('editor_tool', ['Reviewer', 'Admin']));
       registry.register(createMockTool('admin_tool', ['Admin']));
       registry.register(createMockTool('all_tool', 'ALL'));
 
-      const creatorTools = registry.getToolsForRole('Creator');
-      const editorTools = registry.getToolsForRole('Editor');
+      const creatorTools = registry.getToolsForRole('Tenant');
+      const editorTools = registry.getToolsForRole('Reviewer');
       const adminTools = registry.getToolsForRole('Admin');
 
       expect(creatorTools.map((t) => t.name)).toEqual([
@@ -95,7 +95,7 @@ describe('ToolRegistry', () => {
       registry.register(createMockTool('alpha_tool', 'ALL'));
       registry.register(createMockTool('beta_tool', 'ALL'));
 
-      const tools = registry.getToolsForRole('Creator');
+      const tools = registry.getToolsForRole('Tenant');
 
       expect(tools.map((t) => t.name)).toEqual([
         'alpha_tool',
@@ -114,7 +114,7 @@ describe('ToolRegistry', () => {
         'adder',
         { a: 1, b: 2 },
         {
-          role: 'Creator',
+          role: 'Tenant',
           userId: 'user-1',
           conversationId: 'conv-1',
           workspaceId: SAMPLE_WORKSPACE.id,
@@ -133,7 +133,7 @@ describe('ToolRegistry', () => {
           'missing',
           {},
           {
-            role: 'Creator',
+            role: 'Tenant',
             userId: 'user-1',
             conversationId: 'conv-1',
             workspaceId: SAMPLE_WORKSPACE.id,
@@ -151,7 +151,7 @@ describe('ToolRegistry', () => {
           'admin_only',
           {},
           {
-            role: 'Creator',
+            role: 'Tenant',
             userId: 'user-1',
             conversationId: 'conv-1',
             workspaceId: SAMPLE_WORKSPACE.id,
@@ -182,16 +182,16 @@ describe('ToolRegistry', () => {
   describe('canExecute', () => {
     it('should return true for allowed roles', () => {
       const registry = new ToolRegistry();
-      registry.register(createMockTool('tool', ['Creator', 'Editor']));
+      registry.register(createMockTool('tool', ['Tenant', 'Reviewer']));
 
-      expect(registry.canExecute('tool', 'Creator')).toBe(true);
-      expect(registry.canExecute('tool', 'Editor')).toBe(true);
+      expect(registry.canExecute('tool', 'Tenant')).toBe(true);
+      expect(registry.canExecute('tool', 'Reviewer')).toBe(true);
       expect(registry.canExecute('tool', 'Admin')).toBe(false);
     });
 
     it('should return false for unregistered tools', () => {
       const registry = new ToolRegistry();
-      expect(registry.canExecute('missing', 'Creator')).toBe(false);
+      expect(registry.canExecute('missing', 'Tenant')).toBe(false);
     });
   });
 
@@ -391,7 +391,7 @@ describe('ToolRegistry', () => {
       const { createToolRegistry } = await import('./create-registry');
       const db = createTestDb();
       const registry = createToolRegistry(db);
-      for (const role of ['Creator', 'Editor', 'Admin'] as const) {
+      for (const role of ['Tenant', 'Reviewer', 'Admin'] as const) {
         const names = registry.getToolsForRole(role).map((t) => t.name);
         expect(names).toContain('render_workflow_diagram');
       }
@@ -423,7 +423,7 @@ describe('ToolRegistry', () => {
       const db = createTestDb();
       const registry = createToolRegistry(db);
 
-      for (const role of ['Creator', 'Editor', 'Admin'] as const) {
+      for (const role of ['Tenant', 'Reviewer', 'Admin'] as const) {
         const names = registry.getToolsForRole(role).map((t) => t.name);
         expect(names).toContain('extract_clauses');
         expect(names).toContain('grade_clause_severity');

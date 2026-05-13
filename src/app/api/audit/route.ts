@@ -17,9 +17,9 @@ export async function GET(request: NextRequest) {
   // Resolve session (mirrors the chat route fallback at route.ts:111-124)
   const sessionCookie = request.cookies.get('leaselens_session');
   let userId: string | undefined = DEMO_USERS.find(
-    (u) => u.role === 'Creator',
+    (u) => u.role === 'Tenant',
   )?.id;
-  let role: Role = 'Creator';
+  let role: Role = 'Tenant';
   if (sessionCookie) {
     const payload = await decrypt(sessionCookie.value);
     if (payload?.userId) {

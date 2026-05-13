@@ -4,6 +4,7 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { toDbRole } from '@/lib/auth/role-codec';
 import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
@@ -51,7 +52,7 @@ describe('GET /api/leases/[id]', () => {
     );
     const now = Math.floor(Date.now() / 1000);
     for (const u of DEMO_USERS) {
-      insertUser.run(u.id, u.email, u.role, u.display_name, now);
+      insertUser.run(u.id, u.email, toDbRole(u.role), u.display_name, now);
     }
     db.prepare(
       `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
@@ -68,7 +69,7 @@ describe('GET /api/leases/[id]', () => {
       filename: 'creator.pdf',
       textExtract: 'creator lease text',
       pageCount: 3,
-      uploadedBy: demoUser('Creator').id,
+      uploadedBy: demoUser('Tenant').id,
     });
     insertClause(db, {
       leaseId: creatorLeaseId,
@@ -84,7 +85,7 @@ describe('GET /api/leases/[id]', () => {
       filename: 'editor.pdf',
       textExtract: 'editor lease text',
       pageCount: 5,
-      uploadedBy: demoUser('Editor').id,
+      uploadedBy: demoUser('Reviewer').id,
     });
   });
 
@@ -95,7 +96,7 @@ describe('GET /api/leases/[id]', () => {
   });
 
   it('returns 200 with lease + clauses for the owner (Tenant)', async () => {
-    const req = await makeGetRequest(creatorLeaseId, demoUser('Creator'));
+    const req = await makeGetRequest(creatorLeaseId, demoUser('Tenant'));
     const res = await GET(req, params(creatorLeaseId));
 
     expect(res.status).toBe(200);
@@ -111,14 +112,14 @@ describe('GET /api/leases/[id]', () => {
   });
 
   it('returns 403 when a Tenant tries to GET a lease they did not upload (spec §2.12)', async () => {
-    const req = await makeGetRequest(editorLeaseId, demoUser('Creator'));
+    const req = await makeGetRequest(editorLeaseId, demoUser('Tenant'));
     const res = await GET(req, params(editorLeaseId));
 
     expect(res.status).toBe(403);
   });
 
   it('returns 200 when a Reviewer (Editor) GETs any lease in the workspace (spec §3g)', async () => {
-    const req = await makeGetRequest(creatorLeaseId, demoUser('Editor'));
+    const req = await makeGetRequest(creatorLeaseId, demoUser('Reviewer'));
     const res = await GET(req, params(creatorLeaseId));
 
     expect(res.status).toBe(200);

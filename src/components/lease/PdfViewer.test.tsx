@@ -118,4 +118,45 @@ describe('PdfViewerClient', () => {
       'Lease document',
     );
   });
+
+  // S20.6 — header cleanup. The inline pane is a preview surface, not a
+  // reading surface; reading controls (zoom / fit / page indicator)
+  // moved into Focus mode where they have room. The inline header
+  // keeps only file metadata + Expand + Parsed pill.
+  describe('S20.6 — inline header is preview-density (no reading controls)', () => {
+    it('does not render the zoom buttons in the inline header', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
+      expect(screen.queryByLabelText(/zoom in/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/zoom out/i)).not.toBeInTheDocument();
+    });
+
+    it('does not render the fit-width toggle in the inline header', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
+      expect(screen.queryByLabelText(/fit.*width/i)).not.toBeInTheDocument();
+    });
+
+    it('does not render the page indicator in the inline header', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
+      expect(
+        screen.queryByTestId('pdf-page-indicator'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('still renders the Expand button as the gateway to Focus mode', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
+      expect(screen.getByTestId('pdf-viewer-expand')).toBeInTheDocument();
+    });
+
+    it('renders the reading controls inside Focus mode (hideFocusToggle=true variant)', () => {
+      // The inner PdfViewer rendered inside the focus dialog skips the
+      // Expand button (hideFocusToggle=true) and gains the reading
+      // controls — the only surface where they belong.
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" hideFocusToggle />));
+      expect(screen.getByLabelText(/zoom in/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/zoom out/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/fit.*width/i)).toBeInTheDocument();
+      expect(screen.getByTestId('pdf-page-indicator')).toBeInTheDocument();
+      expect(screen.queryByTestId('pdf-viewer-expand')).not.toBeInTheDocument();
+    });
+  });
 });

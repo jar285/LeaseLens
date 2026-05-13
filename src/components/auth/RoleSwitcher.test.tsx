@@ -2,6 +2,10 @@
 // button group into the global header as a segmented control. These
 // tests pin the architectural decision so a future refactor cannot
 // silently regress to the floating overlap that hid red-flag cards.
+//
+// S19.1 — role values became the labels (Tenant/Reviewer/Admin);
+// the label-bridge has been removed, and the title-attribute that
+// exposed the DB literal is gone with it.
 
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -15,19 +19,12 @@ import { RoleSwitcher } from './RoleSwitcher';
 afterEach(cleanup);
 
 describe('RoleSwitcher', () => {
-  it('renders one button per role, labeled with the LeaseLens UI label', () => {
-    render(<RoleSwitcher currentRole="Creator" />);
-    // labelFor() bridges DB literal Creator|Editor|Admin → UI label
-    // Tenant|Reviewer|Admin. The DB literal stays in the title attr
-    // for QA / admin debugging.
-    expect(screen.getByTestId('role-switcher-creator')).toHaveTextContent(
+  it('renders one button per role, labeled with the LeaseLens role name', () => {
+    render(<RoleSwitcher currentRole="Tenant" />);
+    expect(screen.getByTestId('role-switcher-tenant')).toHaveTextContent(
       /tenant/i,
     );
-    expect(screen.getByTestId('role-switcher-creator')).toHaveAttribute(
-      'title',
-      'Database role: Creator',
-    );
-    expect(screen.getByTestId('role-switcher-editor')).toHaveTextContent(
+    expect(screen.getByTestId('role-switcher-reviewer')).toHaveTextContent(
       /reviewer/i,
     );
     expect(screen.getByTestId('role-switcher-admin')).toHaveTextContent(
@@ -36,12 +33,12 @@ describe('RoleSwitcher', () => {
   });
 
   it('marks the currently active role via data-active="true"', () => {
-    render(<RoleSwitcher currentRole="Editor" />);
-    expect(screen.getByTestId('role-switcher-editor')).toHaveAttribute(
+    render(<RoleSwitcher currentRole="Reviewer" />);
+    expect(screen.getByTestId('role-switcher-reviewer')).toHaveAttribute(
       'data-active',
       'true',
     );
-    expect(screen.getByTestId('role-switcher-creator')).toHaveAttribute(
+    expect(screen.getByTestId('role-switcher-tenant')).toHaveAttribute(
       'data-active',
       'false',
     );
@@ -56,7 +53,7 @@ describe('RoleSwitcher', () => {
     // (`fixed bottom-4 right-4 z-50`) overlapped the last red-flag
     // card. Lock the new placement so a refactor cannot reintroduce
     // the overlap silently.
-    render(<RoleSwitcher currentRole="Creator" />);
+    render(<RoleSwitcher currentRole="Tenant" />);
     const root = screen.getByTestId('role-switcher');
     expect(root.className).not.toMatch(/\bfixed\b/);
     expect(root.className).not.toMatch(/bottom-4/);

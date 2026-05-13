@@ -1,8 +1,15 @@
-# Retaliatory Eviction — Tenant Protection
+# Retaliatory Eviction — NJSA 2A:42-10.10 (NJ Anti-Retaliation Statute)
 
-## NJ Stat 2A:42-10.10
+## NJSA 2A:42-10.10 — the anti-retaliation rule
 
-Under **NJ Stat 2A:42-10.10**, a NJ landlord may not retaliate against a residential tenant for engaging in protected activity. Retaliatory eviction, retaliatory rent increases, and retaliatory reductions in services are all prohibited.
+Under **NJSA 2A:42-10.10** (also cited as **NJ Stat 2A:42-10.10**), a NJ
+landlord may not retaliate against a residential tenant for engaging in
+protected activity. Retaliatory eviction, retaliatory rent increases, and
+retaliatory reductions in services are all prohibited by **NJSA 2A:42-10.10**.
+
+Any lease clause that purports to authorize retaliation — for example, by
+defining a tenant's good-faith complaint as a lease violation — is
+unenforceable as conflicting with **NJSA 2A:42-10.10**.
 
 ## Protected activities
 
@@ -27,6 +34,7 @@ A tenant who proves retaliation may:
 
 ## Common red flags
 
-- A lease clause that purports to require tenant complaints go through landlord-controlled "internal channels" only — likely unenforceable as discouraging protected activity.
-- A clause that defines tenant participation in a tenants' organization as a lease violation — facially retaliatory.
-- A clause that imposes higher rent or fees on tenants who file maintenance complaints.
+- A lease clause that purports to require tenant complaints go through landlord-controlled "internal channels" only — likely unenforceable under **NJSA 2A:42-10.10** as discouraging protected activity.
+- A clause that defines tenant participation in a tenants' organization as a lease violation — facially retaliatory under **NJSA 2A:42-10.10**.
+- A clause that imposes higher rent or fees on tenants who file maintenance complaints — a textbook violation of **NJSA 2A:42-10.10**.
+- A clause that purports to allow eviction within 15 days of a tenant complaint to government — directly conflicts with the six-month presumption under **NJSA 2A:42-10.10**.

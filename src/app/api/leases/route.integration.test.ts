@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { toDbRole } from '@/lib/auth/role-codec';
 import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
@@ -76,7 +77,7 @@ describe('POST /api/leases', () => {
     );
     const now = Math.floor(Date.now() / 1000);
     for (const u of DEMO_USERS) {
-      insertUser.run(u.id, u.email, u.role, u.display_name, now);
+      insertUser.run(u.id, u.email, toDbRole(u.role), u.display_name, now);
     }
     // Sample workspace must exist for the workspace_id FK / cookie path.
     db.prepare(
@@ -103,7 +104,7 @@ describe('POST /api/leases', () => {
         SAMPLE_PDF_BUFFER.byteOffset,
         SAMPLE_PDF_BUFFER.byteOffset + SAMPLE_PDF_BUFFER.byteLength,
       ) as ArrayBuffer,
-      user: demoUser('Creator'),
+      user: demoUser('Tenant'),
     });
 
     const res = await POST(req);
@@ -123,7 +124,7 @@ describe('POST /api/leases', () => {
       | { id: string; uploaded_by: string; workspace_id: string }
       | undefined;
     expect(lease).toBeDefined();
-    expect(lease?.uploaded_by).toBe(demoUser('Creator').id);
+    expect(lease?.uploaded_by).toBe(demoUser('Tenant').id);
     expect(lease?.workspace_id).toBe(SAMPLE_WORKSPACE.id);
   });
 
@@ -131,7 +132,7 @@ describe('POST /api/leases', () => {
     const req = await makeUploadRequest({
       file: new TextEncoder().encode('not a pdf').buffer as ArrayBuffer,
       contentType: 'text/plain',
-      user: demoUser('Creator'),
+      user: demoUser('Tenant'),
     });
 
     const res = await POST(req);
@@ -144,7 +145,7 @@ describe('POST /api/leases', () => {
     const oversize = new ArrayBuffer(2 * 1024 * 1024);
     const req = await makeUploadRequest({
       file: oversize,
-      user: demoUser('Creator'),
+      user: demoUser('Tenant'),
     });
 
     const res = await POST(req);
@@ -154,7 +155,7 @@ describe('POST /api/leases', () => {
   it('returns 400 when no file is supplied', async () => {
     const req = await makeUploadRequest({
       file: null,
-      user: demoUser('Creator'),
+      user: demoUser('Tenant'),
     });
 
     const res = await POST(req);
@@ -167,7 +168,7 @@ describe('POST /api/leases', () => {
         MALFORMED_PDF_BUFFER.byteOffset,
         MALFORMED_PDF_BUFFER.byteOffset + MALFORMED_PDF_BUFFER.byteLength,
       ) as ArrayBuffer,
-      user: demoUser('Creator'),
+      user: demoUser('Tenant'),
     });
 
     const res = await POST(req);
@@ -182,7 +183,7 @@ describe('POST /api/leases', () => {
         SAMPLE_PDF_BUFFER.byteOffset,
         SAMPLE_PDF_BUFFER.byteOffset + SAMPLE_PDF_BUFFER.byteLength,
       ) as ArrayBuffer,
-      user: demoUser('Editor'),
+      user: demoUser('Reviewer'),
     });
 
     const res = await POST(req);
@@ -191,13 +192,13 @@ describe('POST /api/leases', () => {
     const lease = db
       .prepare('SELECT uploaded_by FROM leases WHERE id = ?')
       .get(body.lease_id) as { uploaded_by: string };
-    expect(lease.uploaded_by).toBe(demoUser('Editor').id);
+    expect(lease.uploaded_by).toBe(demoUser('Reviewer').id);
   });
 
   it('updates conversations.active_lease_id when a conversationId is supplied', async () => {
     // Seed a conversation owned by the Creator demo user.
     const convId = 'conv-upload-test';
-    const user = demoUser('Creator');
+    const user = demoUser('Tenant');
     db.prepare(
       `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
        VALUES (?, ?, ?, 'test', ?)`,

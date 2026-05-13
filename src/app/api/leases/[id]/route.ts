@@ -39,11 +39,11 @@ async function resolveSession(req: NextRequest): Promise<ResolvedSession> {
       return { userId: claims.userId, role: claims.role };
     }
   }
-  const fallback = DEMO_USERS.find((u) => u.role === 'Creator');
+  const fallback = DEMO_USERS.find((u) => u.role === 'Tenant');
   if (!fallback) {
     throw new Error('No Creator demo user seeded; seed.ts must run first');
   }
-  return { userId: fallback.id, role: 'Creator' };
+  return { userId: fallback.id, role: 'Tenant' };
 }
 
 async function resolveWorkspaceId(req: NextRequest): Promise<string> {

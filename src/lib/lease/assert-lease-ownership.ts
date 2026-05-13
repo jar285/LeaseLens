@@ -27,7 +27,7 @@ export function assertLeaseOwnership(
       'assertLeaseOwnership called without a lease — caller must load the lease before checking ownership.',
     );
   }
-  if (ctx.role !== 'Creator') {
+  if (ctx.role !== 'Tenant') {
     return;
   }
   if (lease.uploaded_by !== ctx.userId) {

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { toDbRole } from '@/lib/auth/role-codec';
 import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
@@ -55,8 +56,8 @@ function demoUser(role: Role) {
   return u;
 }
 const ADMIN = demoUser('Admin');
-const EDITOR = demoUser('Editor');
-const CREATOR = demoUser('Creator');
+const EDITOR = demoUser('Reviewer');
+const CREATOR = demoUser('Tenant');
 const BASE_URL = 'http://localhost:3000';
 
 async function makeRollbackRequest(
@@ -97,7 +98,7 @@ describe('POST /api/audit/[id]/rollback', () => {
     );
     const now = Math.floor(Date.now() / 1000);
     for (const u of DEMO_USERS) {
-      insertUser.run(u.id, u.email, u.role, u.display_name, now);
+      insertUser.run(u.id, u.email, toDbRole(u.role), u.display_name, now);
     }
     db.prepare(
       'INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',

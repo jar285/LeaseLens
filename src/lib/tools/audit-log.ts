@@ -11,6 +11,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { fromDbRole, toDbRole } from '@/lib/auth/role-codec';
 import type { AuditLogEntry, ToolExecutionContext } from './domain';
 
 export interface AuditWriteInput {
@@ -42,7 +43,8 @@ export function writeAuditRow(
     tool_name: input.tool_name,
     tool_use_id: input.tool_use_id ?? null,
     actor_user_id: input.context.userId,
-    actor_role: input.context.role,
+    // DB persists wire literals (Creator/Editor/Admin); translate at write.
+    actor_role: toDbRole(input.context.role),
     conversation_id: input.context.conversationId,
     workspace_id: input.context.workspaceId,
     input_json: JSON.stringify(input.input),
@@ -53,15 +55,25 @@ export function writeAuditRow(
   return id;
 }
 
+// DB rows arrive with the wire literal in actor_role; this helper
+// reshapes them into the AuditLogEntry contract (Role-typed) so the
+// rest of the codebase stays in the domain language.
+interface AuditRowWire extends Omit<AuditLogEntry, 'actor_role'> {
+  actor_role: string;
+}
+
+function hydrateAuditRow(row: AuditRowWire): AuditLogEntry {
+  return { ...row, actor_role: fromDbRole(row.actor_role) };
+}
+
 export function getAuditRow(
   db: Database.Database,
   id: string,
 ): AuditLogEntry | null {
-  return (
-    (db.prepare('SELECT * FROM audit_log WHERE id = ?').get(id) as
-      | AuditLogEntry
-      | undefined) ?? null
-  );
+  const row = db.prepare('SELECT * FROM audit_log WHERE id = ?').get(id) as
+    | AuditRowWire
+    | undefined;
+  return row ? hydrateAuditRow(row) : null;
 }
 
 export function listAuditRows(
@@ -81,11 +93,12 @@ export function listAuditRows(
   const whereSql = whereClauses.length
     ? `WHERE ${whereClauses.join(' AND ')}`
     : '';
-  return db
+  const rows = db
     .prepare(
       `SELECT * FROM audit_log ${whereSql} ORDER BY created_at DESC LIMIT @limit`,
     )
-    .all(params) as AuditLogEntry[];
+    .all(params) as AuditRowWire[];
+  return rows.map(hydrateAuditRow);
 }
 
 /**

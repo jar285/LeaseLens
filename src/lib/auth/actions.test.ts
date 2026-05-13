@@ -27,7 +27,7 @@ describe('switchRole Server Action', () => {
   });
 
   it('should set the session cookie and revalidate path for a valid role', async () => {
-    await switchRole('Editor');
+    await switchRole('Reviewer');
 
     // Verify cookie store was awaited and set was called
     const cookieStore = await cookies();
@@ -45,10 +45,10 @@ describe('switchRole Server Action', () => {
     // Verify token content
     expect(token).toBeDefined();
     const payload = await decrypt(token as string);
-    const expectedUser = DEMO_USERS.find((u) => u.role === 'Editor');
+    const expectedUser = DEMO_USERS.find((u) => u.role === 'Reviewer');
     expect(payload).toMatchObject({
       userId: expectedUser?.id,
-      role: 'Editor',
+      role: 'Reviewer',
       displayName: expectedUser?.display_name,
     });
 

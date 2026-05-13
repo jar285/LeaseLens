@@ -4,25 +4,25 @@ import { buildSystemPrompt } from './system-prompt';
 
 describe('buildSystemPrompt', () => {
   it('opens with the LeaseLens identity sentence (Sprint 13 §3h §1)', () => {
-    const prompt = buildSystemPrompt('Creator');
+    const prompt = buildSystemPrompt('Tenant');
     expect(prompt).toContain('LeaseLens');
     expect(prompt).toMatch(/NJ residential lease|New Jersey residential/i);
   });
 
-  it('renders the LeaseLens role labels via labelFor (Tenant/Reviewer/Admin)', () => {
-    expect(buildSystemPrompt('Creator')).toMatch(/Tenant/);
-    expect(buildSystemPrompt('Editor')).toMatch(/Reviewer/);
+  it('renders the LeaseLens role names directly (Tenant/Reviewer/Admin)', () => {
+    expect(buildSystemPrompt('Tenant')).toMatch(/Tenant/);
+    expect(buildSystemPrompt('Reviewer')).toMatch(/Reviewer/);
     expect(buildSystemPrompt('Admin')).toMatch(/Admin/);
   });
 
   it('includes the LEASELENS_DISCLAIMER string verbatim (spec §2.8 invariant)', () => {
-    const prompt = buildSystemPrompt('Creator');
+    const prompt = buildSystemPrompt('Tenant');
     expect(prompt.toLowerCase()).toContain('not legal advice');
     expect(prompt).toMatch(/attorney|legal[\s-]aid|clinic/);
   });
 
   it('names the LeaseLens tool surface and the prescribed call order', () => {
-    const prompt = buildSystemPrompt('Creator');
+    const prompt = buildSystemPrompt('Tenant');
     // Three new tools surface in the prompt; old ContentOps tools do not.
     expect(prompt).toMatch(/extract_clauses/);
     expect(prompt).toMatch(/grade_clause_severity/);
@@ -32,20 +32,20 @@ describe('buildSystemPrompt', () => {
   });
 
   it('refuses non-NJ leases (spec §2.7)', () => {
-    const prompt = buildSystemPrompt('Creator');
+    const prompt = buildSystemPrompt('Tenant');
     expect(prompt).toMatch(/New Jersey|NJ-only|NJ\b/);
     expect(prompt).toMatch(/refuse|decline/i);
   });
 
   it('includes a UTC date in YYYY-MM-DD format', () => {
-    const prompt = buildSystemPrompt('Creator');
+    const prompt = buildSystemPrompt('Tenant');
     expect(prompt).toMatch(/Today's date: \d{4}-\d{2}-\d{2}/);
   });
 
   it('produces different output for different roles', () => {
-    const creator = buildSystemPrompt('Creator');
+    const tenant = buildSystemPrompt('Tenant');
     const admin = buildSystemPrompt('Admin');
-    expect(creator).not.toBe(admin);
+    expect(tenant).not.toBe(admin);
   });
 
   it('includes <context> block when chunks provided', () => {
@@ -60,19 +60,19 @@ describe('buildSystemPrompt', () => {
         bm25Rank: 1,
       },
     ];
-    const prompt = buildSystemPrompt('Creator', mockChunks);
+    const prompt = buildSystemPrompt('Tenant', mockChunks);
     expect(prompt).toContain('<context>');
     expect(prompt).toContain('[1] brand-identity > Brand Voice');
   });
 
   it('omits <context> block when no chunks provided', () => {
-    const prompt = buildSystemPrompt('Creator');
+    const prompt = buildSystemPrompt('Tenant');
     expect(prompt).not.toContain('<context>');
   });
 
   it('parameterizes on a workspace via options-object signature (Sprint 11; Sprint 13 prose update)', () => {
     const prompt = buildSystemPrompt({
-      role: 'Editor',
+      role: 'Reviewer',
       workspace: {
         id: 'ws-acme',
         name: 'Acme',
@@ -90,7 +90,7 @@ describe('buildSystemPrompt', () => {
 
   it('description normalization: trailing period in input does not double-period the output (sprint-QA L1)', () => {
     const withPeriod = buildSystemPrompt({
-      role: 'Editor',
+      role: 'Reviewer',
       workspace: {
         id: 'ws-acme',
         name: 'Acme',
@@ -101,7 +101,7 @@ describe('buildSystemPrompt', () => {
       },
     });
     const withoutPeriod = buildSystemPrompt({
-      role: 'Editor',
+      role: 'Reviewer',
       workspace: {
         id: 'ws-acme',
         name: 'Acme',
@@ -121,7 +121,7 @@ describe('buildSystemPrompt', () => {
   });
 
   it('mentions render_workflow_diagram and the LeaseLens diagram shapes (Sprint 13)', () => {
-    const prompt = buildSystemPrompt('Creator');
+    const prompt = buildSystemPrompt('Tenant');
     expect(prompt).toMatch(/render_workflow_diagram/);
     // Sprint 13 §3f: LeaseLens repurposes the diagram tool for a clause-
     // dependency map and a severity heatmap.

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { toDbRole } from '@/lib/auth/role-codec';
 import { recordSpend } from '@/lib/db/spend';
 import { createTestDb } from '@/lib/test/db';
 import { seedUser } from '@/lib/test/seed';
@@ -16,7 +17,7 @@ function insertAuditRow(
   db: Database.Database,
   opts: {
     actorUserId: string;
-    actorRole: 'Creator' | 'Editor' | 'Admin';
+    actorRole: 'Tenant' | 'Reviewer' | 'Admin';
     toolName?: string;
     createdAt?: number;
     workspaceId?: string;
@@ -33,7 +34,7 @@ function insertAuditRow(
     id,
     opts.toolName ?? 'schedule_content_item',
     opts.actorUserId,
-    opts.actorRole,
+    toDbRole(opts.actorRole),
     opts.workspaceId ?? SAMPLE_WORKSPACE.id,
     JSON.stringify({ document_slug: 'brand-identity' }),
     JSON.stringify({ id: 'sched-1' }),
@@ -52,11 +53,11 @@ describe('cockpit queries', () => {
 
   describe('listRecentAuditRows', () => {
     it('returns rows DESC by created_at; LEFT JOIN yields null actor_display_name for unmatched user', () => {
-      const editor = seedUser(db, 'Editor');
+      const editor = seedUser(db, 'Reviewer');
       // Editor's row matches users; mcp-server row does not.
       insertAuditRow(db, {
         actorUserId: editor.id,
-        actorRole: 'Editor',
+        actorRole: 'Reviewer',
         createdAt: 1000,
       });
       insertAuditRow(db, {
@@ -78,8 +79,8 @@ describe('cockpit queries', () => {
     });
 
     it('filters by actorUserId when provided', () => {
-      const editor = seedUser(db, 'Editor');
-      insertAuditRow(db, { actorUserId: editor.id, actorRole: 'Editor' });
+      const editor = seedUser(db, 'Reviewer');
+      insertAuditRow(db, { actorUserId: editor.id, actorRole: 'Reviewer' });
       insertAuditRow(db, { actorUserId: 'mcp-server', actorRole: 'Admin' });
 
       const rows = listRecentAuditRows(db, {
@@ -92,17 +93,17 @@ describe('cockpit queries', () => {
     });
 
     it('cross-workspace isolation: Sprint 11 / sprint-QA M1', () => {
-      const editor = seedUser(db, 'Editor');
+      const editor = seedUser(db, 'Reviewer');
       const wsA = '00000000-0000-0000-0000-0000000000aa';
       const wsB = '00000000-0000-0000-0000-0000000000bb';
       insertAuditRow(db, {
         actorUserId: editor.id,
-        actorRole: 'Editor',
+        actorRole: 'Reviewer',
         workspaceId: wsA,
       });
       insertAuditRow(db, {
         actorUserId: editor.id,
-        actorRole: 'Editor',
+        actorRole: 'Reviewer',
         workspaceId: wsB,
       });
 

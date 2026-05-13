@@ -3,15 +3,29 @@
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
-import { GradingDetailBlock } from '@/components/lease/GradingDetailBlock';
+import {
+  GradingDetailBlock,
+  type GradingDetailVerbosity,
+} from '@/components/lease/GradingDetailBlock';
 import {
   type GradingResult,
   isGradingResult,
 } from '@/components/lease/grading';
 import { LoadingState } from '@/components/states/LoadingState';
 import { useRollback } from '@/lib/audit/use-rollback';
+import type { Role } from '@/lib/auth/types';
 import type { ToolInvocation } from './ChatMessage';
+import { useChatStream } from './ChatStreamContext';
 import { MermaidDiagram } from './MermaidDiagram';
+
+// S19.8 — single source for the Role→verbosity mapping. Centralised
+// so the chat-side ToolCard and any future read-side surface (cockpit
+// audit feed, etc.) can't drift on whether Reviewer sees JSON or not.
+export function verbosityForRole(role: Role): GradingDetailVerbosity {
+  if (role === 'Admin') return 'admin';
+  if (role === 'Reviewer') return 'reviewer';
+  return 'tenant';
+}
 
 interface ToolCardProps {
   invocation: ToolInvocation;
@@ -42,6 +56,8 @@ export function ToolCard({ invocation }: ToolCardProps) {
   useEffect(() => setMounted(true), []);
   const reduced = useReducedMotion();
   const animate = mounted && !reduced;
+  const { viewerRole } = useChatStream();
+  const verbosity = verbosityForRole(viewerRole);
 
   const { status: rollbackState, rollback: handleUndo } = useRollback(
     invocation.audit_id,
@@ -197,6 +213,7 @@ export function ToolCard({ invocation }: ToolCardProps) {
             >
               <ExpandedBody
                 gradingResult={gradingResult}
+                verbosity={verbosity}
                 hasResult={hasResult}
                 hasError={hasError}
                 input={invocation.input}
@@ -207,6 +224,7 @@ export function ToolCard({ invocation }: ToolCardProps) {
             <div key="body" data-testid="expanded-body" data-motion="off">
               <ExpandedBody
                 gradingResult={gradingResult}
+                verbosity={verbosity}
                 hasResult={hasResult}
                 hasError={hasError}
                 input={invocation.input}
@@ -245,6 +263,7 @@ export function ToolCard({ invocation }: ToolCardProps) {
  */
 interface ExpandedBodyProps {
   gradingResult: GradingResult | null;
+  verbosity: GradingDetailVerbosity;
   hasResult: boolean;
   hasError: boolean;
   input: Record<string, unknown>;
@@ -253,6 +272,7 @@ interface ExpandedBodyProps {
 
 function ExpandedBody({
   gradingResult,
+  verbosity,
   hasResult,
   hasError,
   input,
@@ -261,7 +281,7 @@ function ExpandedBody({
   if (gradingResult) {
     return (
       <div className="border-t border-neutral-100 px-3 py-3 dark:border-neutral-800">
-        <GradingDetailBlock grading={gradingResult} />
+        <GradingDetailBlock grading={gradingResult} verbosity={verbosity} />
       </div>
     );
   }

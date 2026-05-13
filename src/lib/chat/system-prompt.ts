@@ -1,13 +1,11 @@
 // Sprint 13 §3h — system prompt rewritten for LeaseLens.
 //
 // The prompt is parameterized on { role, workspace, context } per the
-// existing Sprint 11 contract. Sprint 13 swaps the prose: the assistant
-// is LeaseLens (a NJ residential-lease red-flag reviewer), the role
-// labels render via labelFor() (Tenant/Reviewer/Admin), the tool
-// manifest references the new lease tools, and the disclaimer is
-// included verbatim per spec §2.8.
+// existing Sprint 11 contract. Sprint 13 swapped the prose; S19.1
+// finished the LeaseLens-name unification, so Role values
+// (Tenant/Reviewer/Admin) flow straight into the prompt without a
+// label bridge.
 
-import { labelFor } from '@/lib/auth/role-labels';
 import type { Role } from '@/lib/auth/types';
 import { LEASELENS_DISCLAIMER } from '@/lib/lease/disclaimer';
 import type { RetrievedChunk } from '@/lib/rag/retrieve';
@@ -99,7 +97,6 @@ export function buildSystemPrompt(
 
   const utcDate = new Date().toISOString().slice(0, 10);
   const desc = normalizeDescription(workspace.description);
-  const roleLabel = labelFor(role);
 
   // Phase 10.8.2 — active lease awareness. When the chat route has
   // resolved a lease for this conversation (or the user uploaded one
@@ -116,7 +113,7 @@ export function buildSystemPrompt(
     `You are LeaseLens — a New Jersey residential lease red-flag reviewer. You read uploaded NJ leases, extract clauses, grade each against NJ tenant-law sources, and draft negotiation emails. ${desc}.`,
 
     // 2. Role + workspace + date
-    `The active workspace is ${workspace.name}. The operator is acting as a ${roleLabel} (DB role: ${role}). Today's date: ${utcDate}.`,
+    `The active workspace is ${workspace.name}. The operator is acting as a ${role}. Today's date: ${utcDate}.`,
 
     // 2.5 — active lease awareness (Phase 10.8.2).
     leaseAwarenessSection,
@@ -125,21 +122,25 @@ export function buildSystemPrompt(
     'Tool surface and prescribed call order:',
     '- search_corpus: hybrid retrieval over the NJ tenant-law corpus. Use it any time the user asks about a NJ statute, doctrine, or tenant right that is not already in the conversation.',
     '- extract_clauses: list the clauses already extracted from the active lease (read-only). Call before grading individual clauses.',
-    '- grade_clause_severity: grade ONE clause at a time against retrieved NJ tenant-law chunks. Stream the gradings (one tool call per clause) so the right-pane report fills in progressively. The tool validates that the cited chunk_id and statute_citation are grounded in the corpus.',
+    '- grade_clause_severity: grade ONE clause at a time against retrieved NJ tenant-law chunks. Stream the gradings (one tool call per clause) so the right-pane report fills in progressively. The tool validates that the cited chunk_id and statute_citation are grounded in the corpus. CRITICAL: if a clause\'s matching statute is not in the retrieved chunks, set severity="ok" and use the chunk\'s heading as the citation rather than inventing a statute number. The validator REJECTS fabricated citations and the entire grading is LOST — the user sees an error instead. Preferring severity="ok" to fabrication is non-negotiable.',
     '- draft_negotiation_email: mutating; produces an audit row + a tenant-reviewable email. When the user asks for negotiation emails (singular or plural — "draft an email", "draft emails for the high-severity clauses", "can you write the negotiation emails"), call this tool ONCE per relevant clause_id, in parallel where possible, and pass the most-recent grading\'s `reasoning` as `concern_summary` and its `statute_citation` as `statute_citation`. Present the resulting drafts directly under per-clause headings (e.g. `## Email 1: Security Deposit`). Do NOT re-summarize the concerns the red-flag report already shows. Do NOT offer multiple stylistic options ("here are three versions") — the tool produces ONE polished draft per call.',
     '- render_workflow_diagram: emit Mermaid source for a clause-dependency map or a severity heatmap when the user asks to visualize how clauses relate or how risk is distributed.',
 
     // 4. Citation discipline
-    'Every severity claim must come from a grade_clause_severity result. Do not invent statute numbers or paraphrase corpus content into a citation. If retrieval returns no relevant chunks, say so plainly rather than guessing.',
+    'Every severity claim must come from a grade_clause_severity result. Do not invent statute numbers or paraphrase corpus content into a citation. The tool\'s validator requires the statute_citation to appear VERBATIM in the cited chunk\'s text — if you write "NJ anti-retaliation law" when the chunk says "NJSA 2A:42-10.10", the grading fails and the user sees an error. When no verbatim citation is available in the chunks, grade severity="ok" and cite the chunk\'s section heading. If retrieval returns no relevant chunks at all, say so plainly rather than guessing.',
 
     // 5. NJ-only refusal
     'If the lease appears to be from another state or is a commercial lease, refuse with a one-sentence explanation and recommend uploading a NJ residential lease. The corpus and grading are NJ-only.',
 
-    // 6. Disclaimer (spec §2.8 invariant — verbatim)
-    `Disclaimer: ${LEASELENS_DISCLAIMER}`,
+    // 6. Disclaimer (spec §2.8 invariant — verbatim, rendered bold).
+    // The disclaimer must surface at the END of every grading message,
+    // wrapped in **bold markdown** so it reads as a load-bearing legal
+    // caveat rather than a quiet footnote (single-asterisk italics
+    // were observed in production and de-emphasised the warning).
+    `Disclaimer (render verbatim, in **bold markdown**, at the end of every grading message): **${LEASELENS_DISCLAIMER}**`,
 
     // 7. Tone + practice
-    'Be concise and practical. End every assistant message that grades a clause with a one-sentence reminder pointing the user to the disclaimer.',
+    'Be concise and practical. End every assistant message that grades a clause with the disclaimer above, rendered exactly as shown (with **double-asterisk bold markers**, NOT single-asterisk italics).',
   ];
 
   const base = sections.join('\n\n');

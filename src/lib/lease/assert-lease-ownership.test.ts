@@ -34,7 +34,7 @@ describe('assertLeaseOwnership', () => {
   describe('Tenant (Creator) role', () => {
     it('does not throw when lease.uploaded_by matches ctx.userId', () => {
       expect(() =>
-        assertLeaseOwnership(lease('u-tenant'), ctx('Creator', 'u-tenant')),
+        assertLeaseOwnership(lease('u-tenant'), ctx('Tenant', 'u-tenant')),
       ).not.toThrow();
     });
 
@@ -42,7 +42,7 @@ describe('assertLeaseOwnership', () => {
       expect(() =>
         assertLeaseOwnership(
           lease('u-someone-else'),
-          ctx('Creator', 'u-tenant'),
+          ctx('Tenant', 'u-tenant'),
         ),
       ).toThrow(/own|tenant|access/i);
     });
@@ -51,13 +51,16 @@ describe('assertLeaseOwnership', () => {
   describe('Reviewer (Editor) role', () => {
     it('does not throw when uploaded by another user — Reviewers see all leases in the workspace', () => {
       expect(() =>
-        assertLeaseOwnership(lease('u-tenant'), ctx('Editor', 'u-reviewer')),
+        assertLeaseOwnership(lease('u-tenant'), ctx('Reviewer', 'u-reviewer')),
       ).not.toThrow();
     });
 
     it('does not throw when uploaded by the Reviewer themselves', () => {
       expect(() =>
-        assertLeaseOwnership(lease('u-reviewer'), ctx('Editor', 'u-reviewer')),
+        assertLeaseOwnership(
+          lease('u-reviewer'),
+          ctx('Reviewer', 'u-reviewer'),
+        ),
       ).not.toThrow();
     });
   });
@@ -77,7 +80,7 @@ describe('assertLeaseOwnership', () => {
     expect(() =>
       assertLeaseOwnership(
         undefined as unknown as LeaseRow,
-        ctx('Creator', 'u-tenant'),
+        ctx('Tenant', 'u-tenant'),
       ),
     ).toThrow();
   });

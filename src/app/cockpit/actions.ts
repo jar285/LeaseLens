@@ -45,9 +45,9 @@ async function resolveSession(): Promise<SessionResult> {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get('leaselens_session');
   let userId: string | undefined = DEMO_USERS.find(
-    (u) => u.role === 'Creator',
+    (u) => u.role === 'Tenant',
   )?.id;
-  let role: Role = 'Creator';
+  let role: Role = 'Tenant';
   if (sessionCookie) {
     const payload = await decrypt(sessionCookie.value);
     if (payload?.userId) {
@@ -80,7 +80,7 @@ async function resolveSession(): Promise<SessionResult> {
  * is the only thing standing between Creator and cross-actor data.
  */
 function requireOperator(session: SessionResult): SessionResult {
-  if (session.role === 'Creator') {
+  if (session.role === 'Tenant') {
     throw new Error('Forbidden: cockpit is not available to Creator role');
   }
   return session;

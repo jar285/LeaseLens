@@ -3,9 +3,10 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useRollback } from '@/lib/audit/use-rollback';
+import type { Role } from '@/lib/auth/types';
 import type { ToolInvocation } from './ChatMessage';
 import { ChatStreamProvider } from './ChatStreamContext';
-import { ToolCard } from './ToolCard';
+import { ToolCard, verbosityForRole } from './ToolCard';
 
 vi.mock('@/lib/audit/use-rollback', () => ({
   useRollback: vi.fn(() => ({
@@ -36,7 +37,10 @@ vi.mock('motion/react', async (importOriginal) => {
   };
 });
 
-function renderToolCard(invocation: Partial<ToolInvocation> = {}) {
+function renderToolCard(
+  invocation: Partial<ToolInvocation> = {},
+  viewerRole?: Role,
+) {
   const baseInvocation: ToolInvocation = {
     id: 'tool-1',
     name: 'schedule_content_item',
@@ -48,9 +52,10 @@ function renderToolCard(invocation: Partial<ToolInvocation> = {}) {
   // and setActiveClauseId from ChatStreamContext for the View-on-page
   // wiring. Wrap unconditionally so both legacy and new tests share a
   // single render shape; ToolCard ignores the context when the branch
-  // doesn't fire.
+  // doesn't fire. S19.8 — pass `viewerRole` when the test wants to
+  // exercise the Reviewer/Admin verbosity branches.
   return render(
-    <ChatStreamProvider>
+    <ChatStreamProvider viewerRole={viewerRole}>
       <ToolCard invocation={baseInvocation} />
     </ChatStreamProvider>,
   );
@@ -255,6 +260,72 @@ describe('ToolCard', () => {
         screen.queryByTestId('grading-detail-block'),
       ).not.toBeInTheDocument();
       expect(screen.getByText('Result')).toBeInTheDocument();
+    });
+
+    // S19.8 — Reviewer / Admin propagate through verbosityForRole into
+    // GradingDetailBlock. Tenant suppresses the corpus-source line and
+    // raw JSON; Reviewer shows the source; Admin shows source + raw.
+    it('Tenant viewer renders the GradingDetailBlock WITHOUT the source line or raw JSON', () => {
+      renderToolCard(
+        {
+          name: 'grade_clause_severity',
+          input: { clause_id: 'c1' },
+          result: goodGrading,
+        },
+        'Tenant',
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Expand tool details' }),
+      );
+      expect(screen.getByTestId('grading-detail-block')).toBeInTheDocument();
+      expect(
+        screen.queryByTestId('grading-detail-source'),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('grading-detail-raw-json'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('Reviewer viewer surfaces the corpus-source line but not raw JSON', () => {
+      renderToolCard(
+        {
+          name: 'grade_clause_severity',
+          input: { clause_id: 'c1' },
+          result: goodGrading,
+        },
+        'Reviewer',
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Expand tool details' }),
+      );
+      expect(screen.getByTestId('grading-detail-source')).toBeInTheDocument();
+      expect(
+        screen.queryByTestId('grading-detail-raw-json'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('Admin viewer surfaces both the corpus-source line and the raw-JSON disclosure', () => {
+      renderToolCard(
+        {
+          name: 'grade_clause_severity',
+          input: { clause_id: 'c1' },
+          result: goodGrading,
+        },
+        'Admin',
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Expand tool details' }),
+      );
+      expect(screen.getByTestId('grading-detail-source')).toBeInTheDocument();
+      expect(screen.getByTestId('grading-detail-raw-json')).toBeInTheDocument();
+    });
+  });
+
+  describe('verbosityForRole', () => {
+    it('maps Tenant → tenant, Reviewer → reviewer, Admin → admin', () => {
+      expect(verbosityForRole('Tenant')).toBe('tenant');
+      expect(verbosityForRole('Reviewer')).toBe('reviewer');
+      expect(verbosityForRole('Admin')).toBe('admin');
     });
   });
 });

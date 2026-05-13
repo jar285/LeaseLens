@@ -78,7 +78,7 @@ describe('audit-log', () => {
   });
 
   it('listAuditRows filters by actor + orders by created_at DESC', () => {
-    const editor = seedUser(db, 'Editor');
+    const editor = seedUser(db, 'Reviewer');
     const id1 = writeAuditRow(db, {
       tool_name: 'schedule_content_item',
       context: ctx,
@@ -89,7 +89,7 @@ describe('audit-log', () => {
     const id2 = writeAuditRow(db, {
       tool_name: 'approve_draft',
       context: {
-        role: 'Editor',
+        role: 'Reviewer',
         userId: editor.id,
         conversationId: 'c',
         workspaceId: SAMPLE_WORKSPACE.id,

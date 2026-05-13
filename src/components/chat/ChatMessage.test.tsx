@@ -198,7 +198,7 @@ describe('ChatMessage — Sprint 18 §5 ScanTimeline role gate', () => {
           toolInvocations={scanInvocations}
         />,
         {
-          viewerRole: 'Creator',
+          viewerRole: 'Tenant',
           // The timeline reads its data from toolEvents, not props, so
           // mirror the invocations into the provider's events array.
           initialEvents: scanInvocations.map((inv) => ({
@@ -226,7 +226,7 @@ describe('ChatMessage — Sprint 18 §5 ScanTimeline role gate', () => {
           content=""
           toolInvocations={scanInvocations}
         />,
-        { viewerRole: 'Editor' },
+        { viewerRole: 'Reviewer' },
       ),
     );
     expect(screen.queryByTestId('scan-timeline')).not.toBeInTheDocument();
@@ -271,7 +271,7 @@ describe('ChatMessage — Sprint 18 §5 ScanTimeline role gate', () => {
           ]}
         />,
         {
-          viewerRole: 'Creator',
+          viewerRole: 'Tenant',
           initialEvents: scanInvocations.map((inv) => ({
             tool_name: inv.name,
             input: inv.input,
@@ -284,5 +284,26 @@ describe('ChatMessage — Sprint 18 §5 ScanTimeline role gate', () => {
     expect(screen.getByTestId('scan-timeline')).toBeInTheDocument();
     // The drafted-email card stays inline.
     expect(screen.getByText('draft_negotiation_email')).toBeInTheDocument();
+  });
+
+  // S19.9 — touch-target rule: every follow-up chip must be at least
+  // 44×44px on mobile. We assert the class string carries `min-h-11`
+  // (Tailwind = 2.75rem = 44px) rather than measuring layout, because
+  // jsdom doesn't compute box geometry.
+  it('S19.9 — follow-up chips reach the 44px touch-target minimum', () => {
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content="Done."
+          followUpPrompts={[
+            { id: 'p1', label: 'Tap me', prompt: 'do the thing' },
+          ]}
+        />,
+      ),
+    );
+    const chip = screen.getByRole('button', { name: 'Tap me' });
+    expect(chip.className).toMatch(/\bmin-h-11\b/);
   });
 });

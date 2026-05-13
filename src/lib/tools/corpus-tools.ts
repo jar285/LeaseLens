@@ -93,7 +93,7 @@ export function createGetDocumentSummaryTool(
       },
       required: ['slug'],
     } as const,
-    roles: ['Editor', 'Admin'],
+    roles: ['Reviewer', 'Admin'],
     category: 'corpus',
     execute: async (input, ctx) => {
       const slug = String(input.slug ?? '');

@@ -62,8 +62,8 @@ export default async function Home() {
 
   const sessionCookie = cookieStore.get('leaselens_session');
 
-  let currentRole: 'Creator' | 'Editor' | 'Admin' = 'Creator';
-  let currentUserId = DEMO_USERS.find((u) => u.role === 'Creator')?.id;
+  let currentRole: 'Tenant' | 'Reviewer' | 'Admin' = 'Tenant';
+  let currentUserId = DEMO_USERS.find((u) => u.role === 'Tenant')?.id;
 
   if (sessionCookie) {
     const payload = await decrypt(sessionCookie.value);
@@ -136,7 +136,7 @@ export default async function Home() {
             LeaseLens
           </Link>
           <WorkspaceHeader workspace={workspace} otherBrands={otherBrands} />
-          {currentRole !== 'Creator' && (
+          {currentRole !== 'Tenant' && (
             <Link
               href="/cockpit"
               className="rounded-md px-1 text-sm font-medium text-neutral-500 transition-colors hover:text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-400 dark:hover:text-neutral-200"

@@ -106,4 +106,110 @@ describe('classifyClause', () => {
       classifyClause('TENANT SHALL PROVIDE A SECURITY DEPOSIT OF ONE MONTH'),
     ).toBe('security_deposit');
   });
+
+  // S22.1 — pdfjs text-extraction injects MULTIPLE spaces between every
+  // word ("LATE   FEE.   Any   rent   payment   received   after...").
+  // The keyword phrases are single-spaced ('late fee', 'security
+  // deposit', 'enter the premises'); a literal substring check misses
+  // every clause whose text comes from the parser. Whitespace must be
+  // normalised before the includes() check.
+  describe('S22.1 — multi-space PDF text from pdfjs', () => {
+    it('classifies "LATE   FEE." correctly (3-space pdfjs output)', () => {
+      expect(
+        classifyClause('LATE   FEE.   Any   rent   payment   received'),
+      ).toBe('late_fee');
+    });
+
+    it('classifies "SECURITY   DEPOSIT." correctly', () => {
+      expect(
+        classifyClause('SECURITY   DEPOSIT.   Tenant   shall   provide'),
+      ).toBe('security_deposit');
+    });
+
+    it('classifies "ATTORNEYS   FEES." correctly', () => {
+      expect(classifyClause('ATTORNEYS   FEES.   In   any   action')).toBe(
+        'attorneys_fees',
+      );
+    });
+
+    it('classifies "LANDLORD   ENTRY." correctly (enter the premises)', () => {
+      expect(
+        classifyClause(
+          'LANDLORD   ENTRY.   Landlord   may   enter   the   Premises',
+        ),
+      ).toBe('entry');
+    });
+
+    it('classifies "PETS." correctly (no pets phrasing)', () => {
+      expect(
+        classifyClause('PETS.   No   pets   of   any   kind   are   permitted'),
+      ).toBe('pet');
+    });
+
+    it('classifies "PARKING." correctly', () => {
+      expect(
+        classifyClause(
+          'PARKING.   Tenant   is   assigned   one   parking   space',
+        ),
+      ).toBe('parking');
+    });
+
+    it('classifies "EARLY   TERMINATION." correctly', () => {
+      expect(
+        classifyClause('EARLY   TERMINATION.   Tenant   may   not   terminate'),
+      ).toBe('early_termination');
+    });
+
+    it('classifies an auto-renewal clause with multi-space text', () => {
+      // "automatically renew" runs verbatim — check the phrase still
+      // matches when its component words sit behind multi-space gaps.
+      expect(
+        classifyClause(
+          'TERM.   The   lease   shall   automatically   renew   for   one-year   terms.',
+        ),
+      ).toBe('automatic_renewal');
+    });
+
+    it('normalises tabs and newlines the same as runs of spaces', () => {
+      expect(classifyClause('late\t\tfee')).toBe('late_fee');
+      expect(classifyClause('late\n\nfee')).toBe('late_fee');
+    });
+  });
+
+  // S22.1 — rule-order: distinct-topic clauses win over clauses that
+  // merely mention another topic in passing. The original sample
+  // lease's SUBLETTING clause body says "...attempted sublet shall
+  // result in forfeiture of the security deposit", which currently
+  // mis-classifies as security_deposit because the rule for that type
+  // is checked before sublet. The sublet rule should win because
+  // 'sublet' / 'sublease' are far more specific to subletting than
+  // 'security deposit' is to that clause's subject.
+  describe('S22.1 — rule-order: distinct-topic phrases win over passing mentions', () => {
+    it('classifies a SUBLETTING clause that incidentally mentions "security deposit" as sublet', () => {
+      expect(
+        classifyClause(
+          'SUBLETTING. Tenant shall not sublet, assign, or otherwise transfer. Any attempted sublet shall be a material breach and result in forfeiture of the security deposit.',
+        ),
+      ).toBe('sublet');
+    });
+
+    it('classifies a RETALIATION clause that mentions "security deposit" as retaliation', () => {
+      expect(
+        classifyClause(
+          "RETALIATION CLAUSE. Tenant agrees that Landlord may, at Landlord's sole discretion, terminate this Lease and retain the security deposit if Tenant complains.",
+        ),
+      ).toBe('retaliation');
+    });
+
+    it('classifies an INDEMNIFICATION clause that mentions "attorneys fees" as indemnification', () => {
+      // The lease's indemnification + fees stack: indemnification rule
+      // should still win because 'indemnify' / 'hold harmless' are
+      // more distinctive than 'attorneys fees'.
+      expect(
+        classifyClause(
+          'INDEMNIFICATION. Tenant agrees to indemnify and hold harmless Landlord, including all attorneys fees incurred.',
+        ),
+      ).toBe('indemnification');
+    });
+  });
 });

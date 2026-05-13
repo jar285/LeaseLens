@@ -36,12 +36,20 @@ import {
 
 const HIGHLIGHT_DURATION_MS = 4000;
 
+// S19.8 — verbosity tiers. Tenant is the default; Reviewer adds a
+// corpus-source line so an auditor can verify which chunk grounded the
+// grading; Admin additionally exposes the full grading payload behind
+// a collapsed <details> disclosure for raw debugging.
+export type GradingDetailVerbosity = 'tenant' | 'reviewer' | 'admin';
+
 export interface GradingDetailBlockProps {
   grading: GradingResult;
+  verbosity?: GradingDetailVerbosity;
 }
 
 export function GradingDetailBlock({
   grading,
+  verbosity = 'tenant',
 }: GradingDetailBlockProps): React.JSX.Element {
   const { pdfViewerRef, setActiveClauseId } = useChatStream();
 
@@ -132,6 +140,42 @@ export function GradingDetailBlock({
             <ExternalLink className="h-3 w-3" aria-hidden="true" />
             View on page {grading.page_number}
           </button>
+        ) : null}
+
+        {/* S19.8 — Reviewer & Admin: which corpus chunk grounded the
+            grading. The chunk_id is opaque to a tenant but invaluable
+            to an auditor verifying that the statute citation came from
+            an actual NJ source rather than the model paraphrasing. */}
+        {verbosity !== 'tenant' && grading.chunk_id ? (
+          <div
+            data-testid="grading-detail-source"
+            className="border-t border-neutral-100 pt-2 dark:border-neutral-800"
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+              Source chunk
+            </p>
+            <p className="mt-0.5 font-mono text-[11px] text-fg-subtle">
+              {grading.chunk_id}
+            </p>
+          </div>
+        ) : null}
+
+        {/* S19.8 — Admin only: collapsed raw-JSON disclosure. The
+            <details> element is HTML-native, keyboard-accessible, and
+            announces "expanded/collapsed" to screen readers without
+            any custom ARIA wiring. */}
+        {verbosity === 'admin' ? (
+          <details
+            data-testid="grading-detail-raw-json"
+            className="border-t border-neutral-100 pt-2 dark:border-neutral-800"
+          >
+            <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+              Raw grading payload
+            </summary>
+            <pre className="mt-2 overflow-x-auto rounded bg-neutral-50 p-2 font-mono text-[11px] text-fg-default dark:bg-neutral-800">
+              {JSON.stringify(grading, null, 2)}
+            </pre>
+          </details>
         ) : null}
       </div>
     </article>

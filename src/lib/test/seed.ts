@@ -11,6 +11,7 @@
 
 import type Database from 'better-sqlite3';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { toDbRole } from '@/lib/auth/role-codec';
 import type { Role } from '@/lib/auth/types';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { mockEmbedding } from './embed-mock';
@@ -80,14 +81,14 @@ export function seedChunk(
  */
 export function seedUser(
   db: Database.Database,
-  role: Role = 'Creator',
+  role: Role = 'Tenant',
 ): { id: string; email: string; role: Role; display_name: string } {
   const user = DEMO_USERS.find((u) => u.role === role);
   if (!user) throw new Error(`No demo user with role ${role}`);
   const now = Math.floor(Date.now() / 1000);
   db.prepare(
     'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-  ).run(user.id, user.email, user.role, user.display_name, now);
+  ).run(user.id, user.email, toDbRole(user.role), user.display_name, now);
   return user;
 }
 

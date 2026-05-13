@@ -55,4 +55,42 @@ describe('CitationChip', () => {
     const btn = screen.getByRole('button', { name: /NJ Stat 46:8-21\.2/ });
     expect(btn.getAttribute('aria-label')).toBe('NJ Stat 46:8-21.2');
   });
+
+  // S20.4 — long citations clipped horizontally in the right-pane red
+  // flags. The chip text now wraps to 2 lines (clamp + ellipsis), the
+  // hover tooltip carries the full citation, and break-words prevents
+  // a super-long word from punching through the card.
+  describe('S20.4 — overflow handling', () => {
+    const LONG =
+      'NJ does not have a statute that broadly prohibits or restricts subletting in residential leases — but several decisions';
+
+    it('clamps the visible text to 2 lines with the line-clamp-2 utility', () => {
+      render(<CitationChip statuteCitation={LONG} />);
+      const text = screen.getByText(LONG);
+      expect(text.className).toMatch(/\bline-clamp-2\b/);
+      // Single-line truncate is gone; we don't want both classes
+      // active (truncate forces overflow:hidden + nowrap and beats
+      // line-clamp at the cascade).
+      expect(text.className).not.toMatch(/\btruncate\b/);
+    });
+
+    it('allows long unbreakable words to wrap inside the chip (break-words)', () => {
+      render(<CitationChip statuteCitation={LONG} />);
+      expect(screen.getByText(LONG).className).toMatch(/\bbreak-words\b/);
+    });
+
+    it('sets the title attribute on the button variant for native tooltip', () => {
+      render(<CitationChip statuteCitation={LONG} onClick={() => {}} />);
+      const btn = screen.getByRole('button', {
+        name: new RegExp(LONG.slice(0, 20)),
+      });
+      expect(btn.getAttribute('title')).toBe(LONG);
+    });
+
+    it('sets the title attribute on the static span variant too', () => {
+      render(<CitationChip statuteCitation={LONG} />);
+      const span = screen.getByTestId('citation-chip');
+      expect(span.getAttribute('title')).toBe(LONG);
+    });
+  });
 });

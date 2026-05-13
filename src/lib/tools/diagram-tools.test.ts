@@ -11,7 +11,7 @@ import type { ToolExecutionContext } from './domain';
 const stubDb = null as unknown as Database.Database;
 
 const ctx: ToolExecutionContext = {
-  role: 'Creator',
+  role: 'Tenant',
   userId: 'test-user',
   conversationId: 'test-conv',
   workspaceId: SAMPLE_WORKSPACE.id,

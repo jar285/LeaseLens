@@ -138,7 +138,11 @@ const GRADING_INSTRUCTION = `
 You are grading a single residential-lease clause against NJ tenant-law sources retrieved from the corpus. Output ONE JSON object — no commentary, no markdown fences, no leading text — with exactly these keys:
 
 - severity:           "high" | "medium" | "low" | "ok"
-- statute_citation:   A human-readable statute reference (e.g. "NJ Stat 46:8-21.2", "42 USC §3604(f)(3)(B)", "N.J.S.A. 2A:18-61.1") that appears VERBATIM, character-for-character, in the cited chunk's CONTENT below. DO NOT use the bracketed chunk identifier (anything containing '#section:'). The chunk identifier goes in chunk_id, not here. If you cannot find a verbatim statute string in the chunk content, set severity to "ok" and use the closest topical heading.
+- statute_citation:   A human-readable statute or case reference (e.g. "NJSA 46:8-21.2", "42 USC §3604(f)(3)(B)", "Marini v. Ireland, 56 N.J. 130 (1970)", "N.J. Const. Art. I, ¶9") that appears VERBATIM, character-for-character, in the cited chunk's CONTENT below. DO NOT use the bracketed chunk identifier (anything containing '#section:'). The chunk identifier goes in chunk_id, not here.
+
+  **CRITICAL — anti-fabrication policy.** Before you commit a citation, search the chunk CONTENT for the exact string. If you cannot find a verbatim match (allowing only whitespace and case flex), DO NOT INVENT one. Examples of fabrication that the validator rejects: writing "NJ anti-retaliation law" when the chunk only contains "NJSA 2A:42-10.10"; writing "NJ Stat 46:8-9" when no such NJSA appears in any chunk; writing "common law" as the citation. Each rejection means the user sees an error instead of your grading — the whole grading is LOST.
+
+  When no verbatim statute/case string matches: set severity to "ok" and set statute_citation to the chunk's section HEADING (e.g. "Late Fees on Rent — Marini v. Ireland, 56 N.J. 130 (1970); NJSA 56:8-1 et seq.") rather than fabricating. Choosing severity="ok" with a heading citation is ALWAYS preferable to fabrication.
 - chunk_id:           The EXACT chunk identifier (e.g. "security-deposit-cap#section:1") copied from the bracketed prefix of the chunk you cite. No fabrication.
 - reasoning:          A 200-400 character explanation of why the clause is graded as it is.
 - recommended_action: A short next step the tenant could take.
@@ -383,7 +387,7 @@ export function createDraftNegotiationEmailTool(
       },
       required: ['clause_id'],
     },
-    roles: ['Creator', 'Editor', 'Admin'],
+    roles: ['Tenant', 'Reviewer', 'Admin'],
     category: 'lease',
 
     // Async pre-step: ownership check + Anthropic call. Runs BEFORE the

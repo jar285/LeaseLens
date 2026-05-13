@@ -33,7 +33,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 async function mockCookieFor(
-  role: 'Creator' | 'Editor' | 'Admin' | null,
+  role: 'Tenant' | 'Reviewer' | 'Admin' | null,
 ): Promise<void> {
   if (role === null) {
     (cookies as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -89,21 +89,21 @@ describe('CockpitPage', () => {
   });
 
   it('redirects to / when the session decrypts to Creator role', async () => {
-    await mockCookieFor('Creator');
+    await mockCookieFor('Tenant');
     const CockpitPage = (await import('./page')).default;
     await expect(CockpitPage()).rejects.toThrow('NEXT_REDIRECT');
     expect(redirect).toHaveBeenCalledWith('/');
   });
 
   it('renders the dashboard for Editor session with empty approvals', async () => {
-    await mockCookieFor('Editor');
+    await mockCookieFor('Reviewer');
     const CockpitPage = (await import('./page')).default;
     const tree = await CockpitPage();
     // Render output is a JSX element tree; no React renderer in this test
     // env, but we can introspect props via the mocked CockpitDashboard.
     // Walk the tree to find the dashboard stub's props.
     const stubProps = findStubProps(tree);
-    expect(stubProps?.role).toBe('Editor');
+    expect(stubProps?.role).toBe('Reviewer');
     expect(stubProps?.approvals).toEqual([]);
     expect(redirect).not.toHaveBeenCalled();
   });

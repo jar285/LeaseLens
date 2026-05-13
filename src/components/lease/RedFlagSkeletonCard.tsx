@@ -67,11 +67,19 @@ export function RedFlagSkeletonCard({
       />
       <div className="flex items-start gap-2 py-3 pr-3 pl-4">
         <div className="min-w-0 flex-1 space-y-2">
-          {/* Severity badge + clause label row */}
+          {/* Severity badge + clause label row.
+              Sprint 23d Phase 3 — added a circle placeholder where the
+              SeverityBadge icon will live so the skeleton mirrors the
+              new real-card silhouette (icon + label + colour). */}
           <div className="flex items-center gap-1.5">
             <PulseBar
-              className="block h-3 w-12 rounded-full bg-neutral-200 dark:bg-neutral-700"
+              className="block h-3 w-3 rounded-full bg-neutral-200 dark:bg-neutral-700"
               delay={delay}
+              reduced={reduced}
+            />
+            <PulseBar
+              className="block h-3 w-12 rounded-full bg-neutral-200 dark:bg-neutral-700"
+              delay={delay + 0.03}
               reduced={reduced}
             />
             <PulseBar

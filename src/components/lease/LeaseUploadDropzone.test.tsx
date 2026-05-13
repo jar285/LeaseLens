@@ -243,4 +243,49 @@ describe('LeaseUploadDropzone', () => {
       expect(section.className).not.toMatch(/\bp-8\b/);
     });
   });
+
+  // Sprint 23b Phase 6.2 — drag-drop file passthrough. The drop path
+  // bypasses the <input> element entirely (file goes straight into
+  // handleFile), so callers can't recover the File via the DOM. The
+  // dropzone must forward the File as a second arg to onUploaded so
+  // the parent shell can build a Blob URL for the PDF viewer.
+  describe('Sprint 23b — onUploaded file passthrough', () => {
+    it('passes the File object alongside UploadResult on click-to-upload', async () => {
+      const onUploaded = vi.fn();
+      render(<LeaseUploadDropzone onUploaded={onUploaded} />);
+
+      const input = screen.getByTestId(
+        'lease-upload-input',
+      ) as HTMLInputElement;
+      const file = makePdfFile('click-path.pdf');
+      Object.defineProperty(input, 'files', { value: [file] });
+      fireEvent.change(input);
+
+      await waitFor(() => {
+        expect(onUploaded).toHaveBeenCalledTimes(1);
+      });
+      const [result, passedFile] = onUploaded.mock.calls[0];
+      expect(result.lease_id).toBe('lease-stub');
+      expect(passedFile).toBeInstanceOf(File);
+      expect((passedFile as File).name).toBe('click-path.pdf');
+    });
+
+    it('passes the File object alongside UploadResult on drag-drop', async () => {
+      const onUploaded = vi.fn();
+      render(<LeaseUploadDropzone onUploaded={onUploaded} />);
+
+      const dropZone = screen.getByTestId('lease-upload-dropzone');
+      const file = makePdfFile('drop-path.pdf');
+      fireEvent.drop(dropZone, {
+        dataTransfer: { files: [file] },
+      });
+
+      await waitFor(() => {
+        expect(onUploaded).toHaveBeenCalledTimes(1);
+      });
+      const [, passedFile] = onUploaded.mock.calls[0];
+      expect(passedFile).toBeInstanceOf(File);
+      expect((passedFile as File).name).toBe('drop-path.pdf');
+    });
+  });
 });

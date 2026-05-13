@@ -264,85 +264,92 @@ export function PdfViewerClient({
       data-testid="pdf-viewer"
       className="flex h-full min-h-0 w-full flex-1 flex-col bg-surface-muted dark:bg-neutral-950"
     >
-      {/* Header chrome — filename · pages · clauses · status pill, all
-          in a single row so the reading surface gets the maximum
-          vertical real estate. S20.1 collapsed the previous two-row
-          layout into one. */}
+      {/* Sprint 23b Phase 3 — two-row dock header.
+          Row 1: brand icon + filename + parsed/failed pill + expand button.
+          Row 2: page/clause meta + reading controls (secondary),
+          set on `bg-surface-sunken` so the two visual registers separate
+          cleanly.
+          Sprint 23b Phase 6.1 — Expand moved from row 2 to row 1 and
+          row 2 takes flex-wrap so reading controls reflow under the
+          metadata at very narrow pane widths instead of overlapping. */}
       <header
         data-testid="pdf-viewer-header"
-        className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 bg-surface-card px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900"
+        className="flex shrink-0 flex-col border-b border-neutral-100 dark:border-neutral-800"
       >
         <div
-          data-testid="pdf-viewer-meta"
-          className="flex min-w-0 items-center gap-2 text-[12px] leading-tight"
+          data-testid="pdf-viewer-header-row1"
+          className="flex items-center justify-between gap-3 bg-surface-card px-3 py-2 dark:bg-neutral-900"
         >
-          <span
-            aria-hidden="true"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300"
-          >
-            <ScrollText className="h-3 w-3" strokeWidth={2.25} />
-          </span>
-          <span
-            data-testid="pdf-viewer-filename"
-            className="truncate font-medium text-fg-default"
-          >
-            {filename ?? 'Lease document'}
-          </span>
-          <span className="shrink-0 text-fg-muted" aria-hidden="true">
-            ·
-          </span>
-          <span className="shrink-0 text-fg-muted">
-            {numPages > 0 ? pluralize(numPages, 'page') : 'Loading…'}
-          </span>
-          {typeof clauseCount === 'number' ? (
-            <>
-              <span className="shrink-0 text-fg-muted" aria-hidden="true">
-                ·
-              </span>
-              <span className="shrink-0 text-fg-muted">
-                {pluralize(clauseCount, 'clause')}
-              </span>
-            </>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {/* S20.6 — reading controls live in Focus mode ONLY. The
-              inline pane is a narrow preview surface (~26rem); cramming
-              zoom + fit + page indicator + expand + parsed pill into
-              that strip causes label collisions ("agl00% 1 u" garble
-              in production screenshots) and pushes the filename out of
-              the available width. Focus mode has the full viewport, so
-              the reading controls land there instead. */}
-          {hideFocusToggle ? (
-            <PdfReadingControls
-              zoom={zoom}
-              fit={fit}
-              currentPage={currentPage}
-              totalPages={numPages}
-              onZoomIn={handleZoomIn}
-              onZoomOut={handleZoomOut}
-              onToggleFit={handleToggleFit}
-            />
-          ) : (
-            <button
-              type="button"
-              aria-label="Expand to full viewport"
-              data-testid="pdf-viewer-expand"
-              onClick={() => setFocused(true)}
-              className="inline-flex min-h-9 items-center justify-center rounded-md border border-neutral-200 bg-surface-card px-2 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
+          <div className="flex min-w-0 items-center gap-2 text-[13px] leading-tight">
+            <span
+              aria-hidden="true"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300"
             >
-              <Maximize2 className="h-3 w-3" aria-hidden="true" />
-            </button>
-          )}
-          {loadError ? (
-            <span className="rounded-full bg-danger-100 px-2 py-0.5 text-[11px] font-medium text-danger-600 dark:bg-danger-600/15 dark:text-danger-100">
-              Failed
+              <ScrollText className="h-3 w-3" strokeWidth={2.25} />
             </span>
-          ) : numPages > 0 ? (
-            <span className="rounded-full bg-success-100 px-2 py-0.5 text-[11px] font-medium text-success-600 dark:bg-success-600/15 dark:text-success-100">
-              Parsed
+            <span
+              data-testid="pdf-viewer-filename"
+              title={filename ?? 'Lease document'}
+              className="truncate font-medium text-fg-default"
+            >
+              {filename ?? 'Lease document'}
             </span>
-          ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {loadError ? (
+              <span className="rounded-full bg-danger-100 px-2 py-0.5 text-[11px] font-medium text-danger-600 dark:bg-danger-600/15 dark:text-danger-100">
+                Failed
+              </span>
+            ) : numPages > 0 ? (
+              <span className="rounded-full bg-success-100 px-2 py-0.5 text-[11px] font-medium text-success-600 dark:bg-success-600/15 dark:text-success-100">
+                Parsed
+              </span>
+            ) : null}
+            {!hideFocusToggle ? (
+              <button
+                type="button"
+                aria-label="Expand to full viewport"
+                data-testid="pdf-viewer-expand"
+                onClick={() => setFocused(true)}
+                className="inline-flex min-h-9 items-center justify-center rounded-md border border-neutral-200 bg-surface-card px-2 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
+              >
+                <Maximize2 className="h-3 w-3" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div
+          data-testid="pdf-viewer-header-row2"
+          className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 bg-surface-sunken px-3 py-1.5"
+        >
+          <div
+            data-testid="pdf-viewer-meta"
+            className="flex min-w-0 items-center gap-2 text-[11px] leading-tight text-fg-muted"
+          >
+            <span className="shrink-0">
+              {numPages > 0 ? pluralize(numPages, 'page') : 'Loading…'}
+            </span>
+            {typeof clauseCount === 'number' ? (
+              <>
+                <span className="shrink-0" aria-hidden="true">
+                  ·
+                </span>
+                <span className="shrink-0">
+                  {pluralize(clauseCount, 'clause')}
+                </span>
+              </>
+            ) : null}
+          </div>
+          <PdfReadingControls
+            zoom={zoom}
+            fit={fit}
+            currentPage={currentPage}
+            totalPages={numPages}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onToggleFit={handleToggleFit}
+            compact={!hideFocusToggle}
+          />
         </div>
       </header>
 

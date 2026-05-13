@@ -117,6 +117,16 @@ export function buildSystemPrompt(
   const reusePriorResultsSection =
     "When the conversation history already contains grade_clause_severity or extract_clauses tool_result blocks from earlier turns, REUSE those results to answer follow-up questions (ranking, summarising, drafting emails for specific clauses). Do NOT re-run the scan tools on follow-up turns unless the user explicitly asks for a re-scan, the lease changed, or a needed clause is missing from the prior results. When drafting emails or ranking by severity, cite the prior grading's `reasoning` and `statute_citation` directly rather than calling the tool again.";
 
+  // Sprint 23e — draft_negotiation_email rendering contract. When the
+  // model fires draft_negotiation_email ×N and then writes its assistant
+  // text, it tends to produce a SUMMARY TABLE of email titles instead
+  // of the actual emails — leaving the polished subject + body buried
+  // inside collapsed tool_result JSON cards that tenants cannot see.
+  // This section forces VERBATIM rendering of each email's subject and
+  // body in markdown so the user can read and copy the deliverable.
+  const draftEmailRenderingSection =
+    'After every draft_negotiation_email tool_result, you MUST render the email VERBATIM in your assistant text using this exact markdown shape, one block per tool call: a `## Email N: {clause label}` heading, then a `**Subject:** {tool_result.subject}` line, then a blank line, then the full `tool_result.body` text rendered as plain paragraphs (preserve line breaks). Do NOT produce a summary table of email titles, a numbered list of clause names, or "I drafted N emails…" boilerplate — the user needs to read and copy the actual email body the tool generated. Do NOT paraphrase the body or omit any of its text. The subject line and body are the deliverable; everything else in the message is scaffolding.';
+
   const sections = [
     // 1. Identity
     `You are LeaseLens — a New Jersey residential lease red-flag reviewer. You read uploaded NJ leases, extract clauses, grade each against NJ tenant-law sources, and draft negotiation emails. ${desc}.`,
@@ -129,6 +139,9 @@ export function buildSystemPrompt(
 
     // 2.6 — Sprint 23e: prefer prior tool results on follow-up turns.
     reusePriorResultsSection,
+
+    // 2.7 — Sprint 23e: verbatim email rendering after draft_negotiation_email.
+    draftEmailRenderingSection,
 
     // 3. Workflow + tool manifest
     'Tool surface and prescribed call order:',

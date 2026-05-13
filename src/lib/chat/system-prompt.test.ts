@@ -183,4 +183,59 @@ describe('buildSystemPrompt', () => {
     });
   });
 
+  // Sprint 23e (extended) — closes the "10 collapsed tool cards but no
+  // visible emails" bug. After draft_negotiation_email fires N times,
+  // the model needs to render every email's subject and body verbatim
+  // so the user can read and copy the deliverable.
+  describe('Sprint 23e — verbatim draft-email rendering', () => {
+    it('instructs the model to render the email VERBATIM (subject + body)', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The new section says "render the email VERBATIM" and calls out
+      // both `subject` and `body` as the load-bearing fields.
+      expect(prompt).toMatch(/render.*verbatim/i);
+      expect(prompt).toMatch(/subject/i);
+      expect(prompt).toMatch(/body/i);
+    });
+
+    it('forbids the summary-table-of-titles failure mode explicitly', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The new section forbids the exact pattern the model was
+      // producing (summary table, numbered list, "I drafted N emails…").
+      expect(prompt).toMatch(
+        /do not produce.*summary table|summary table.*do not/i,
+      );
+    });
+
+    it('names the markdown shape the model must follow per email', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The shape spec mentions the H2 heading + Subject line so the
+      // model has a concrete template to follow.
+      expect(prompt).toMatch(/##\s*Email\s*N/i);
+      expect(prompt).toMatch(/\*\*Subject:\*\*/);
+    });
+  });
 });

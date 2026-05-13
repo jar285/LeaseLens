@@ -88,7 +88,14 @@ function ShellInner({
     // S19.3 — also surface the narrative-relevant fields on the chat
     // context so useScanNarrative / ChatEmptyState can render the
     // synthetic "Lease uploaded" intro and the post-scan summary.
-    setContextLease({ lease_id: result.lease_id, filename });
+    // Sprint 23c Phase 2 — also forward the page/clause counts so the
+    // new UploadedLeaseCard can render the meta line.
+    setContextLease({
+      lease_id: result.lease_id,
+      filename,
+      page_count: result.page_count,
+      clause_count: result.clause_count,
+    });
   }
 
   function handleToolEvent(event: ChatToolEvent): void {

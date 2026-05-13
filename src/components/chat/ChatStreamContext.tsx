@@ -38,10 +38,17 @@ export interface PdfViewerHandle {
  * whether to render lease-aware affordances. The full lease object
  * (with pdfUrl etc.) stays local to LeaseLensWorkspaceShell; only the
  * narrative-relevant fields surface here to avoid bloating the context.
+ *
+ * Sprint 23c Phase 2 — `page_count` and `clause_count` added (optional)
+ * so the new UploadedLeaseCard can render the "N pages · M clauses"
+ * meta line. They're optional to preserve backward compatibility with
+ * test fixtures that pre-date the field.
  */
 export interface ActiveLeaseRef {
   lease_id: string;
   filename: string;
+  page_count?: number;
+  clause_count?: number;
 }
 
 interface ChatStreamContextValue {

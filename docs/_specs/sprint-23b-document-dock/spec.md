@@ -116,6 +116,32 @@ Manual walk via `npm run dev` at `http://localhost:3000/`, sample lease loaded.
 
 ---
 
+## 4b. Phase 6 — Bug fixes surfaced during smoke walk (in-scope addendum)
+
+Two bugs surfaced when the user smoke-walked the post-Phase-5 implementation. Both fold naturally into 23b's scope:
+
+### Bug 6.1 — Row 2 overflow at narrow pane widths (caused by 23b)
+
+At the default ~280-320px inline pane width, row 2 contained: metadata ("2 pages · 15 clauses") + `PdfReadingControls` (compact: zoom-out / 100% / zoom-in / fit-width / "Page N") + expand button. The horizontal space wasn't enough — controls overlapped the metadata (visible as "1009%5" garble in the screenshot).
+
+**Fix:** Move the expand button from row 2 to row 1 (next to the Parsed pill) and add `flex-wrap` to row 2 so at very narrow widths the reading controls reflow under the metadata instead of overlapping. Side benefit: expand sits next to the Parsed pill in row 1, giving it a stronger, more prominent affordance.
+
+### Bug 6.2 — Drag-drop upload broken (pre-existing latent bug)
+
+Drag-dropping a PDF onto the dropzone produced `ResponseException: Unexpected server response (0) while retrieving PDF "blob:placeholder"`. Root cause traced to [src/components/lease/LeaseLensWorkspaceShell.tsx:175-181](../../../src/components/lease/LeaseLensWorkspaceShell.tsx#L175-L181) — `UploadColumn` recovered the File via `document.querySelector('[data-testid="lease-upload-input"]').files[0]`. That only works for click-to-upload (which populates the `<input>.files`). The drag path calls `LeaseUploadDropzone.handleFile(file)` directly and never assigns to the input → `file` is undefined → `pdfUrl = 'blob:placeholder'` → `react-pdf` fails.
+
+**Fix:** Change `LeaseUploadDropzone.onUploaded` signature from `(result: UploadResult) => void` to `(result: UploadResult, file: File) => void`. The dropzone has the File reference in `handleFile` regardless of which path delivered it (click or drop). The shell's `UploadColumn` wrapper drops the brittle DOM-sniff and forwards the File directly. `LeaseLensWorkspaceShell.handleUploaded` makes `file` a required arg (not `file?: File`) and drops the `'blob:placeholder'` fallback.
+
+This is technically a pre-existing bug, not a 23b regression — but since the dropzone is being refactored anyway and the fix is one-line in two files, fold it in.
+
+### Test impact
+
+- 3 new layout tests in `PdfViewer.test.tsx` (expand-in-row-1, row-2 has flex-wrap, expand NOT in row 2) — replace the prior row-2 expand assertion.
+- 2 new file-passthrough tests in `LeaseUploadDropzone.test.tsx` (click path passes File; drag path passes File).
+- Tests at finish: 765/765 (763 → +2 net; the row-test conversion is net-zero).
+
+---
+
 ## 5. Out of scope
 
 - New legal grading rules / corpus / classifier changes.

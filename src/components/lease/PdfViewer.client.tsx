@@ -363,7 +363,7 @@ export function PdfViewerClient({
         {activeClauseId && activePageNumber ? (
           <div
             data-testid="pdf-viewer-active-callout"
-            className="pointer-events-none sticky top-0 z-10 mb-2 flex justify-center"
+            className="pointer-events-none sticky top-0 z-raised mb-2 flex justify-center"
           >
             <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-accent-200 bg-surface-card/95 px-3 py-1 text-[11px] font-medium text-accent-700 shadow-sm backdrop-blur dark:border-accent-500/40 dark:bg-neutral-900/95 dark:text-accent-300">
               <MapPin className="h-3 w-3" aria-hidden="true" />

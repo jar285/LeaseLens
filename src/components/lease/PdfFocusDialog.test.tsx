@@ -117,4 +117,21 @@ describe('PdfFocusDialog', () => {
     fireEvent(dialog, new Event('close'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  // S23a.1 — backdrop styling consumes the design token, not inline values.
+  // The token `--color-backdrop` (defined in globals.css `@theme` + `:root.dark`)
+  // auto-flips between schemes; the component just references `bg-backdrop` via
+  // the `::backdrop` pseudo-element variant.
+  it('backdrop pseudo-element uses the bg-backdrop design token', () => {
+    render(
+      <PdfFocusDialog open={true} onClose={vi.fn()}>
+        <p>body</p>
+      </PdfFocusDialog>,
+    );
+    const dialog = screen.getByTestId('pdf-focus-dialog');
+    expect(dialog.className).toMatch(/\bbackdrop:bg-backdrop\b/);
+    // The inline neutral-950/40 + black/60 backdrop values must be gone.
+    expect(dialog.className).not.toMatch(/backdrop:bg-neutral-950\/40/);
+    expect(dialog.className).not.toMatch(/backdrop:bg-black\/60/);
+  });
 });

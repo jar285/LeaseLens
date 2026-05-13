@@ -71,7 +71,9 @@ export function PdfFocusDialog({
       // pin the dialog to the actual viewport dimensions so the
       // descendant `flex h-full min-h-0 overflow-y-auto` chain inside
       // the recursive PdfViewer has a definite height to subtract from.
-      className="fixed inset-0 m-0 h-screen max-h-screen w-screen max-w-none bg-surface-base p-0 backdrop:bg-neutral-950/40 dark:bg-neutral-950 dark:backdrop:bg-black/60"
+      // S23a.1 — backdrop consumed via the `--color-backdrop` token; it
+      // auto-flips at `:root.dark`, so no per-class `dark:backdrop:*`.
+      className="fixed inset-0 m-0 h-screen max-h-screen w-screen max-w-none bg-surface-base p-0 backdrop:bg-backdrop dark:bg-neutral-950"
     >
       <div className="flex h-screen min-h-0 flex-col">
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 bg-surface-card px-4 py-2 dark:border-neutral-800 dark:bg-neutral-900">

@@ -181,4 +181,70 @@ describe('PdfReadingControls', () => {
       );
     }
   });
+
+  // Sprint 23b Phase 2 — compact mode for inline viewer chrome.
+  // When the controls live inside the inline (non-focus) viewer header,
+  // pane width is tight (~280-320px). The compact mode hides the visible
+  // "Fit width" text (icon only, aria-label preserved) and trims the
+  // page indicator to "Page N" (no "/ Total"). Default (non-compact)
+  // mode is unchanged; Focus mode keeps the full presentation.
+  describe('Sprint 23b — compact mode', () => {
+    it('hides the visible "Fit width" text but keeps the aria-labeled button', () => {
+      render(
+        <PdfReadingControls
+          zoom={1}
+          fit={false}
+          currentPage={1}
+          totalPages={5}
+          onZoomIn={vi.fn()}
+          onZoomOut={vi.fn()}
+          onToggleFit={vi.fn()}
+          compact={true}
+        />,
+      );
+      // The button is still reachable by accessible name.
+      expect(screen.getByLabelText(/fit.*width/i)).toBeInTheDocument();
+      // But the visible "Fit width" word is gone.
+      expect(screen.queryByText(/^Fit width$/)).not.toBeInTheDocument();
+    });
+
+    it('drops the "/ Total" suffix from the page indicator', () => {
+      render(
+        <PdfReadingControls
+          zoom={1}
+          fit={false}
+          currentPage={3}
+          totalPages={12}
+          onZoomIn={vi.fn()}
+          onZoomOut={vi.fn()}
+          onToggleFit={vi.fn()}
+          compact={true}
+        />,
+      );
+      const indicator = screen.getByTestId('pdf-page-indicator');
+      expect(indicator).toHaveTextContent(/^Page\s*3$/);
+      expect(indicator.textContent).not.toMatch(/\/\s*12/);
+    });
+
+    it('default (no compact prop) keeps the full "Page N / Total" form and visible label', () => {
+      render(
+        <PdfReadingControls
+          zoom={1}
+          fit={false}
+          currentPage={3}
+          totalPages={12}
+          onZoomIn={vi.fn()}
+          onZoomOut={vi.fn()}
+          onToggleFit={vi.fn()}
+        />,
+      );
+      const indicator = screen.getByTestId('pdf-page-indicator');
+      expect(indicator).toHaveTextContent(/page\s*3\s*\/\s*12/i);
+      // Visible "Fit width" label present on viewport >= sm
+      // (we don't assert on sm-breakpoint visibility here because the
+      // sm:inline class is media-query-driven; the text node is still
+      // in the DOM, which is what testing-library queries.)
+      expect(screen.getByText(/^Fit width$/)).toBeInTheDocument();
+    });
+  });
 });

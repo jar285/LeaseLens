@@ -26,6 +26,14 @@ export interface PdfReadingControlsProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onToggleFit: () => void;
+  /**
+   * Sprint 23b Phase 2 — when true, render in compact form for the
+   * inline (non-focus) viewer header where pane width is tight: the
+   * visible "Fit width" text is hidden (aria-label preserved), and the
+   * page indicator drops the "/ Total" suffix. Defaults to false; Focus
+   * mode does not pass this and keeps the full presentation.
+   */
+  compact?: boolean;
 }
 
 const BUTTON_BASE =
@@ -39,6 +47,7 @@ export function PdfReadingControls({
   onZoomIn,
   onZoomOut,
   onToggleFit,
+  compact = false,
 }: PdfReadingControlsProps): React.JSX.Element {
   const atMin = zoom <= PDF_ZOOM_MIN;
   const atMax = zoom >= PDF_ZOOM_MAX;
@@ -92,14 +101,16 @@ export function PdfReadingControls({
         }`}
       >
         <Maximize className="h-3 w-3" aria-hidden="true" />
-        <span className="hidden sm:inline">Fit width</span>
+        {!compact ? <span className="hidden sm:inline">Fit width</span> : null}
       </button>
       <span
         data-testid="pdf-page-indicator"
         className="tabular ml-1 text-[11px] text-fg-muted"
         aria-live="polite"
       >
-        Page {currentPage ?? '—'} / {totalPages > 0 ? totalPages : '—'}
+        {compact
+          ? `Page ${currentPage ?? '—'}`
+          : `Page ${currentPage ?? '—'} / ${totalPages > 0 ? totalPages : '—'}`}
       </span>
     </div>
   );

@@ -15,7 +15,10 @@ export interface ChatComposerProps {
   isLocked: boolean;
 }
 
-const MIN_TEXTAREA_HEIGHT = 38;
+// Sprint 23c Phase 3 — bumped from 38 to 44 to clear the touch-target
+// floor for mobile + give the command bar more visual weight as a real
+// command surface (not just a chat input).
+const MIN_TEXTAREA_HEIGHT = 44;
 const MAX_TEXTAREA_HEIGHT = 192;
 
 export function ChatComposer({ onSubmit, isLocked }: ChatComposerProps) {
@@ -86,7 +89,11 @@ export function ChatComposer({ onSubmit, isLocked }: ChatComposerProps) {
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           disabled={isLocked}
-          placeholder="Ask about a lease clause, NJ tenant law, or upload a lease to start a scan…"
+          // Sprint 23c Phase 3 — refreshed placeholder positions the
+          // composer as a command bar; the "/ for actions" cue paired
+          // with the kbd hint below signals slash-commands without
+          // wiring the picker (that lands later).
+          placeholder="Ask about a clause, request a rewrite, or type / for actions…"
           aria-describedby="composer-hint"
           // Sprint 17 §5.4 — `inputMode="text"` so mobile keyboards
           // show the standard text layout (no numeric/decimal hint
@@ -96,9 +103,20 @@ export function ChatComposer({ onSubmit, isLocked }: ChatComposerProps) {
           inputMode="text"
           autoCapitalize="sentences"
           spellCheck
-          className="min-h-[38px] flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm text-fg-default outline-none placeholder:text-fg-subtle focus:ring-0"
+          className="min-h-11 flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm text-fg-default outline-none placeholder:text-fg-subtle focus:ring-0"
           rows={1}
         />
+        {/* Sprint 23c Phase 3 — visual slash-command hint kbd. Visible at
+            idle (empty textarea), softly hidden when the user starts
+            typing. Pure affordance — no slash-command picker behavior. */}
+        <kbd
+          data-testid="composer-slash-hint"
+          className={`pointer-events-none mb-1 hidden h-6 items-center justify-center self-end rounded border border-neutral-200 bg-surface-muted px-1.5 font-mono text-[10px] font-medium text-fg-muted transition-opacity duration-150 sm:inline-flex dark:border-neutral-700 dark:bg-neutral-800 ${
+            text.length > 0 ? 'opacity-0' : 'opacity-100'
+          }`}
+        >
+          /
+        </kbd>
         {animate ? (
           <motion.button
             type="button"

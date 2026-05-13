@@ -540,4 +540,37 @@ describe('RedFlagReport', () => {
     });
   });
 
+  // Sprint 23d Phase 4 — empty-state example preview card.
+  describe('Sprint 23d — empty-state example preview', () => {
+    it('renders an example preview card before any gradings exist', () => {
+      render(
+        <ProviderWithEvents events={[]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      // The empty branch carries an example-preview testid above the
+      // existing bulleted examples list.
+      expect(screen.getByTestId('red-flag-empty-preview')).toBeInTheDocument();
+      // The preview contains a SeverityBadge (proving it uses the real
+      // card pattern, not a separate visual language).
+      const preview = screen.getByTestId('red-flag-empty-preview');
+      expect(
+        preview.querySelector('[data-testid="severity-badge"]'),
+      ).not.toBeNull();
+    });
+
+    it('preview is visually muted (low opacity) and carries an "Example" eyebrow', () => {
+      render(
+        <ProviderWithEvents events={[]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const preview = screen.getByTestId('red-flag-empty-preview');
+      // Low-opacity treatment — opacity-60, opacity-70, or similar so
+      // the example reads as decorative rather than active data.
+      expect(preview.className).toMatch(/\bopacity-(60|65|70)\b/);
+      // "Example" eyebrow sits inside the preview container.
+      expect(preview.textContent ?? '').toMatch(/example/i);
+    });
+  });
 });

@@ -13,7 +13,16 @@ export type ContextMessage = {
   content: ContextMessageContent;
 };
 
-const MAX_MESSAGES = 20;
+// Sprint 23e — raised from 20 to 60 so a single full standard scan
+// (~34 messages: 1 user + 2 extract_clauses blocks + 30 grade_clause_
+// severity blocks + 1 summary) plus 3-4 follow-up turns survive the
+// trim. The smaller cap was stripping prior tool_result blocks before
+// the model could reuse them on follow-up questions, causing "I don't
+// have a record of clause gradings" replies after a successful scan.
+// MAX_CHARS = 40_000 remains the real safety net for runaway memory;
+// it never triggered at 20 messages but stays in place as a backstop
+// for pathological transcripts.
+const MAX_MESSAGES = 60;
 const MAX_CHARS = 40_000;
 
 function contentLength(content: ContextMessageContent): number {

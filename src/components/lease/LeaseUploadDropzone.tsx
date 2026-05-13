@@ -214,7 +214,7 @@ export function LeaseUploadDropzone({
           // re-mount the animation each time isDragOver flips on
           key={isDragOver ? 'over' : 'rest'}
           animate={isDragOver ? { scale: [1, 1.08, 1] } : { scale: 1 }}
-          transition={{ duration: 0.4, ease: 'easeOut' }}
+          transition={{ duration: 0.35, ease: 'easeOut' }}
         >
           {iconNode}
         </motion.div>

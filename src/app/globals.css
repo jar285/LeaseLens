@@ -97,6 +97,39 @@
   /* Easings */
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out-soft: cubic-bezier(0.45, 0, 0.55, 1);
+
+  /*
+   * Sprint 23a — UI-foundation tokens.
+   *
+   * Z-index scale: a tight set of role-named layers so callsites stop
+   * scattering inline `z-10` / `z-40`. `raised` is for sticky chrome
+   * inside a pane (active-clause callout, dock header); `overlay` for
+   * tooltips and popovers; `toast` for transient notifications;
+   * `dialog` for modal sheets and PdfFocusDialog.
+   */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-overlay: 20;
+  --z-toast: 30;
+  --z-dialog: 50;
+
+  /*
+   * Surface elevation aliases — `card` is the existing default; these
+   * two name the cases above and below it. `elevated` is for hover
+   * states and floating chrome (document-dock header on hover, risk-
+   * radar card hover). `sunken` is for inset regions (scan-timeline
+   * strip, command-bar tray).
+   */
+  --color-surface-elevated: #ffffff;
+  --color-surface-sunken: #f4f4f2;
+
+  /*
+   * Backdrop tokens — the `::backdrop` scrim for dialogs. The token
+   * auto-flips at `:root.dark` so `backdrop:bg-backdrop` is scheme-
+   * aware without per-class `dark:` variants.
+   */
+  --color-backdrop: rgb(14 14 16 / 0.55);
+  --color-backdrop-strong: rgb(14 14 16 / 0.72);
 }
 
 /*
@@ -125,6 +158,11 @@
   --color-accent-500: #8576e8;
   --color-accent-600: #7666e2;
   --color-accent-700: #6353d6;
+  /* Sprint 23a — dark companions for the new surface + backdrop tokens. */
+  --color-surface-elevated: #1f1f21;
+  --color-surface-sunken: #141416;
+  --color-backdrop: rgb(0 0 0 / 0.68);
+  --color-backdrop-strong: rgb(0 0 0 / 0.82);
 }
 
 @layer base {

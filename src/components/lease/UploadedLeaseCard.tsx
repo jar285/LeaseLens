@@ -24,7 +24,6 @@
 
 import { ScrollText } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
-import { useEffect, useState } from 'react';
 import type { FollowUpPrompt } from '@/lib/chat/follow-up-prompts';
 
 function pluralize(n: number, word: string): string {
@@ -39,14 +38,17 @@ export interface UploadedLeaseCardProps {
   onSelectPrompt: (prompt: string) => void;
 }
 
-// Sprint 23c Phase 5 — entry transition. Same opacity-and-y pattern as
-// ChatEmptyState card stagger and ChatMessage bubble entry; 250ms feels
-// instantaneous enough for an information-bearing surface but still
-// signals "this just arrived" rather than "this has always been here".
-const ENTRY_INITIAL = { opacity: 0, y: 8 } as const;
+// Sprint 23c Phase 5 — entry transition.
+//
+// 350ms is the upper end of the LeaseLens motion budget (--duration-350
+// token); paired with a 16px y-translate it gives the card a deliberate
+// "settling in" feel instead of the near-instant 250ms+8px first pass
+// (which the user perceived as a pop). The ease-out-soft curve front-
+// loads the motion so the card decelerates into place.
+const ENTRY_INITIAL = { opacity: 0, y: 16 } as const;
 const ENTRY_ANIMATE = { opacity: 1, y: 0 } as const;
 const ENTRY_TRANSITION = {
-  duration: 0.25,
+  duration: 0.35,
   ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 } as const;
 
@@ -59,12 +61,15 @@ export function UploadedLeaseCard({
 }: UploadedLeaseCardProps): React.JSX.Element {
   const hasMeta =
     typeof pageCount === 'number' && typeof clauseCount === 'number';
+  // No mount-flag gate here on purpose: UploadedLeaseCard only renders
+  // client-side (it appears when activeLease is set, which happens
+  // after the upload-parse round-trip — never during SSR). The earlier
+  // mounted/useEffect pattern caused a first-paint pop because the
+  // plain-DOM fallback rendered on tick 1 and motion.div swapped in on
+  // tick 2, by which point the user had already seen the card. Going
+  // straight to motion.div lets the `initial` state render on the very
+  // first paint and the animation proceed deterministically.
   const reduced = useReducedMotion();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-  const animate = mounted && !reduced;
 
   const cardClassName =
     'my-4 overflow-hidden rounded-xl border border-neutral-200 bg-surface-elevated shadow-hairline dark:border-neutral-800';
@@ -119,28 +124,28 @@ export function UploadedLeaseCard({
     </>
   );
 
-  if (animate) {
+  if (reduced) {
     return (
-      <motion.div
+      <div
         data-testid="uploaded-lease-card"
-        data-motion="on"
+        data-motion="off"
         className={cardClassName}
-        initial={ENTRY_INITIAL}
-        animate={ENTRY_ANIMATE}
-        transition={ENTRY_TRANSITION}
       >
         {cardInner}
-      </motion.div>
+      </div>
     );
   }
 
   return (
-    <div
+    <motion.div
       data-testid="uploaded-lease-card"
-      data-motion="off"
+      data-motion="on"
       className={cardClassName}
+      initial={ENTRY_INITIAL}
+      animate={ENTRY_ANIMATE}
+      transition={ENTRY_TRANSITION}
     >
       {cardInner}
-    </div>
+    </motion.div>
   );
 }

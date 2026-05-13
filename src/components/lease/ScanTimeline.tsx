@@ -101,7 +101,7 @@ export function ScanTimeline({
           // S19.9 — `min-h-11` enforces the 44px touch-target floor on
           // mobile; the toggle is a primary affordance inside the chat
           // column, so it has to clear the iOS minimum.
-          className="inline-flex min-h-11 items-center gap-1 text-[11px] font-medium text-fg-subtle transition-colors hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex min-h-11 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-fg-subtle transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {toggleLabel}
           {invocationCount > 0 && !drawerOpen ? (

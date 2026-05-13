@@ -206,4 +206,41 @@ describe('LeaseUploadDropzone', () => {
       expect(onUploaded).toHaveBeenCalledTimes(1);
     });
   });
+
+  // Sprint 23b Phase 1 — document-tray hierarchy. The pre-upload state
+  // should read as a calm document tray, not a landing-page hero: smaller
+  // icon, tighter padding, single-line footnote hint instead of a three-
+  // line stack.
+  describe('Sprint 23b — document-tray hierarchy', () => {
+    it('icon wrapper uses h-12 w-12 (tighter than the prior h-14 w-14)', () => {
+      render(<LeaseUploadDropzone onUploaded={() => {}} />);
+      const icon = screen.getByTestId('lease-upload-icon');
+      expect(icon.className).toMatch(/\bh-12\b/);
+      expect(icon.className).toMatch(/\bw-12\b/);
+      expect(icon.className).not.toMatch(/\bh-14\b/);
+    });
+
+    it('idle hints render as a single footnote line, not three stacked paragraphs', () => {
+      render(<LeaseUploadDropzone onUploaded={() => {}} />);
+      // One node carries the combined footnote text with `·` separators.
+      const footnote = screen.getByText(
+        /pdf up to 10 mb.*text-layer required.*informational/i,
+      );
+      expect(footnote).toBeInTheDocument();
+      // The legacy three-line variants must not coexist.
+      expect(
+        screen.queryByText('Your lease text stays in this session.'),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Informational analysis, not legal advice.'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('outer section drops to p-6 (tighter than the prior p-8)', () => {
+      render(<LeaseUploadDropzone onUploaded={() => {}} />);
+      const section = screen.getByTestId('lease-upload-dropzone');
+      expect(section.className).toMatch(/\bp-6\b/);
+      expect(section.className).not.toMatch(/\bp-8\b/);
+    });
+  });
 });

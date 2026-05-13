@@ -120,53 +120,90 @@ export function RedFlagReport(): React.JSX.Element {
           </p>
         }
         actions={
-          // Sprint 17 §5.5 — concrete examples so a first-time visitor
-          // knows what LeaseLens looks for, not just that "something
-          // will appear here". Token-driven, low-emphasis, no severity
-          // colours yet (those land when real cards arrive).
-          <div
-            data-testid="red-flag-report-empty-examples"
-            className="mt-6 w-full"
-          >
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
-              Examples
-            </p>
-            <ul className="space-y-1 text-left text-[11px] leading-tight text-fg-muted">
-              <li className="flex items-start gap-1.5">
+          <div className="mt-6 w-full">
+            {/* Sprint 23d Phase 4 — example preview card. Shows the
+                tenant what a real red-flag card looks like before any
+                scan runs. Rendered at 65% opacity with an "Example"
+                eyebrow so it reads as decorative reference, not active
+                data. Mirrors the layout of a real card (SeverityBadge
+                + clause label + reasoning + citation) so the visual
+                pattern is consistent. */}
+            <div
+              data-testid="red-flag-empty-preview"
+              aria-hidden="true"
+              className="mb-6 opacity-65"
+            >
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+                Example
+              </p>
+              <div className="relative overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline dark:border-neutral-800 dark:bg-neutral-900">
                 <span
                   aria-hidden="true"
-                  className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
+                  className={`absolute top-0 left-0 h-full w-1 ${SEVERITY_BAR.high}`}
                 />
-                <span>Security-deposit overcharges</span>
-              </li>
-              <li className="flex items-start gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
-                />
-                <span>One-way attorney's-fee clauses</span>
-              </li>
-              <li className="flex items-start gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
-                />
-                <span>Unenforceable late-fee structures</span>
-              </li>
-              <li className="flex items-start gap-1.5">
-                <span
-                  aria-hidden="true"
-                  className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
-                />
-                <span>Blanket sublet bans</span>
-              </li>
-            </ul>
+                <div className="py-3 pr-3 pl-4">
+                  <div className="flex items-center gap-1.5">
+                    <SeverityBadge severity="high" size="md" />
+                    <span className="truncate text-[11px] font-medium text-fg-default">
+                      Security deposit · §3
+                    </span>
+                  </div>
+                  <p className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-fg-muted">
+                    Two months exceeds NJ's 1.5-month security-deposit cap.
+                  </p>
+                  <p className="mt-2 inline-flex items-start gap-1.5 text-[12px] font-medium text-accent-600 dark:text-accent-300">
+                    <Paperclip
+                      className="h-3 w-3 shrink-0 translate-y-0.5 text-accent-500 dark:text-accent-300"
+                      aria-hidden="true"
+                    />
+                    NJ Stat 46:8-19
+                  </p>
+                </div>
+              </div>
+            </div>
+            {/* Sprint 17 §5.5 — bulleted "what we look for" list stays as
+                a quick reference under the preview card. */}
+            <div
+              data-testid="red-flag-report-empty-examples"
+              className="w-full"
+            >
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+                Also catches
+              </p>
+              <ul className="space-y-1 text-left text-[11px] leading-tight text-fg-muted">
+                <li className="flex items-start gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
+                  />
+                  <span>One-way attorney's-fee clauses</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
+                  />
+                  <span>Unenforceable late-fee structures</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    className="mt-1 h-1 w-1 shrink-0 rounded-full bg-fg-subtle"
+                  />
+                  <span>Blanket sublet bans</span>
+                </li>
+              </ul>
+            </div>
           </div>
         }
       />
     );
   }
 
+  // Sprint 23d Phase 2 — summary chips now consume SeverityBadge (sm)
+  // alongside the count number. Triple-channel severity (icon + label +
+  // colour) so the strip reads as a risk meter at a glance, not a
+  // colour-coded tally.
   const summaryInner = (
     <>
       {SEVERITY_ORDER.filter((s) => counts[s] > 0).map((s, i, arr) => (

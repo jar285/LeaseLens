@@ -4,7 +4,6 @@ import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
 import { ThemeToggle } from '@/components/auth/ThemeToggle';
 import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
-import { WorkspaceHeader } from '@/components/cockpit/WorkspaceHeader';
 import { LeaseLensWorkspaceShell } from '@/components/lease/LeaseLensWorkspaceShell';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { ensureDemoUsersExist } from '@/lib/auth/ensure-demo-users';
@@ -17,10 +16,7 @@ import {
   decodeWorkspace,
   WORKSPACE_COOKIE_NAME,
 } from '@/lib/workspaces/cookie';
-import {
-  getActiveWorkspace,
-  listVisitorBrands,
-} from '@/lib/workspaces/queries';
+import { getActiveWorkspace } from '@/lib/workspaces/queries';
 
 export const runtime = 'nodejs';
 
@@ -51,14 +47,6 @@ export default async function Home() {
       expires_at: null,
     };
   }
-
-  const otherBrands = workspacePayload
-    ? listVisitorBrands(
-        db,
-        workspacePayload.created_workspace_ids,
-        workspace.id,
-      )
-    : [];
 
   const sessionCookie = cookieStore.get('leaselens_session');
 
@@ -117,7 +105,7 @@ export default async function Home() {
     // one min-h-0 region. Every child below this point owns its own
     // overflow chain; the page itself never scrolls.
     <main className="flex h-dvh flex-col overflow-hidden bg-surface-base font-sans text-fg-default">
-      <header className="z-10 flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
+      <header className="z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
         <div className="flex items-center gap-4">
           <Link
             href="/"
@@ -135,7 +123,6 @@ export default async function Home() {
             </span>
             LeaseLens
           </Link>
-          <WorkspaceHeader workspace={workspace} otherBrands={otherBrands} />
           {currentRole !== 'Tenant' && (
             <Link
               href="/cockpit"

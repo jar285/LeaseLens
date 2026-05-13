@@ -1,14 +1,11 @@
 'use client';
 
 import { AlertCircle, RotateCcw, SquarePen } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { BrandUploadModal } from '@/components/workspaces/BrandUploadModal';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
 import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps, ToolInvocation } from './ChatMessage';
 import { ChatTranscript } from './ChatTranscript';
-import { FileDropZone } from './FileDropZone';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to generate response';
@@ -59,13 +56,6 @@ export function ChatUI({
   const [previousMessages, setPreviousMessages] = useState<ChatMessageProps[]>(
     [],
   );
-
-  // Sprint 11 (revised) — files dropped on the chat surface or attached
-  // via the paperclip button. When non-null, the BrandUploadModal opens
-  // with these files prefilled. On modal success the route refreshes so
-  // the new workspace's cookie + sample chat reset take effect.
-  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
-  const router = useRouter();
 
   const handleNewConversation = () => {
     if (activeConversationId !== null || messages.length > 0) {
@@ -261,7 +251,7 @@ export function ChatUI({
   const showToolbar = hasMessages || hasPreviousStash;
 
   return (
-    <FileDropZone onFiles={(files) => setPendingFiles(files)}>
+    <div className="relative flex h-full min-h-0 flex-col">
       <div className="grid min-h-0 w-full flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
         {/* Conversation toolbar — visible when there's an active thread or
             a stashed previous one (one-click undo for misclicked New). */}
@@ -332,19 +322,9 @@ export function ChatUI({
           <ChatComposer
             onSubmit={handleSubmit}
             isLocked={status === 'streaming'}
-            onAttachFiles={(files) => setPendingFiles(files)}
           />
         </div>
       </div>
-      <BrandUploadModal
-        open={pendingFiles !== null}
-        onClose={() => setPendingFiles(null)}
-        onSuccess={() => {
-          setPendingFiles(null);
-          router.refresh();
-        }}
-        prefilledFiles={pendingFiles ?? undefined}
-      />
-    </FileDropZone>
+    </div>
   );
 }

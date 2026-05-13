@@ -9,28 +9,16 @@ import {
   useRef,
   useState,
 } from 'react';
-import { AttachButton } from './AttachButton';
 
 export interface ChatComposerProps {
   onSubmit: (text: string) => void;
   isLocked: boolean;
-  /**
-   * Sprint 11 (revised) — when provided, renders the paperclip attach
-   * button left of the send button. Receives the selected .md files
-   * (already filtered + capped to 5) so the parent can open the brand
-   * upload modal.
-   */
-  onAttachFiles?: (files: File[]) => void;
 }
 
 const MIN_TEXTAREA_HEIGHT = 38;
 const MAX_TEXTAREA_HEIGHT = 192;
 
-export function ChatComposer({
-  onSubmit,
-  isLocked,
-  onAttachFiles,
-}: ChatComposerProps) {
+export function ChatComposer({ onSubmit, isLocked }: ChatComposerProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const reduced = useReducedMotion();
@@ -111,9 +99,6 @@ export function ChatComposer({
           className="min-h-[38px] flex-1 resize-none border-0 bg-transparent px-3 py-2 text-sm text-fg-default outline-none placeholder:text-fg-subtle focus:ring-0"
           rows={1}
         />
-        {onAttachFiles && (
-          <AttachButton onFiles={onAttachFiles} disabled={isLocked} />
-        )}
         {animate ? (
           <motion.button
             type="button"

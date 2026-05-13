@@ -26,13 +26,12 @@ import {
   clauseLabel,
   type GradingResult,
   isGradingResult,
-  SEVERITY_BADGE,
   SEVERITY_BAR,
-  SEVERITY_LABEL,
   SEVERITY_ORDER,
   type Severity,
 } from './grading';
 import { RedFlagSkeletonCard } from './RedFlagSkeletonCard';
+import { SeverityBadge } from './SeverityBadge';
 import { useScanProgress } from './use-scan-progress';
 
 // Phase 10.8 — how long the page-level highlight + active-card ring
@@ -179,8 +178,8 @@ export function RedFlagReport(): React.JSX.Element {
               : ''
           }`}
         >
-          <span className={`h-1.5 w-1.5 rounded-full ${SEVERITY_BAR[s]}`} />
-          <span className="tabular">{counts[s]}</span> {SEVERITY_LABEL[s]}
+          <span className="tabular text-fg-default">{counts[s]}</span>
+          <SeverityBadge severity={s} size="sm" />
         </span>
       ))}
     </>
@@ -271,11 +270,10 @@ export function RedFlagReport(): React.JSX.Element {
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span
-                      className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${SEVERITY_BADGE[g.severity]}`}
-                    >
-                      {SEVERITY_LABEL[g.severity]}
-                    </span>
+                    {/* Sprint 23d Phase 2 — SeverityBadge replaces the
+                        inline pill so severity is communicated by icon
+                        + text + colour (handoff §19). */}
+                    <SeverityBadge severity={g.severity} size="md" />
                     <span className="truncate text-[11px] font-medium text-fg-default">
                       {clauseLabel(g)}
                     </span>

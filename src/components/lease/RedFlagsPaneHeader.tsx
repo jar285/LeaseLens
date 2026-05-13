@@ -30,7 +30,11 @@ export function RedFlagsPaneHeader(): React.JSX.Element {
       data-testid="shell-right-pane-header"
       className="flex shrink-0 items-center justify-between gap-2 border-b border-neutral-100 bg-surface-card px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900"
     >
-      <h2 className="text-[11px] font-semibold tracking-[0.14em] text-fg-muted uppercase">
+      {/* Sprint 23d Phase 5 — tightened tracking from 0.14em to 0.12em
+          so the eyebrow reads as a dense risk-radar label rather than
+          a marketing strap-line. The font size and weight are
+          unchanged. */}
+      <h2 className="text-[11px] font-semibold tracking-[0.12em] text-fg-muted uppercase">
         Red flags
       </h2>
       {inFlight ? (

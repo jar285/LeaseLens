@@ -127,4 +127,60 @@ describe('buildSystemPrompt', () => {
     // dependency map and a severity heatmap.
     expect(prompt).toMatch(/clause|severity|heatmap|dependency/i);
   });
+
+  // Sprint 23e — closes the "model forgets prior gradings on follow-up
+  // turns" bug. The prompt must explicitly instruct the model to REUSE
+  // grade_clause_severity / extract_clauses tool_result blocks already
+  // in conversation history, and must carve out the explicit re-scan
+  // case so users can still ask for a fresh pass.
+  describe('Sprint 23e — prefer prior tool results on follow-ups', () => {
+    it('instructs the model to REUSE prior tool_result blocks', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // Match either "reuse … prior … tool_result" or the more general
+      // "reuse … prior … results" wording.
+      expect(prompt).toMatch(/reuse.*prior.*(tool_result|results)/i);
+    });
+
+    it('carves out an explicit re-scan exception so re-runs still work', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // Match any of: "re-scan", "scan again", "lease changed", or
+      // "user explicitly asks".
+      expect(prompt).toMatch(
+        /(re-scan|scan again|lease changed|user (?:asks|explicitly))/i,
+      );
+    });
+
+    it('names the specific tools whose results should be reused', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The reuse instruction calls out the two tools by name so the
+      // model knows which prior results to look for.
+      expect(prompt).toMatch(/grade_clause_severity/);
+      expect(prompt).toMatch(/extract_clauses/);
+    });
+  });
+
 });

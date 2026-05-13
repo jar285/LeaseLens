@@ -108,6 +108,15 @@ export function buildSystemPrompt(
     ? `An active lease IS loaded for this conversation: "${activeLease.filename}" (${activeLease.page_count} ${activeLease.page_count === 1 ? 'page' : 'pages'}, ${activeLease.clause_count} ${activeLease.clause_count === 1 ? 'clause' : 'clauses'} extracted, lease_id ${activeLease.id}). When the user asks about "this lease", "the lease", "my lease", or anything specific to it (e.g. "find red flags", "what does it say about X", "review the deposit clause"), CALL extract_clauses or grade_clause_severity directly — do NOT ask the user to upload, the upload is already in the left pane and this conversation is bound to it.`
     : 'No lease is currently loaded for this conversation. If the user asks about "this lease" or "my lease" anyway, call extract_clauses once — the recent-upload fallback will resolve a freshly-uploaded lease that has not yet been bound to this conversation. Only respond "please upload a lease" if extract_clauses returns the corpus-not-loaded / no-lease error.';
 
+  // Sprint 23e — prefer prior tool results on follow-up turns. Without
+  // this instruction the model re-runs extract_clauses + grade_clause_
+  // severity wastefully on every follow-up (e.g. "rank the red flags"),
+  // and on long conversations the older tool history can be trimmed
+  // before the model thinks to look for it, producing "I don't have
+  // a record of clause gradings" replies after a successful scan.
+  const reusePriorResultsSection =
+    "When the conversation history already contains grade_clause_severity or extract_clauses tool_result blocks from earlier turns, REUSE those results to answer follow-up questions (ranking, summarising, drafting emails for specific clauses). Do NOT re-run the scan tools on follow-up turns unless the user explicitly asks for a re-scan, the lease changed, or a needed clause is missing from the prior results. When drafting emails or ranking by severity, cite the prior grading's `reasoning` and `statute_citation` directly rather than calling the tool again.";
+
   const sections = [
     // 1. Identity
     `You are LeaseLens — a New Jersey residential lease red-flag reviewer. You read uploaded NJ leases, extract clauses, grade each against NJ tenant-law sources, and draft negotiation emails. ${desc}.`,
@@ -117,6 +126,9 @@ export function buildSystemPrompt(
 
     // 2.5 — active lease awareness (Phase 10.8.2).
     leaseAwarenessSection,
+
+    // 2.6 — Sprint 23e: prefer prior tool results on follow-up turns.
+    reusePriorResultsSection,
 
     // 3. Workflow + tool manifest
     'Tool surface and prescribed call order:',

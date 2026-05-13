@@ -111,7 +111,7 @@ export function ChatEmptyState({
       {animate ? (
         <motion.div
           aria-hidden="true"
-          className="mb-8 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-50 text-accent-500 dark:bg-accent-500/15 dark:text-accent-300"
+          className="mb-8 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-50 text-accent-500 dark:bg-accent-500/15 dark:text-accent-300"
           animate={{ scale: [1, 1.04, 1], opacity: [0.9, 1, 0.9] }}
           transition={{
             duration: 4,
@@ -122,16 +122,16 @@ export function ChatEmptyState({
           <LeaseLensMark size={28} />
         </motion.div>
       ) : (
-        <div className="mb-8 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-50 text-accent-500 dark:bg-accent-500/15 dark:text-accent-300">
+        <div className="mb-8 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-50 text-accent-500 dark:bg-accent-500/15 dark:text-accent-300">
           <LeaseLensMark size={28} animated={false} />
         </div>
       )}
 
-      <h2 className="mb-2 font-serif text-3xl font-semibold tracking-tight text-fg-default sm:text-4xl">
+      <h2 className="mb-2 font-serif text-2xl font-semibold tracking-tight text-fg-default sm:text-3xl">
         {workspaceName}
       </h2>
 
-      <p className="mb-10 max-w-md text-[15px] leading-relaxed text-fg-muted">
+      <p className="mb-8 max-w-sm text-[14px] leading-relaxed text-fg-muted">
         Drop a NJ residential lease in the left pane, then ask me to scan it.
         I'll extract clauses, grade each against NJ tenant-law sources, and
         draft negotiation emails for any red flags.
@@ -151,7 +151,7 @@ export function ChatEmptyState({
               key={label}
               type="button"
               onClick={() => onSelectPrompt?.(prompt)}
-              className="group flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 bg-surface-card p-4 text-left transition-colors hover:border-neutral-300 hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700 dark:hover:bg-neutral-800"
+              className="group flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 bg-surface-card p-3.5 text-left transition-colors hover:border-neutral-300 hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700 dark:hover:bg-neutral-800"
               variants={{
                 hidden: { opacity: 0, y: 8 },
                 visible: {
@@ -187,7 +187,7 @@ export function ChatEmptyState({
               key={label}
               type="button"
               onClick={() => onSelectPrompt?.(prompt)}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 bg-surface-card p-4 text-left transition-colors hover:border-neutral-300 hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700 dark:hover:bg-neutral-800"
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 bg-surface-card p-3.5 text-left transition-colors hover:border-neutral-300 hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700 dark:hover:bg-neutral-800"
             >
               <Icon className="mt-0.5 h-4 w-4 shrink-0 text-accent-500 dark:text-accent-300" />
               <div>

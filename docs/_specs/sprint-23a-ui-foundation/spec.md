@@ -157,6 +157,29 @@ Catalogue existing layout primitives in [src/components/layout/](../../../src/co
 
 ---
 
+## 4b. Phase 6 — Workspace/brand-picker removal (in-scope addendum)
+
+Surfaced during 23a smoke walk: the top-bar workspace/brand picker (rendered by `WorkspaceMenu` inside `WorkspaceHeader`) was a leftover from the original multi-tenant brand-onboarding feature and rendered a broken-looking popover above the chat-home header. The composer paperclip was wired to a `BrandUploadModal` (NOT lease upload), which is wrong product behavior for LeaseLens.
+
+Since this is shell-level cleanup, it belongs naturally in 23a's substrate scope. Per spec §3b, the shell composition audit decided **SKIP** on extracting `WorkspacePanes` / `TopBar` — but the audit also surfaced this vestigial UI as something the foundation sprint should clean up.
+
+**Scope (component-level deletion; data model + routes preserved):**
+
+- Remove `<WorkspaceHeader>` rendering and `otherBrands` derivation from [src/app/page.tsx](../../../src/app/page.tsx) and [src/app/cockpit/page.tsx](../../../src/app/cockpit/page.tsx).
+- Remove `FileDropZone` wrapper, `BrandUploadModal` rendering, `pendingFiles` state, `useRouter`, and `onAttachFiles` prop wiring from [src/components/chat/ChatUI.tsx](../../../src/components/chat/ChatUI.tsx).
+- Remove `onAttachFiles` prop + `AttachButton` import from [src/components/chat/ChatComposer.tsx](../../../src/components/chat/ChatComposer.tsx).
+- Delete component files: `src/components/cockpit/WorkspaceHeader.tsx`, `src/components/workspaces/WorkspaceMenu{.tsx,.test.tsx}`, `src/components/workspaces/BrandUploadModal{.tsx,.test.tsx}`, `src/components/chat/AttachButton{.tsx,.test.tsx}`, `src/components/chat/FileDropZone{.tsx,.test.tsx}`, `src/components/chat/ChatUI.upload.integration.test.tsx`. Remove the now-empty `src/components/workspaces/` directory.
+
+**Preserved (out of scope):**
+
+- The `Workspace` data model and the workspace-cookie middleware — every conversation still has a `workspace_id` foreign key to the sample workspace; ripping this would be a cross-cutting data refactor.
+- The `/api/workspaces/select`, `/api/workspaces/select-sample`, and brand-upload server routes — they no longer have a UI caller but remain available. A future cleanup sprint may delete them once we're confident nothing else hits them.
+- The composer paperclip itself is removed for now. Re-wiring a paperclip to **lease** upload (the correct flow) is sprint-23c scope (composer redesign).
+
+**Acceptance:** Top-bar shows only LeaseLens mark + "LeaseLens" wordmark + optional cockpit link + theme/role toggles. No workspace picker. No "ACTIVE BRAND" popover. Composer has no paperclip. Existing lease-upload flow (left-pane dropzone) unchanged. Test count adjusts to 753 (−25 deleted tests; zero surviving tests broken).
+
+---
+
 ## 5. Out of scope
 
 - Any visual change to the three pane surfaces themselves (23b/c/d own those).

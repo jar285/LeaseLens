@@ -4,6 +4,7 @@ import { AlertTriangle, PenTool, User } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { ScanTimeline } from '@/components/lease/ScanTimeline';
+import type { Role } from '@/lib/auth/types';
 import type { FollowUpPrompt } from '@/lib/chat/follow-up-prompts';
 import { renderMarkdown } from '@/lib/chat/render-markdown';
 import { useChatStream } from './ChatStreamContext';
@@ -108,9 +109,9 @@ export function ChatMessage({
         {/*
           Tool invocations.
 
-          Sprint 18 §5 — Tenant viewers (DB role `Creator`) see a
-          conversational <ScanTimeline /> instead of the linear tool-card
-          stack whenever the message includes a scan tool call. Reviewer
+          Sprint 18 §5 — Tenant viewers see a conversational
+          <ScanTimeline /> instead of the linear tool-card stack
+          whenever the message includes a scan tool call. Reviewer
           and Admin keep the existing inline cards — they're auditors,
           the trace IS the value. Non-scan tool calls (search_corpus,
           draft_negotiation_email, etc.) render as cards in every role.
@@ -128,7 +129,11 @@ export function ChatMessage({
                 key={prompt.id}
                 type="button"
                 onClick={() => onSelectPrompt?.(prompt.prompt)}
-                className="rounded-full border border-accent-200 bg-surface-card px-3 py-1.5 text-xs font-medium text-accent-700 transition-colors hover:border-accent-300 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-accent-500/30 dark:bg-neutral-900 dark:text-accent-300 dark:hover:border-accent-400/50 dark:hover:bg-accent-500/10"
+                // S19.9 — `min-h-11` enforces the 44px touch-target
+                // floor on mobile without bloating the visible chip
+                // on desktop (centre alignment keeps the label nested
+                // visually inside the same hairline border).
+                className="inline-flex min-h-11 items-center rounded-full border border-accent-200 bg-surface-card px-3 py-1.5 text-xs font-medium text-accent-700 transition-colors hover:border-accent-300 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-accent-500/30 dark:bg-neutral-900 dark:text-accent-300 dark:hover:border-accent-400/50 dark:hover:bg-accent-500/10"
               >
                 {prompt.label}
               </button>
@@ -208,7 +213,7 @@ function ToolInvocationsBlock({
   viewerRole,
   invocations,
 }: {
-  viewerRole: 'Creator' | 'Editor' | 'Admin';
+  viewerRole: Role;
   invocations: ToolInvocation[];
 }): React.JSX.Element {
   const scanInvocations = invocations.filter((inv) =>
@@ -217,12 +222,12 @@ function ToolInvocationsBlock({
   const nonScanInvocations = invocations.filter(
     (inv) => !SCAN_TOOL_NAMES.has(inv.name),
   );
-  const showTimeline = viewerRole === 'Creator' && scanInvocations.length > 0;
+  const showTimeline = viewerRole === 'Tenant' && scanInvocations.length > 0;
 
   return (
     <div className="my-2">
       {showTimeline ? (
-        <ScanTimeline invocationCount={scanInvocations.length} />
+        <ScanTimeline invocations={scanInvocations} />
       ) : (
         scanInvocations.map((invocation) => (
           <ToolCard key={invocation.id} invocation={invocation} />

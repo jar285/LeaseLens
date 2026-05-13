@@ -14,6 +14,7 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -31,6 +32,18 @@ export interface PdfViewerHandle {
   scrollToPage: (page: number) => void;
 }
 
+/**
+ * S19.3 — minimal lease reference threaded through the context so
+ * downstream consumers (useScanNarrative, ChatEmptyState) can decide
+ * whether to render lease-aware affordances. The full lease object
+ * (with pdfUrl etc.) stays local to LeaseLensWorkspaceShell; only the
+ * narrative-relevant fields surface here to avoid bloating the context.
+ */
+export interface ActiveLeaseRef {
+  lease_id: string;
+  filename: string;
+}
+
 interface ChatStreamContextValue {
   toolEvents: ToolEvent[];
   pushToolEvent: (event: ToolEvent) => void;
@@ -46,15 +59,23 @@ interface ChatStreamContextValue {
   activeClauseId: string | null;
   setActiveClauseId: (id: string | null) => void;
   /**
-   * Sprint 18 §5 — viewer role (DB literal: `Creator` | `Editor` |
-   * `Admin`). Set once from the server-rendered page and propagated
-   * via the provider; never mutated client-side. Drives the tenant-
+   * S19.1 — viewer role in the application domain (Tenant / Reviewer /
+   * Admin). Set once from the server-rendered page and propagated via
+   * the provider; never mutated client-side. Drives the tenant-
    * friendly ScanTimeline vs. the inline ToolCard stack on the chat
-   * surface. Defaults to `Creator` for safety — if a consumer
-   * forgets to set the prop, we default to the most-restrictive
-   * (tenant) view rather than leaking developer trace by accident.
+   * surface. Defaults to `Tenant` for safety — if a consumer forgets
+   * to set the prop, we default to the most-restrictive view rather
+   * than leaking developer trace by accident.
    */
   viewerRole: Role;
+  /**
+   * S19.3 — the lease the user has uploaded for this conversation
+   * (or null when none is active). Drives the synthetic
+   * "Lease uploaded" intro message and replaces the generic empty
+   * state once a lease is present.
+   */
+  activeLease: ActiveLeaseRef | null;
+  setActiveLease: (lease: ActiveLeaseRef | null) => void;
 }
 
 const ChatStreamContext = createContext<ChatStreamContextValue | null>(null);
@@ -62,15 +83,28 @@ const ChatStreamContext = createContext<ChatStreamContextValue | null>(null);
 export function ChatStreamProvider({
   children,
   initialEvents = [],
-  viewerRole = 'Creator',
+  viewerRole = 'Tenant',
+  activeLease: activeLeaseProp = null,
 }: {
   children: ReactNode;
   initialEvents?: ToolEvent[];
   viewerRole?: Role;
+  activeLease?: ActiveLeaseRef | null;
 }): React.JSX.Element {
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>(initialEvents);
   const [activeClauseId, setActiveClauseId] = useState<string | null>(null);
+  const [activeLease, setActiveLease] = useState<ActiveLeaseRef | null>(
+    activeLeaseProp,
+  );
   const pdfViewerRef = useRef<PdfViewerHandle | null>(null);
+
+  // Sync the lease state when the prop changes (e.g. a test that mounts
+  // with one lease and re-renders with another, or a future server-side
+  // hydration path). Calling setActiveLease(null) inside the component
+  // still wins because the effect only fires on prop changes.
+  useEffect(() => {
+    setActiveLease(activeLeaseProp);
+  }, [activeLeaseProp]);
 
   const pushToolEvent = useCallback((event: ToolEvent) => {
     setToolEvents((prev) => [...prev, event]);
@@ -84,8 +118,10 @@ export function ChatStreamProvider({
       activeClauseId,
       setActiveClauseId,
       viewerRole,
+      activeLease,
+      setActiveLease,
     }),
-    [toolEvents, pushToolEvent, activeClauseId, viewerRole],
+    [toolEvents, pushToolEvent, activeClauseId, viewerRole, activeLease],
   );
 
   return (

@@ -13,7 +13,7 @@ describe('Admin Ping Endpoint Integration', () => {
       'a-very-long-test-secret-that-is-at-least-32-chars';
   });
 
-  async function executeRequestFlow(role: 'Admin' | 'Creator' | 'Editor') {
+  async function executeRequestFlow(role: 'Admin' | 'Tenant' | 'Reviewer') {
     const request = new NextRequest(new URL('/api/admin/ping', baseUrl));
 
     // Generate real encrypted cookie
@@ -47,7 +47,7 @@ describe('Admin Ping Endpoint Integration', () => {
   });
 
   it('should return 403 Forbidden for Creator role', async () => {
-    const response = await executeRequestFlow('Creator');
+    const response = await executeRequestFlow('Tenant');
     expect(response?.status).toBe(403);
 
     const body = await response?.json();
@@ -55,7 +55,7 @@ describe('Admin Ping Endpoint Integration', () => {
   });
 
   it('should return 403 Forbidden for Editor role', async () => {
-    const response = await executeRequestFlow('Editor');
+    const response = await executeRequestFlow('Reviewer');
     expect(response?.status).toBe(403);
 
     const body = await response?.json();

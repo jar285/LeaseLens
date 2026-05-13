@@ -180,9 +180,9 @@ describe('MCP Server Contract', () => {
       expect(names).toContain('draft_negotiation_email');
     });
 
-    it('Reviewer (Editor) sees search/get plus all three lease tools (Sprint 13)', () => {
+    it('Reviewer sees search/get plus all three lease tools (Sprint 13)', () => {
       const registry = createToolRegistry(db);
-      const names = registry.getToolsForRole('Editor').map((t) => t.name);
+      const names = registry.getToolsForRole('Reviewer').map((t) => t.name);
 
       expect(names).toContain('search_corpus');
       expect(names).toContain('get_document_summary');
@@ -192,9 +192,9 @@ describe('MCP Server Contract', () => {
       expect(names).toContain('draft_negotiation_email');
     });
 
-    it('Tenant (Creator) sees search_corpus + the three lease tools; NOT the removed ContentOps tools (Sprint 13)', () => {
+    it('Tenant sees search_corpus + the three lease tools; NOT the removed ContentOps tools (Sprint 13)', () => {
       const registry = createToolRegistry(db);
-      const names = registry.getToolsForRole('Creator').map((t) => t.name);
+      const names = registry.getToolsForRole('Tenant').map((t) => t.name);
 
       expect(names).toContain('search_corpus');
       expect(names).not.toContain('get_document_summary');
@@ -208,7 +208,7 @@ describe('MCP Server Contract', () => {
 
     it('should expose render_workflow_diagram for all three roles', () => {
       const registry = createToolRegistry(db);
-      for (const role of ['Creator', 'Editor', 'Admin'] as const) {
+      for (const role of ['Tenant', 'Reviewer', 'Admin'] as const) {
         const names = registry.getToolsForRole(role).map((t) => t.name);
         expect(names).toContain('render_workflow_diagram');
       }
@@ -227,7 +227,7 @@ describe('MCP Server Contract', () => {
           title: 'MCP smoke',
         },
         {
-          role: 'Creator',
+          role: 'Tenant',
           userId: 'mcp-server',
           conversationId: 'mcp-session',
           workspaceId: SAMPLE_WORKSPACE.id,

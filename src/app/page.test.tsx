@@ -122,6 +122,39 @@ describe('Homepage Chat UI', () => {
     );
   });
 
+  // S19.5 — synthetic intro chips funnel through the same submit path
+  // as the empty-state starter prompts. When a lease is uploaded the
+  // synthetic message replaces the welcome hero; clicking "Run standard
+  // scan" should POST the canned prompt to /api/chat and surface it
+  // in the transcript as a user turn.
+  it('submits the canned prompt when an intro chip is clicked (lease uploaded)', async () => {
+    render(
+      withChatStream(<ChatUI workspaceName="LeaseLens — NJ Tenant Law" />, {
+        activeLease: { lease_id: 'lease-x', filename: 'my-lease.pdf' },
+      }),
+    );
+
+    // Sanity check — the synthetic intro is rendered.
+    expect(screen.getByText(/my-lease\.pdf/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /run standard scan/i }));
+
+    await waitFor(() => {
+      expect(window.fetch).toHaveBeenCalledWith(
+        '/api/chat',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringMatching(/standard scan|extract|grade/i),
+        }),
+      );
+    });
+
+    // The user turn appears in the transcript.
+    expect(
+      screen.getByText(/run a standard scan on this lease/i),
+    ).toBeInTheDocument();
+  });
+
   it('allows typing and disables submit when empty', () => {
     render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
 

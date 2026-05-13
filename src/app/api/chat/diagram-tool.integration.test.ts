@@ -57,7 +57,7 @@ const BASE_URL = 'http://localhost:3000';
 async function makeSessionRequest(message: string) {
   const token = await encrypt({
     userId: TEST_USER_ID,
-    role: 'Creator' as Role,
+    role: 'Tenant' as Role,
     displayName: 'Test Creator',
   });
   const req = new NextRequest(new URL('/api/chat', BASE_URL), {

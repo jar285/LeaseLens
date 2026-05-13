@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import type { SyntheticAssistantMessage } from '@/components/lease/scan-narrative';
+import { useScanNarrative } from '@/components/lease/use-scan-narrative';
 import { FOLLOW_UP_PROMPTS } from '@/lib/chat/follow-up-prompts';
 import { ChatEmptyState } from './ChatEmptyState';
 import { ChatMessage, type ChatMessageProps } from './ChatMessage';
@@ -10,6 +12,59 @@ export interface ChatTranscriptProps {
   workspaceName: string;
 }
 
+/*
+ * S19.4 — pure merge of the real (streamed) messages with the two
+ * synthetic messages produced by useScanNarrative. Kept as a helper
+ * so the insertion rules read in one place:
+ *   - intro is prepended (position 0) when present.
+ *   - summary is appended (last position) when present.
+ *
+ * Returning a fresh array (not splicing the input) keeps React's
+ * referential equality predictable across renders.
+ */
+// S20.7 — heuristic for "did the model produce its own close?". Any
+// trailing assistant message with content longer than this threshold
+// counts as substantive — long enough that the synthetic summary
+// would only stack a contradictory second voice on top. The threshold
+// is short enough to skip the synthetic when the model wrote a
+// findings list, and long enough that a stray "ok" or "done." still
+// falls through to the synthetic safety net.
+const SUBSTANTIVE_REPLY_MIN_CHARS = 80;
+
+function modelProducedClosingReply(messages: ChatMessageProps[]): boolean {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'assistant') return false;
+  return (last.content?.trim().length ?? 0) >= SUBSTANTIVE_REPLY_MIN_CHARS;
+}
+
+function mergeSyntheticMessages(
+  real: ChatMessageProps[],
+  intro: SyntheticAssistantMessage | null,
+  summary: SyntheticAssistantMessage | null,
+): Array<ChatMessageProps & { synthetic?: true }> {
+  const merged: Array<ChatMessageProps & { synthetic?: true }> = [];
+  if (intro) {
+    merged.push({
+      id: intro.id,
+      role: 'assistant',
+      content: intro.content,
+      followUpPrompts: intro.followUpPrompts,
+      synthetic: true,
+    });
+  }
+  merged.push(...real);
+  if (summary) {
+    merged.push({
+      id: summary.id,
+      role: 'assistant',
+      content: summary.content,
+      followUpPrompts: summary.followUpPrompts,
+      synthetic: true,
+    });
+  }
+  return merged;
+}
+
 export function ChatTranscript({
   messages,
   isStreaming = false,
@@ -18,7 +73,32 @@ export function ChatTranscript({
 }: ChatTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
-  const previousMessageCount = useRef(messages.length);
+
+  const { intro, summary } = useScanNarrative();
+  // S20.7 + S20.8 — when the model has already produced a substantive
+  // closing assistant message, the synthetic summary is at best
+  // redundant and at worst contradicts the model (e.g. model writes a
+  // detailed "Red-Flag Scan Complete" + findings, synthetic appends
+  // "I had trouble completing the scan"). Defer to the model's voice
+  // when it exists; the synthetic remains as the safety net for the
+  // out-of-tokens case where the model produces no closing text.
+  //
+  // S20.8 — additionally hold the synthetic back WHILE the assistant
+  // is streaming. Without this guard, the synthetic flickers in for a
+  // moment between "scan events finished" and "assistant text reaches
+  // 80 chars", producing a flash-and-swap. The synthetic only renders
+  // after the stream finishes, by which point we know whether the
+  // model wrote a substantive reply or fell silent.
+  const effectiveSummary = useMemo(() => {
+    if (isStreaming) return null;
+    if (modelProducedClosingReply(messages)) return null;
+    return summary;
+  }, [messages, summary, isStreaming]);
+  const merged = useMemo(
+    () => mergeSyntheticMessages(messages, intro, effectiveSummary),
+    [messages, intro, effectiveSummary],
+  );
+  const previousMessageCount = useRef(merged.length);
 
   // Track user scroll intent: if user scrolls up, unpin; if at bottom, re-pin
   const handleScroll = () => {
@@ -37,7 +117,7 @@ export function ChatTranscript({
     // the pin-to-bottom logic against it scrolls the hero off-screen on
     // mount when the welcome content is taller than the available pane,
     // making the page look "auto-scrolled" the moment it loads.
-    if (messages.length === 0) {
+    if (merged.length === 0) {
       previousMessageCount.current = 0;
       // React reuses the same scroll container across the empty/messages
       // branches (both top-level <div> at the same position). When the
@@ -50,9 +130,8 @@ export function ChatTranscript({
       return;
     }
 
-    const messageCountChanged =
-      messages.length !== previousMessageCount.current;
-    previousMessageCount.current = messages.length;
+    const messageCountChanged = merged.length !== previousMessageCount.current;
+    previousMessageCount.current = merged.length;
 
     if (messageCountChanged) {
       pinnedToBottom.current = true;
@@ -65,9 +144,9 @@ export function ChatTranscript({
       top: el.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages]);
+  }, [merged]);
 
-  if (messages.length === 0) {
+  if (merged.length === 0) {
     return (
       <div
         ref={scrollRef}
@@ -82,6 +161,15 @@ export function ChatTranscript({
     );
   }
 
+  // Last *real* assistant message — synthetic intro never gets the
+  // generic FOLLOW_UP_PROMPTS (it has its own four chips); the
+  // summary message already carries its own follow-ups.
+  const lastIndex = merged.length - 1;
+  const lastIsRealAssistant =
+    merged[lastIndex] !== undefined &&
+    merged[lastIndex].role === 'assistant' &&
+    !merged[lastIndex].synthetic;
+
   return (
     <div
       ref={scrollRef}
@@ -91,22 +179,19 @@ export function ChatTranscript({
     >
       <div className="mx-auto w-full max-w-3xl shrink-0">
         <ul className="m-0 list-none space-y-1 p-0 pb-4">
-          {messages.map((msg, idx) => (
+          {merged.map((msg, idx) => (
             <ChatMessage
               key={msg.id}
               {...msg}
               onSelectPrompt={onSelectPrompt}
               followUpPrompts={
-                !isStreaming &&
-                idx === messages.length - 1 &&
-                msg.role === 'assistant'
+                msg.followUpPrompts ??
+                (!isStreaming && idx === lastIndex && lastIsRealAssistant
                   ? FOLLOW_UP_PROMPTS
-                  : undefined
+                  : undefined)
               }
               isStreaming={
-                isStreaming &&
-                idx === messages.length - 1 &&
-                msg.role === 'assistant'
+                isStreaming && idx === lastIndex && lastIsRealAssistant
               }
             />
           ))}

@@ -167,7 +167,7 @@ export async function runLeaseGradingEval(
       const out = (await tool.execute(
         { clause_id: clause.id },
         {
-          role: 'Creator',
+          role: 'Tenant',
           userId: uploader.uploaded_by,
           conversationId: 'eval-tier2',
           workspaceId,

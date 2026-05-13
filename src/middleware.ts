@@ -43,7 +43,7 @@ export async function middleware(request: NextRequest) {
 
   // 3. Issue a default Creator session when none exists
   if (!session) {
-    const creatorUser = DEMO_USERS.find((u) => u.role === 'Creator');
+    const creatorUser = DEMO_USERS.find((u) => u.role === 'Tenant');
     if (creatorUser) {
       session = {
         userId: creatorUser.id,

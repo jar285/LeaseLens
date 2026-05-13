@@ -12,6 +12,7 @@
 
 import type Database from 'better-sqlite3';
 import { DEMO_USERS } from './constants';
+import { toDbRole } from './role-codec';
 
 export function ensureDemoUsersExist(db: Database.Database): void {
   const insertUser = db.prepare(
@@ -19,6 +20,12 @@ export function ensureDemoUsersExist(db: Database.Database): void {
   );
   const now = Math.floor(Date.now() / 1000);
   for (const user of DEMO_USERS) {
-    insertUser.run(user.id, user.email, user.role, user.display_name, now);
+    insertUser.run(
+      user.id,
+      user.email,
+      toDbRole(user.role),
+      user.display_name,
+      now,
+    );
   }
 }

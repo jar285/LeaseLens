@@ -29,10 +29,10 @@
 import { useMemo } from 'react';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
 import { useChatStream } from '@/components/chat/ChatStreamContext';
-import { STAGE_LABEL, STAGE_LABEL_FALLBACK } from './grading';
+import { isGradingResult, STAGE_LABEL, STAGE_LABEL_FALLBACK } from './grading';
 import { partitionByLatestExtract } from './use-scan-progress';
 
-export type StageStatus = 'pending' | 'active' | 'complete';
+export type StageStatus = 'pending' | 'active' | 'complete' | 'error';
 
 export interface ScanStage {
   /**
@@ -54,6 +54,15 @@ export interface ScanStage {
    * errored grading still ticks progress.
    */
   clausesGraded: number;
+  /**
+   * S19.6 — number of clauses in this bucket whose latest tool_result
+   * was an error (no successful retry overrode it). When this equals
+   * `clausesGraded` and `clausesGraded === clausesTotal`, the stage
+   * status becomes `'error'`. When > 0 but < clausesGraded, the stage
+   * stays `'complete'` and the row can surface a "(N skipped)"
+   * annotation.
+   */
+  clausesErrored: number;
   /** Position in toolEvents where this stage was first observed. */
   firstSeenIndex: number;
 }
@@ -114,15 +123,18 @@ export function computeScanStages(events: ToolEvent[]): ScanStage[] {
     status: 'complete',
     clausesTotal: 0,
     clausesGraded: 0,
+    clausesErrored: 0,
     firstSeenIndex: extractIndex,
   });
 
   // Walk grade events. The first event for a given stage label promotes
   // that stage to `active`; subsequent events of the same label increment
-  // `clausesGraded`. We dedupe per clause_id within a stage to handle
-  // re-grade events without double-counting.
+  // `clausesGraded`. We dedupe per clause_id within a stage by storing
+  // the latest outcome (success or error) — a successful retry overrides
+  // a prior error so the stage doesn't keep claiming a clause failed.
   const stagesByLabel = new Map<string, ScanStage>();
-  const seenClauseIdsByLabel = new Map<string, Set<string>>();
+  // Per stage: clause_id → errored flag (latest outcome).
+  const latestOutcomeByLabel = new Map<string, Map<string, boolean>>();
 
   for (let i = extractIndex + 1; i < events.length; i++) {
     const event = events[i];
@@ -140,19 +152,40 @@ export function computeScanStages(events: ToolEvent[]): ScanStage[] {
         status: 'active',
         clausesTotal: clauseTotalsByLabel.get(stageLabel) ?? 0,
         clausesGraded: 0,
+        clausesErrored: 0,
         firstSeenIndex: i,
       };
       stagesByLabel.set(stageLabel, stage);
-      seenClauseIdsByLabel.set(stageLabel, new Set());
+      latestOutcomeByLabel.set(stageLabel, new Map());
       stages.push(stage);
     }
-    const seenIds = seenClauseIdsByLabel.get(stageLabel) ?? new Set();
-    if (!seenIds.has(clauseId)) {
-      seenIds.add(clauseId);
+    const outcomeMap = latestOutcomeByLabel.get(stageLabel) ?? new Map();
+    const errored = !isGradingResult(event.result);
+    const isNewClause = !outcomeMap.has(clauseId);
+    outcomeMap.set(clauseId, errored);
+    if (isNewClause) {
       stage.clausesGraded += 1;
-      if (stage.clausesGraded >= stage.clausesTotal) {
-        stage.status = 'complete';
-      }
+    }
+  }
+
+  // Second pass — once every event has been visited, recompute each
+  // grade stage's clausesErrored + final status from the latest-outcome
+  // map. Doing this after the walk (rather than during) lets a later
+  // success cleanly override an earlier error without double-counting.
+  for (const [label, outcomes] of latestOutcomeByLabel) {
+    const stage = stagesByLabel.get(label);
+    if (!stage) continue;
+    let errored = 0;
+    for (const [, isErrored] of outcomes) {
+      if (isErrored) errored += 1;
+    }
+    stage.clausesErrored = errored;
+    if (stage.clausesGraded >= stage.clausesTotal) {
+      // All attempted. 'error' only when every attempt errored;
+      // otherwise 'complete' (the row can still flag partial errors
+      // via clausesErrored).
+      stage.status =
+        errored > 0 && errored === stage.clausesGraded ? 'error' : 'complete';
     }
   }
 
@@ -176,6 +209,7 @@ export function computeScanStages(events: ToolEvent[]): ScanStage[] {
       status: 'complete',
       clausesTotal: 0,
       clausesGraded: 0,
+      clausesErrored: 0,
       firstSeenIndex: events.length,
     });
   }

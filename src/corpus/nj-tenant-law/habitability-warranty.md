@@ -1,10 +1,16 @@
-# Implied Warranty of Habitability
+# Implied Warranty of Habitability — Marini v. Ireland, 56 N.J. 130 (1970)
 
-## Marini v. Ireland
+## Marini v. Ireland, 56 N.J. 130 (1970)
 
-In **Marini v. Ireland**, 56 N.J. 130 (1970), the New Jersey Supreme Court held that every residential lease carries an **implied warranty of habitability** — the landlord warrants that the premises are fit for human habitation when the tenant takes possession and remain so throughout the tenancy.
+In **Marini v. Ireland, 56 N.J. 130 (1970)**, the New Jersey Supreme Court held
+that every residential lease carries an **implied warranty of habitability** —
+the landlord warrants that the premises are fit for human habitation when the
+tenant takes possession and remain so throughout the tenancy.
 
-The warranty is implied by law and **cannot be waived** by a lease provision. A clause that purports to disclaim the warranty is unenforceable.
+The warranty announced in **Marini v. Ireland, 56 N.J. 130 (1970)** is implied
+by law and **cannot be waived** by a lease provision. A clause that purports to
+disclaim the warranty is unenforceable as against the public-policy floor set
+by **Marini v. Ireland, 56 N.J. 130 (1970)**.
 
 ## What "habitable" means
 
@@ -30,6 +36,6 @@ When the landlord breaches the warranty of habitability and fails to repair afte
 
 ## Common red flags
 
-- A clause that disclaims the warranty of habitability or attempts to make the tenant responsible for major-system repairs (heat, plumbing, electrical).
-- A clause that requires the tenant to "accept the unit AS IS" with no remedy for hidden defects.
-- A clause that bars the tenant from withholding rent or pursuing repair-and-deduct remedies.
+- A clause that disclaims the warranty of habitability or attempts to make the tenant responsible for major-system repairs (heat, plumbing, electrical) — unenforceable per **Marini v. Ireland, 56 N.J. 130 (1970)**.
+- A clause that requires the tenant to "accept the unit AS IS" with no remedy for hidden defects — directly conflicts with **Marini v. Ireland, 56 N.J. 130 (1970)**.
+- A clause that bars the tenant from withholding rent or pursuing repair-and-deduct remedies — voids the remedial scheme **Marini v. Ireland, 56 N.J. 130 (1970)** established to enforce the implied warranty.

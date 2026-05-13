@@ -142,11 +142,13 @@ describe('ChatTranscript', () => {
 
   it('renders empty-state suggestion controls', () => {
     render(
-      <ChatTranscript
-        messages={[]}
-        onSelectPrompt={vi.fn()}
-        workspaceName="LeaseLens"
-      />,
+      withChatStream(
+        <ChatTranscript
+          messages={[]}
+          onSelectPrompt={vi.fn()}
+          workspaceName="LeaseLens"
+        />,
+      ),
     );
 
     expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
@@ -204,16 +206,288 @@ describe('ChatTranscript', () => {
 
   it('Round 3 — propagates workspaceName to the rendered empty state', () => {
     render(
-      <ChatTranscript
-        messages={[]}
-        onSelectPrompt={vi.fn()}
-        workspaceName="Acme"
-      />,
+      withChatStream(
+        <ChatTranscript
+          messages={[]}
+          onSelectPrompt={vi.fn()}
+          workspaceName="Acme"
+        />,
+      ),
     );
     // Heading uses workspaceName, not the hardcoded sample brand.
     expect(screen.getByRole('heading', { name: 'Acme' })).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: /Side Quest Syndicate/i }),
     ).not.toBeInTheDocument();
+  });
+
+  describe('S19.4 — synthetic intro/summary messages', () => {
+    const LEASE = { lease_id: 'lease-s19', filename: 'my-lease.pdf' };
+
+    it('renders the synthetic intro message instead of ChatEmptyState when a lease is uploaded and the transcript is empty', () => {
+      render(
+        withChatStream(<ChatTranscript messages={[]} workspaceName="Test" />, {
+          activeLease: LEASE,
+        }),
+      );
+      // Intro body mentions the filename so the user sees confirmation.
+      expect(screen.getByText(/my-lease\.pdf/i)).toBeInTheDocument();
+      // The four intro chips are present.
+      expect(
+        screen.getByRole('button', { name: /run standard scan/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('inserts the intro at the top of a populated transcript when there is no scan yet', () => {
+      render(
+        withChatStream(
+          <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+          { activeLease: LEASE },
+        ),
+      );
+      // Intro is rendered before the first existing message — the
+      // intro body should appear in the DOM before "Hello".
+      const intro = screen.getByText(/my-lease\.pdf/i);
+      const firstUser = screen.getByText('Hello');
+      expect(
+        intro.compareDocumentPosition(firstUser) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it('does not render the synthetic intro when activeLease is null', () => {
+      render(
+        withChatStream(
+          <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+        ),
+      );
+      expect(screen.queryByText(/my-lease\.pdf/i)).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /run standard scan/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('appends the scan-complete summary at the end after a completed scan', () => {
+      const extractEvent = {
+        tool_name: 'extract_clauses',
+        input: { lease_id: LEASE.lease_id },
+        result: {
+          clauses: [
+            {
+              clause_id: 'c1',
+              clause_type: 'security_deposit',
+              clause_index: 0,
+              page_number: 1,
+            },
+          ],
+        },
+        audit_id: 'extract-1',
+      };
+      const gradeEvent = {
+        tool_name: 'grade_clause_severity',
+        input: { clause_id: 'c1' },
+        result: {
+          clause_id: 'c1',
+          severity: 'high' as const,
+          statute_citation: 'NJSA 46:8-1',
+          chunk_id: 'k',
+          reasoning: 'r',
+          recommended_action: 'a',
+          clause_type: 'security_deposit',
+        },
+        audit_id: undefined,
+      };
+
+      render(
+        withChatStream(
+          <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+          { activeLease: LEASE, initialEvents: [extractEvent, gradeEvent] },
+        ),
+      );
+
+      // Summary message body — "I finished scanning your lease" plus
+      // a "1 red flag" tally.
+      expect(
+        screen.getByText(/I finished scanning your lease/i),
+      ).toBeInTheDocument();
+      // Summary suggested-action chips appear under the summary.
+      expect(
+        screen.getByRole('button', { name: /explain highest-risk issue/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('forwards intro-chip clicks through onSelectPrompt', () => {
+      const onSelectPrompt = vi.fn();
+      render(
+        withChatStream(
+          <ChatTranscript
+            messages={[]}
+            workspaceName="Test"
+            onSelectPrompt={onSelectPrompt}
+          />,
+          { activeLease: LEASE },
+        ),
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: /run standard scan/i }),
+      );
+      expect(onSelectPrompt).toHaveBeenCalledTimes(1);
+      expect(onSelectPrompt.mock.calls[0][0]).toMatch(/standard scan/i);
+    });
+  });
+
+  // S20.7 — trust fix. When the model produces a substantive closing
+  // assistant message after a scan, the synthetic summary is
+  // redundant at best and contradictory at worst (the original bug:
+  // model wrote "Red-Flag Scan Complete — 4 high-severity findings…"
+  // and the synthetic appended "I had trouble completing the scan").
+  // Transcript-level suppression keeps the model's reply as the
+  // single source of truth.
+  describe('S20.7 — suppress synthetic summary when model spoke substantively', () => {
+    const LEASE = { lease_id: 'lease-s20-7', filename: 'lease.pdf' };
+
+    // A complete scan with several errors (would normally trigger the
+    // synthetic scan-fatal copy under the >50% threshold).
+    const extractEvent = {
+      tool_name: 'extract_clauses',
+      input: { lease_id: LEASE.lease_id },
+      result: {
+        clauses: [
+          { clause_id: 'c1', clause_type: 'security_deposit' },
+          { clause_id: 'c2', clause_type: 'late_fee' },
+        ],
+      },
+      audit_id: 'ex-1',
+    };
+    const gradeOk = {
+      tool_name: 'grade_clause_severity',
+      input: { clause_id: 'c1' },
+      result: {
+        clause_id: 'c1',
+        severity: 'high' as const,
+        statute_citation: 'NJSA 46:8-19',
+        chunk_id: 'k',
+        reasoning: 'r',
+        recommended_action: 'a',
+        clause_type: 'security_deposit',
+      },
+      audit_id: undefined,
+    };
+    const gradeErr = {
+      tool_name: 'grade_clause_severity',
+      input: { clause_id: 'c2' },
+      result: { error: 'corpus miss' },
+      audit_id: undefined,
+    };
+
+    it('suppresses the synthetic summary when the last assistant message has substantive content', () => {
+      const messages: ChatMessageProps[] = [
+        { id: 'u-1', role: 'user', content: 'Run a standard scan.' },
+        {
+          id: 'a-1',
+          role: 'assistant',
+          content:
+            'I extracted and graded all clauses. Here are the high-severity findings: Security Deposit (NJSA 46:8-19), Subletting blanket prohibition, Pet ban violating FHA, one-way attorneys fees clause. Recommended actions follow.',
+        },
+      ];
+      render(
+        withChatStream(
+          <ChatTranscript messages={messages} workspaceName="Test" />,
+          {
+            activeLease: LEASE,
+            initialEvents: [extractEvent, gradeOk, gradeErr],
+          },
+        ),
+      );
+      // The contradictory "I had trouble completing the scan" must not
+      // render alongside the model's "extracted and graded" closing.
+      expect(
+        screen.queryByText(/I had trouble completing the scan/i),
+      ).not.toBeInTheDocument();
+      // The synthetic intro is also gone (scan started).
+      expect(screen.queryByText(/lease uploaded/i)).not.toBeInTheDocument();
+    });
+
+    it('still renders the synthetic summary when the last assistant message is empty (model out of tokens)', () => {
+      // Defensive: if the model produced a tool turn but no closing
+      // text (the original out-of-tokens case), the synthetic stays
+      // as the user's only summary.
+      const messages: ChatMessageProps[] = [
+        { id: 'u-1', role: 'user', content: 'Run a standard scan.' },
+        { id: 'a-1', role: 'assistant', content: '' },
+      ];
+      render(
+        withChatStream(
+          <ChatTranscript messages={messages} workspaceName="Test" />,
+          {
+            activeLease: LEASE,
+            initialEvents: [extractEvent, gradeOk, gradeErr],
+          },
+        ),
+      );
+      // The synthetic summary IS rendered (model produced nothing
+      // substantive, so the user needs the deterministic close).
+      expect(
+        screen.getByText(/may need manual review|I had trouble/i),
+      ).toBeInTheDocument();
+    });
+
+    it('S20.8 — defers the synthetic summary while assistant is still streaming (prevents flash-and-swap)', () => {
+      // Repro: scan events finish (synthetic summary becomes
+      // available) BEFORE the model has finished streaming its
+      // closing reply. Without this guard, the synthetic renders for
+      // a moment, then disappears as the model's text crosses the
+      // 80-char threshold — a jarring flash-and-swap.
+      const messages: ChatMessageProps[] = [
+        { id: 'u-1', role: 'user', content: 'Run a standard scan.' },
+        {
+          id: 'a-1',
+          role: 'assistant',
+          // The model has started streaming but hasn't reached
+          // substantive content yet.
+          content: 'Standard Lease',
+        },
+      ];
+      render(
+        withChatStream(
+          <ChatTranscript
+            messages={messages}
+            workspaceName="Test"
+            isStreaming
+          />,
+          {
+            activeLease: LEASE,
+            initialEvents: [extractEvent, gradeOk, gradeErr],
+          },
+        ),
+      );
+      // Synthetic must NOT render mid-stream, even though the
+      // last assistant message has < 80 chars and the scan
+      // technically completed.
+      expect(
+        screen.queryByText(/may need manual review|I had trouble/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it('treats a very short assistant message (e.g. "ok") as non-substantive', () => {
+      const messages: ChatMessageProps[] = [
+        { id: 'u-1', role: 'user', content: 'Run a standard scan.' },
+        { id: 'a-1', role: 'assistant', content: 'Done.' },
+      ];
+      render(
+        withChatStream(
+          <ChatTranscript messages={messages} workspaceName="Test" />,
+          {
+            activeLease: LEASE,
+            initialEvents: [extractEvent, gradeOk, gradeErr],
+          },
+        ),
+      );
+      // Synthetic still appears — 5 chars of text doesn't count as
+      // the user's actual close.
+      expect(
+        screen.getByText(/may need manual review|I had trouble/i),
+      ).toBeInTheDocument();
+    });
   });
 });

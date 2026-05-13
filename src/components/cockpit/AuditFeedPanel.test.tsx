@@ -16,7 +16,7 @@ function makeRow(over: Partial<CockpitAuditRow> = {}): CockpitAuditRow {
     tool_name: 'schedule_content_item',
     tool_use_id: null,
     actor_user_id: 'editor-id',
-    actor_role: 'Editor',
+    actor_role: 'Reviewer',
     conversation_id: null,
     workspace_id: SAMPLE_WORKSPACE.id,
     input_json: '{"document_slug":"brand-identity"}',
@@ -52,7 +52,7 @@ describe('AuditFeedPanel', () => {
     render(
       <AuditFeedPanel
         initialRows={[editorRow, mcpRow]}
-        viewerRole="Editor"
+        viewerRole="Reviewer"
         userId="editor-id"
       />,
     );

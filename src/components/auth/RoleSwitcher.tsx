@@ -1,24 +1,25 @@
 // Phase 10.8 — header-friendly segmented control. Replaces the
 // previous floating bottom-right button group, which overlapped the
-// red-flags panel and made the last card hard to reach. The DB role
-// literal (Creator|Editor|Admin) stays the identity; the UI label
-// (Tenant|Reviewer|Admin) is rendered via labelFor().
+// red-flags panel and made the last card hard to reach.
 //
 // Sprint 15 Phase 2 — animated pill underlay via motion's `layoutId`.
 // One `motion.span` is rendered behind the active button; when the
 // active role changes, Framer auto-animates its position between the
 // three slots. Reduced-motion: render a plain background span
 // (instant position swap, no slide).
+//
+// S19.1 — role values are the labels (Tenant / Reviewer / Admin);
+// the label-bridge has been removed. The DB-layer codec lives in
+// role-codec.ts and is the boundary's responsibility.
 
 'use client';
 
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState, useTransition } from 'react';
 import { switchRole } from '@/lib/auth/actions';
-import { labelFor } from '@/lib/auth/role-labels';
 import type { Role } from '@/lib/auth/types';
 
-const ROLES: Role[] = ['Creator', 'Editor', 'Admin'];
+const ROLES: Role[] = ['Tenant', 'Reviewer', 'Admin'];
 
 export function RoleSwitcher({ currentRole }: { currentRole: Role }) {
   const [isPending, startTransition] = useTransition();
@@ -54,10 +55,6 @@ export function RoleSwitcher({ currentRole }: { currentRole: Role }) {
             data-active={isActive ? 'true' : 'false'}
             onClick={() => handleRoleSwitch(role)}
             disabled={isPending}
-            // Sprint 13 §3g — DB literal stays the role identity but
-            // the displayed text is the LeaseLens label (Tenant /
-            // Reviewer / Admin) via labelFor.
-            title={`Database role: ${role}`}
             className={`relative rounded-[5px] px-2.5 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 ${
               isActive
                 ? 'text-accent-700 dark:text-accent-300'
@@ -84,7 +81,7 @@ export function RoleSwitcher({ currentRole }: { currentRole: Role }) {
                   className="pointer-events-none absolute inset-0 rounded-[5px] bg-accent-50 dark:bg-accent-500/15"
                 />
               ))}
-            <span className="relative">{labelFor(role)}</span>
+            <span className="relative">{role}</span>
           </button>
         );
       })}

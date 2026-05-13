@@ -30,11 +30,19 @@ export interface CitationChipProps {
   onClick?: () => void;
 }
 
-const CHIP_LAYOUT_CLASS = 'flex min-w-0 items-center gap-1.5';
-const CHIP_ICON_CLASS = 'h-3 w-3 shrink-0 text-accent-500 dark:text-accent-300';
+// S20.4 — switched from single-line `truncate` to a 2-line clamp so
+// long citations like "NJ does not have a statute that broadly..."
+// stay inside the red-flag card instead of clipping at the right edge.
+// `break-words` prevents an unhyphenable run from punching out of the
+// container; the native `title` attribute exposes the full citation
+// as a hover tooltip for sighted users (screen readers already get
+// the full text via aria-label on the button variant).
+const CHIP_LAYOUT_CLASS = 'flex min-w-0 items-start gap-1.5';
+const CHIP_ICON_CLASS =
+  'h-3 w-3 shrink-0 translate-y-[2px] text-accent-500 dark:text-accent-300';
 const CHIP_TEXT_CLASS =
-  'truncate text-[12px] font-medium text-accent-600 dark:text-accent-300';
-const CHIP_BUTTON_CLASS = `${CHIP_LAYOUT_CLASS} rounded-md px-1 py-0.5 transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:hover:bg-accent-500/10`;
+  'min-w-0 line-clamp-2 break-words text-[12px] leading-snug font-medium text-accent-600 dark:text-accent-300';
+const CHIP_BUTTON_CLASS = `${CHIP_LAYOUT_CLASS} rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:hover:bg-accent-500/10`;
 
 export function CitationChip({
   statuteCitation,
@@ -51,6 +59,7 @@ export function CitationChip({
         type="button"
         onClick={onClick}
         aria-label={ariaLabel}
+        title={statuteCitation}
         data-testid="citation-chip"
         className={CHIP_BUTTON_CLASS}
       >
@@ -61,7 +70,11 @@ export function CitationChip({
   }
 
   return (
-    <span data-testid="citation-chip" className={CHIP_LAYOUT_CLASS}>
+    <span
+      data-testid="citation-chip"
+      title={statuteCitation}
+      className={CHIP_LAYOUT_CLASS}
+    >
       <Paperclip aria-hidden="true" className={CHIP_ICON_CLASS} />
       <span className={CHIP_TEXT_CLASS}>{statuteCitation}</span>
     </span>

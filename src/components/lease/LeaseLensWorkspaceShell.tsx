@@ -32,6 +32,7 @@ import {
   ChatUI,
   type ChatUIProps,
 } from '@/components/chat/ChatUI';
+import { ResizableSplitLayout } from '@/components/layout/ResizableSplitLayout';
 import type { Role } from '@/lib/auth/types';
 import { LeaseUploadDropzone, type UploadResult } from './LeaseUploadDropzone';
 import { PdfViewer } from './PdfViewer';
@@ -72,7 +73,7 @@ function ShellInner({
   conversationId,
   workspaceName,
 }: LeaseLensWorkspaceShellProps): React.JSX.Element {
-  const { pushToolEvent } = useChatStream();
+  const { pushToolEvent, setActiveLease: setContextLease } = useChatStream();
   const [activeLease, setActiveLease] = useState<ActiveLease | null>(null);
 
   function handleUploaded(result: UploadResult, file?: File): void {
@@ -81,6 +82,10 @@ function ShellInner({
     const pdfUrl = file ? URL.createObjectURL(file) : 'blob:placeholder';
     const filename = file?.name ?? 'Lease document';
     setActiveLease({ ...result, pdfUrl, filename });
+    // S19.3 — also surface the narrative-relevant fields on the chat
+    // context so useScanNarrative / ChatEmptyState can render the
+    // synthetic "Lease uploaded" intro and the post-scan summary.
+    setContextLease({ lease_id: result.lease_id, filename });
   }
 
   function handleToolEvent(event: ChatToolEvent): void {
@@ -93,72 +98,68 @@ function ShellInner({
     pushToolEvent(toolEvent);
   }
 
-  return (
-    // Phase 10.5 — explicit grid (no flex-wrap). With single-row flex-wrap
-    // and default `align-content: normal`, each column was sizing to
-    // CONTENT height instead of container height — defeating min-h-0
-    // and breaking the scroll chain in every pane. A grid gives each
-    // column an unambiguous "row" of full container height, and
-    // min-h-0 + overflow-hidden on each <section> makes the inner
-    // scroll regions take over. The grid itself takes flex-1 + min-h-0
-    // so it consumes exactly the height its parent (page main) gives it.
-    // Sprint 17 §5.7 — responsive minimum. Below `lg` (1024px) the
-    // three-pane grid would force the side columns (20rem each = 640px)
-    // to overflow on tablets and phones. For Sprint 17 the bar is "no
-    // horizontal scroll"; the proper mobile layout (drawer / tabs)
-    // lands in Sprint 18. Until then, hide the side panes on small
-    // viewports and let the centre pane fill the width — the user can
-    // still read the welcome state and send messages from any device.
-    <div
-      data-testid="shell-root"
-      data-shell-route-mode="three-pane"
-      className="grid min-h-0 w-full flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[20rem_minmax(0,1fr)_20rem]"
+  // S20.3 — layout is delegated to ResizableSplitLayout, which owns
+  // the grid template, the CSS-var pane widths, and the drag handles.
+  // The shell stays responsible for which content lives in each slot.
+  const leftSlot = (
+    <section
+      data-testid="shell-left-pane"
+      className="hidden h-full min-h-0 min-w-0 flex-col overflow-hidden border-r border-neutral-100 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900 lg:flex"
     >
-      <section
-        data-testid="shell-left-pane"
-        className="hidden min-h-0 min-w-0 flex-col overflow-hidden border-r border-neutral-100 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900 lg:flex"
-      >
-        {activeLease ? (
-          <PdfViewer
-            pdfUrl={activeLease.pdfUrl}
-            filename={activeLease.filename}
-            pageCount={activeLease.page_count}
-            clauseCount={activeLease.clause_count}
-          />
-        ) : (
-          <UploadColumn
-            conversationId={conversationId ?? null}
-            onUploaded={handleUploaded}
-          />
-        )}
-      </section>
-
-      <section
-        data-testid="shell-center-pane"
-        className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface-card dark:bg-neutral-900"
-      >
-        <ChatUI
-          initialMessages={initialMessages}
-          conversationId={conversationId}
-          workspaceName={workspaceName}
-          onToolEvent={handleToolEvent}
+      {activeLease ? (
+        <PdfViewer
+          pdfUrl={activeLease.pdfUrl}
+          filename={activeLease.filename}
+          pageCount={activeLease.page_count}
+          clauseCount={activeLease.clause_count}
         />
-      </section>
+      ) : (
+        <UploadColumn
+          conversationId={conversationId ?? null}
+          onUploaded={handleUploaded}
+        />
+      )}
+    </section>
+  );
 
-      <aside
-        data-testid="shell-right-pane"
-        className="hidden min-h-0 min-w-0 flex-col overflow-hidden border-l border-neutral-100 bg-surface-base dark:border-neutral-800 dark:bg-neutral-950 lg:flex"
-        aria-label="Red-flag report"
+  const centreSlot = (
+    <section
+      data-testid="shell-center-pane"
+      className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface-card dark:bg-neutral-900"
+    >
+      <ChatUI
+        initialMessages={initialMessages}
+        conversationId={conversationId}
+        workspaceName={workspaceName}
+        onToolEvent={handleToolEvent}
+      />
+    </section>
+  );
+
+  const rightSlot = (
+    <aside
+      data-testid="shell-right-pane"
+      className="hidden h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-neutral-100 bg-surface-base dark:border-neutral-800 dark:bg-neutral-950 lg:flex"
+      aria-label="Red-flag report"
+    >
+      <RedFlagsPaneHeader />
+      <div
+        data-testid="shell-right-pane-scroll-area"
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain p-4"
       >
-        <RedFlagsPaneHeader />
-        <div
-          data-testid="shell-right-pane-scroll-area"
-          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain p-4"
-        >
-          <RedFlagReport />
-        </div>
-      </aside>
-    </div>
+        <RedFlagReport />
+      </div>
+    </aside>
+  );
+
+  return (
+    <ResizableSplitLayout
+      rootTestId="shell-root"
+      dataShellRouteMode="three-pane"
+      left={leftSlot}
+      centre={centreSlot}
+      right={rightSlot}
+    />
   );
 }
 

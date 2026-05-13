@@ -82,7 +82,7 @@ function seedSampleLease(
 }
 
 function ctx(
-  role: 'Creator' | 'Editor' | 'Admin',
+  role: 'Tenant' | 'Reviewer' | 'Admin',
   userId: string,
 ): ToolExecutionContext {
   return {
@@ -117,7 +117,7 @@ describe('extract_clauses tool', () => {
 
     const result = (await tool.execute(
       { lease_id: leaseId },
-      ctx('Creator', TENANT_ID),
+      ctx('Tenant', TENANT_ID),
     )) as { lease_id: string; page_count: number; clauses: unknown[] };
 
     expect(result.lease_id).toBe(leaseId);
@@ -149,7 +149,7 @@ describe('extract_clauses tool', () => {
     const tool = createExtractClausesTool(db);
     const result = (await tool.execute(
       { lease_id: leaseId },
-      ctx('Creator', TENANT_ID),
+      ctx('Tenant', TENANT_ID),
     )) as { clauses: { text: string }[] };
 
     expect(result.clauses[0].text.length).toBeLessThanOrEqual(1200);
@@ -160,7 +160,7 @@ describe('extract_clauses tool', () => {
     const tool = createExtractClausesTool(db);
 
     await expect(
-      tool.execute({ lease_id: leaseId }, ctx('Creator', TENANT_ID)),
+      tool.execute({ lease_id: leaseId }, ctx('Tenant', TENANT_ID)),
     ).rejects.toThrow(/own|tenant|access/i);
   });
 
@@ -170,7 +170,7 @@ describe('extract_clauses tool', () => {
 
     const result = (await tool.execute(
       { lease_id: leaseId },
-      ctx('Editor', REVIEWER_ID),
+      ctx('Reviewer', REVIEWER_ID),
     )) as { lease_id: string };
 
     expect(result.lease_id).toBe(leaseId);
@@ -202,7 +202,7 @@ describe('grade_clause_severity tool', () => {
 
     const result = (await tool.execute(
       { clause_id: clauseId },
-      ctx('Creator', TENANT_ID),
+      ctx('Tenant', TENANT_ID),
     )) as { severity: string; chunk_id: string };
 
     expect(result.severity).toBe('high');
@@ -224,7 +224,7 @@ describe('grade_clause_severity tool', () => {
     const tool = createGradeClauseSeverityTool(db, anthropic);
 
     await expect(
-      tool.execute({ clause_id: clauseId }, ctx('Creator', TENANT_ID)),
+      tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
     ).rejects.toThrow(/chunk|grounded|cite/i);
   });
 
@@ -246,7 +246,7 @@ describe('grade_clause_severity tool', () => {
     const tool = createGradeClauseSeverityTool(db, anthropic);
 
     await expect(
-      tool.execute({ clause_id: clauseId }, ctx('Creator', TENANT_ID)),
+      tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
     ).rejects.toThrow(/statute|citation|grounded/i);
   });
 
@@ -257,7 +257,7 @@ describe('grade_clause_severity tool', () => {
     const tool = createGradeClauseSeverityTool(db, anthropic);
 
     await expect(
-      tool.execute({ clause_id: clauseId }, ctx('Creator', TENANT_ID)),
+      tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
     ).rejects.toThrow();
   });
 
@@ -268,7 +268,7 @@ describe('grade_clause_severity tool', () => {
     const tool = createGradeClauseSeverityTool(db, anthropic);
 
     await expect(
-      tool.execute({ clause_id: clauseId }, ctx('Creator', TENANT_ID)),
+      tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
     ).rejects.toThrow(/own|tenant|access/i);
   });
 });
@@ -294,7 +294,7 @@ describe('draft_negotiation_email tool', () => {
       }),
     );
     const tool = createDraftNegotiationEmailTool(db, anthropic);
-    const tenantCtx = ctx('Creator', TENANT_ID);
+    const tenantCtx = ctx('Tenant', TENANT_ID);
 
     // Sprint 13 §2.4: mutating tool with `prepare` — async LLM call
     // runs first, sync execute does the INSERT. The registry wraps
@@ -329,7 +329,7 @@ describe('draft_negotiation_email tool', () => {
       JSON.stringify({ subject: 'subj', body: 'body' }),
     );
     const tool = createDraftNegotiationEmailTool(db, anthropic);
-    const tenantCtx = ctx('Creator', TENANT_ID);
+    const tenantCtx = ctx('Tenant', TENANT_ID);
 
     const prepared = await tool.prepare?.({ clause_id: clauseId }, tenantCtx);
     const outcome = tool.execute(
@@ -359,7 +359,7 @@ describe('draft_negotiation_email tool', () => {
     expect(tool.prepare).toBeDefined();
     if (!tool.prepare) return;
     await expect(
-      tool.prepare({ clause_id: clauseId }, ctx('Creator', TENANT_ID)),
+      tool.prepare({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
     ).rejects.toThrow(/own|tenant|access/i);
   });
 
@@ -369,7 +369,7 @@ describe('draft_negotiation_email tool', () => {
       JSON.stringify({ subject: 'subj', body: 'body' }),
     );
     const tool = createDraftNegotiationEmailTool(db, anthropic);
-    const tenantCtx = ctx('Creator', TENANT_ID);
+    const tenantCtx = ctx('Tenant', TENANT_ID);
 
     const prepared = await tool.prepare?.({ clause_id: clauseId }, tenantCtx);
     const outcome = tool.execute(
@@ -386,7 +386,7 @@ describe('draft_negotiation_email tool', () => {
     const tool = createDraftNegotiationEmailTool(db, anthropic);
 
     expect(tool.roles).toEqual(
-      expect.arrayContaining(['Creator', 'Editor', 'Admin']),
+      expect.arrayContaining(['Tenant', 'Reviewer', 'Admin']),
     );
   });
 
@@ -401,7 +401,7 @@ describe('draft_negotiation_email tool', () => {
       JSON.stringify({ subject: 'subj', body: 'body' }),
     );
     const tool = createDraftNegotiationEmailTool(db, anthropic);
-    const tenantCtx = ctx('Creator', TENANT_ID);
+    const tenantCtx = ctx('Tenant', TENANT_ID);
 
     await tool.prepare?.(
       {
@@ -438,7 +438,7 @@ describe('draft_negotiation_email tool', () => {
       JSON.stringify({ subject: 'subj', body: 'body' }),
     );
     const tool = createDraftNegotiationEmailTool(db, anthropic);
-    const tenantCtx = ctx('Creator', TENANT_ID);
+    const tenantCtx = ctx('Tenant', TENANT_ID);
 
     await tool.prepare?.(
       {

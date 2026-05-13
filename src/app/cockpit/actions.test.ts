@@ -19,7 +19,7 @@ import {
 } from './actions';
 
 async function mockSessionFor(
-  role: 'Creator' | 'Editor' | 'Admin' | null,
+  role: 'Tenant' | 'Reviewer' | 'Admin' | null,
 ): Promise<void> {
   if (role === null) {
     (cookies as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -78,9 +78,9 @@ describe('cockpit server actions', () => {
   });
 
   it('Editor session: refreshAuditFeed returns rows filtered to own actorUserId', async () => {
-    await mockSessionFor('Editor');
+    await mockSessionFor('Reviewer');
     const { entries } = await refreshAuditFeed({ limit: 50 });
-    const editor = DEMO_USERS.find((u) => u.role === 'Editor');
+    const editor = DEMO_USERS.find((u) => u.role === 'Reviewer');
     if (!editor) throw new Error('Editor demo user not seeded');
     // Every returned row must have actor_user_id matching the Editor's id.
     for (const row of entries) {
@@ -89,7 +89,7 @@ describe('cockpit server actions', () => {
   });
 
   it('Creator session: every action throws (requireOperator gate)', async () => {
-    await mockSessionFor('Creator');
+    await mockSessionFor('Tenant');
     await expect(refreshAuditFeed({ limit: 50 })).rejects.toThrow(/Forbidden/);
     await expect(refreshSchedule({ limit: 50 })).rejects.toThrow(/Forbidden/);
     await expect(refreshApprovals({ limit: 50 })).rejects.toThrow(/Forbidden/);
@@ -98,7 +98,7 @@ describe('cockpit server actions', () => {
   });
 
   it('Editor session: refreshApprovals throws (requireAdmin gate, distinct from requireOperator)', async () => {
-    await mockSessionFor('Editor');
+    await mockSessionFor('Reviewer');
     await expect(refreshApprovals({ limit: 50 })).rejects.toThrow(/Forbidden/);
     // Editor is allowed for the other actions — verify the gate is specifically Approvals.
     await expect(refreshSchedule({ limit: 50 })).resolves.toBeDefined();

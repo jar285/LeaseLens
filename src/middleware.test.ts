@@ -27,10 +27,10 @@ describe('Middleware RBAC Enforcement', () => {
   });
 
   it('should block Creator from accessing /api/admin/ping', async () => {
-    const creatorUser = DEMO_USERS.find((user) => user.role === 'Creator');
+    const creatorUser = DEMO_USERS.find((user) => user.role === 'Tenant');
     const token = await encrypt({
       userId: creatorUser?.id ?? '00000000-0000-0000-0000-000000000001',
-      role: 'Creator' as Role,
+      role: 'Tenant' as Role,
       displayName: creatorUser?.display_name ?? 'Syndicate Creator',
     });
     const req = new NextRequest('http://localhost/api/admin/ping');

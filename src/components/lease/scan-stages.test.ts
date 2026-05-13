@@ -224,6 +224,74 @@ describe('computeScanStages', () => {
     ]);
   });
 
+  // S19.6 — stage-level error signal. A stage whose every clause attempt
+  // errored switches status to 'error' so ScanTimelineRow can render the
+  // friendly translated message instead of the success state. Stages
+  // where at least one clause succeeded stay 'complete'; the
+  // `clausesErrored` counter still surfaces the partial failure for
+  // Reviewer/Admin verbosity later.
+  describe('S19.6 — error status', () => {
+    it('marks a stage as `error` when every clause in its bucket only errored', () => {
+      const stages = computeScanStages([
+        extractEvent([
+          { clause_id: 'c1', clause_type: 'security_deposit' },
+          { clause_id: 'c2', clause_type: 'security_deposit' },
+        ]),
+        gradeError('c1'),
+        gradeError('c2'),
+      ]);
+      const secDeposit = stages.find(
+        (s) => s.label === 'Checking security deposit terms',
+      );
+      expect(secDeposit?.status).toBe('error');
+      expect(secDeposit?.clausesGraded).toBe(2);
+      expect(secDeposit?.clausesErrored).toBe(2);
+    });
+
+    it('stays `complete` when one clause succeeded even if another errored', () => {
+      const stages = computeScanStages([
+        extractEvent([
+          { clause_id: 'c1', clause_type: 'security_deposit' },
+          { clause_id: 'c2', clause_type: 'security_deposit' },
+        ]),
+        gradeSuccess('c1'),
+        gradeError('c2'),
+      ]);
+      const secDeposit = stages.find(
+        (s) => s.label === 'Checking security deposit terms',
+      );
+      expect(secDeposit?.status).toBe('complete');
+      expect(secDeposit?.clausesErrored).toBe(1);
+    });
+
+    it('reports `clausesErrored: 0` on a fully-successful stage', () => {
+      const stages = computeScanStages([
+        extractEvent([{ clause_id: 'c1', clause_type: 'security_deposit' }]),
+        gradeSuccess('c1'),
+      ]);
+      const secDeposit = stages.find(
+        (s) => s.label === 'Checking security deposit terms',
+      );
+      expect(secDeposit?.clausesErrored).toBe(0);
+    });
+
+    it('treats a later successful retry as overriding a prior error', () => {
+      // Same clause, error first then success — the stage is complete,
+      // not errored, because the latest outcome for that clause is a
+      // successful grading.
+      const stages = computeScanStages([
+        extractEvent([{ clause_id: 'c1', clause_type: 'security_deposit' }]),
+        gradeError('c1'),
+        gradeSuccess('c1'),
+      ]);
+      const secDeposit = stages.find(
+        (s) => s.label === 'Checking security deposit terms',
+      );
+      expect(secDeposit?.status).toBe('complete');
+      expect(secDeposit?.clausesErrored).toBe(0);
+    });
+  });
+
   it('produces a stable output for identical input (deterministic)', () => {
     const events: ToolEvent[] = [
       extractEvent([

@@ -8,6 +8,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatUI } from './ChatUI';
+import { withChatStream } from './test-helpers';
 
 const refresh = vi.fn();
 vi.mock('next/navigation', () => ({
@@ -39,7 +40,7 @@ describe('ChatUI brand upload via drop', () => {
     );
     window.fetch = fetchMock;
 
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
     const zone = screen.getByTestId('file-drop-zone');
     const file = new File(['# Brand\n\ncontent'], 'brand.md', {
       type: 'text/markdown',
@@ -86,7 +87,7 @@ describe('ChatUI brand upload via drop', () => {
     const fetchMock = vi.fn();
     window.fetch = fetchMock;
 
-    render(<ChatUI workspaceName="Side Quest Syndicate" />);
+    render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
     const zone = screen.getByTestId('file-drop-zone');
     const file = new File(['x'], 'brand.md', { type: 'text/markdown' });
     fireEvent.drop(zone, {

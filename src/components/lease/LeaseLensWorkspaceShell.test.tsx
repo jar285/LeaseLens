@@ -193,4 +193,20 @@ describe('LeaseLensWorkspaceShell', () => {
     expect(shell.className).not.toMatch(/flex-wrap/);
     expect(shell.className).toMatch(/min-h-0/);
   });
+
+  // S20.1 — pane widths read from CSS vars (--pane-left, --pane-right)
+  // so S20.3's resize handles can rewrite them without touching layout
+  // code. Defaults render even before any localStorage write.
+  it('S20.1 — left/right pane widths are driven by CSS variables with sensible defaults', () => {
+    render(<LeaseLensWorkspaceShell {...baseProps} />);
+    const shell = screen.getByTestId('shell-root');
+    // Grid-template-columns references both CSS vars.
+    expect(shell.className).toMatch(/var\(--pane-left/);
+    expect(shell.className).toMatch(/var\(--pane-right/);
+    // Inline style provides the initial values so the layout is correct
+    // on the first paint (before any client effect runs).
+    const inlineStyle = shell.getAttribute('style') ?? '';
+    expect(inlineStyle).toMatch(/--pane-left/);
+    expect(inlineStyle).toMatch(/--pane-right/);
+  });
 });

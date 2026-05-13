@@ -37,11 +37,11 @@ export default async function CockpitPage() {
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get('leaselens_session');
   const payload = sessionCookie ? await decrypt(sessionCookie.value) : null;
-  const role: Role = payload?.role ?? 'Creator';
+  const role: Role = payload?.role ?? 'Tenant';
   const userId =
-    payload?.userId ?? DEMO_USERS.find((u) => u.role === 'Creator')?.id;
+    payload?.userId ?? DEMO_USERS.find((u) => u.role === 'Tenant')?.id;
 
-  if (role === 'Creator' || !userId) {
+  if (role === 'Tenant' || !userId) {
     redirect('/');
   }
 

@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { toDbRole } from '@/lib/auth/role-codec';
 import { migrate } from '@/lib/db/migrate';
 import { SCHEMA } from '@/lib/db/schema';
 import { env } from '@/lib/env';
@@ -29,7 +30,7 @@ const SAMPLE_LEASE_PDF_PATH = join(
 // grading eval (Phase 11) can reference it without re-seeding.
 export const SAMPLE_LEASE_ID = '00000000-0000-0000-0000-000000000020';
 // Stable uploader so audit ownership tests are deterministic.
-const SAMPLE_LEASE_UPLOADER_ID = DEMO_USERS.find((u) => u.role === 'Creator')
+const SAMPLE_LEASE_UPLOADER_ID = DEMO_USERS.find((u) => u.role === 'Tenant')
   ?.id as string;
 
 export function runSeed(db: Database.Database) {
@@ -56,7 +57,15 @@ export function runSeed(db: Database.Database) {
   `);
 
   for (const user of DEMO_USERS) {
-    insertUser.run(user.id, user.email, user.role, user.display_name, now);
+    // DB persists wire literals (Creator/Editor/Admin); translate at the
+    // boundary so the application code can keep speaking Tenant/Reviewer.
+    insertUser.run(
+      user.id,
+      user.email,
+      toDbRole(user.role),
+      user.display_name,
+      now,
+    );
   }
 }
 

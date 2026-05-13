@@ -6,7 +6,10 @@ import {
   ChatStreamProvider,
   useChatStream,
 } from '@/components/chat/ChatStreamContext';
-import { GradingDetailBlock } from './GradingDetailBlock';
+import {
+  GradingDetailBlock,
+  type GradingDetailVerbosity,
+} from './GradingDetailBlock';
 import type { GradingResult } from './grading';
 
 const baseGrading: GradingResult = {
@@ -21,10 +24,13 @@ const baseGrading: GradingResult = {
   page_number: 4,
 };
 
-function renderWithProvider(grading: GradingResult = baseGrading) {
+function renderWithProvider(
+  grading: GradingResult = baseGrading,
+  verbosity?: GradingDetailVerbosity,
+) {
   return render(
     <ChatStreamProvider>
-      <GradingDetailBlock grading={grading} />
+      <GradingDetailBlock grading={grading} verbosity={verbosity} />
     </ChatStreamProvider>,
   );
 }
@@ -123,5 +129,59 @@ describe('GradingDetailBlock', () => {
     expect(
       screen.queryByTestId('grading-detail-action'),
     ).not.toBeInTheDocument();
+  });
+
+  // S19.8 — Reviewer / Admin verbosity adds detail on top of the
+  // Tenant view. Tenant view is the default; Reviewer gets a corpus-
+  // source line; Admin additionally exposes the raw JSON behind a
+  // disclosure toggle.
+  describe('S19.8 — verbosity', () => {
+    it('defaults to tenant verbosity when no prop is passed', () => {
+      renderWithProvider();
+      expect(
+        screen.queryByTestId('grading-detail-source'),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('grading-detail-raw-json'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('tenant verbosity hides corpus-source line and raw JSON', () => {
+      renderWithProvider(baseGrading, 'tenant');
+      expect(
+        screen.queryByTestId('grading-detail-source'),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId('grading-detail-raw-json'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('reviewer verbosity surfaces the corpus-source chunk id but NOT raw JSON', () => {
+      renderWithProvider(baseGrading, 'reviewer');
+      const source = screen.getByTestId('grading-detail-source');
+      expect(source).toBeInTheDocument();
+      expect(source).toHaveTextContent('security-deposit-cap#section:1');
+      expect(
+        screen.queryByTestId('grading-detail-raw-json'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('admin verbosity surfaces BOTH the corpus-source line and a collapsed raw-JSON block', () => {
+      renderWithProvider(baseGrading, 'admin');
+      expect(screen.getByTestId('grading-detail-source')).toBeInTheDocument();
+      const rawJsonToggle = screen.getByTestId('grading-detail-raw-json');
+      expect(rawJsonToggle).toBeInTheDocument();
+      // Closed-by-default: the <details> open attribute is absent.
+      expect(rawJsonToggle.hasAttribute('open')).toBe(false);
+    });
+
+    it('admin raw-JSON section contains the full grading payload when expanded', () => {
+      renderWithProvider(baseGrading, 'admin');
+      const block = screen.getByTestId('grading-detail-raw-json');
+      // The JSON content is rendered inside the details element regardless
+      // of open state — assert content directly.
+      expect(block.textContent).toContain('"clause_id"');
+      expect(block.textContent).toContain('"security-deposit-cap#section:1"');
+    });
   });
 });

@@ -72,7 +72,7 @@ async function makeSessionRequest(
 ) {
   const token = await encrypt({
     userId,
-    role: 'Creator' as Role,
+    role: 'Tenant' as Role,
     displayName: 'Test Creator',
   });
   const req = new NextRequest(new URL('/api/chat', BASE_URL), {
@@ -249,7 +249,7 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
   it('returns 401 with redirect hint when no workspace cookie is set', async () => {
     const sessionToken = await encrypt({
       userId: TEST_USER_ID,
-      role: 'Creator',
+      role: 'Tenant',
       displayName: 'Test',
     });
     const req = new NextRequest(new URL('/api/chat', BASE_URL), {
@@ -268,7 +268,7 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
   it('returns 401 + clears cookie when workspace decodes but no longer exists', async () => {
     const sessionToken = await encrypt({
       userId: TEST_USER_ID,
-      role: 'Creator',
+      role: 'Tenant',
       displayName: 'Test',
     });
     const ghostWorkspaceToken = await encodeWorkspace({

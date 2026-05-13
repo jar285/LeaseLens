@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ToolInvocation } from '@/components/chat/ChatMessage';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
 import { withChatStream } from '@/components/chat/test-helpers';
 import { ScanTimeline } from './ScanTimeline';
@@ -52,14 +53,14 @@ describe('ScanTimeline', () => {
 
   it('renders nothing before an extract_clauses event arrives', () => {
     const { container } = render(
-      withChatStream(<ScanTimeline invocationCount={0} />),
+      withChatStream(<ScanTimeline invocations={[]} />),
     );
     expect(container.querySelector('[data-testid="scan-timeline"]')).toBeNull();
   });
 
   it('renders only the "Extracting clauses" row when extract just landed', () => {
     render(
-      withChatStream(<ScanTimeline invocationCount={1} />, {
+      withChatStream(<ScanTimeline invocations={[]} />, {
         initialEvents: [
           extractEvent([
             { clause_id: 'c1', clause_type: 'security_deposit' },
@@ -77,7 +78,7 @@ describe('ScanTimeline', () => {
 
   it('reveals thematic stages in event order as gradings arrive', () => {
     render(
-      withChatStream(<ScanTimeline invocationCount={3} />, {
+      withChatStream(<ScanTimeline invocations={[]} />, {
         initialEvents: [
           extractEvent([
             { clause_id: 'c1', clause_type: 'security_deposit' },
@@ -101,7 +102,7 @@ describe('ScanTimeline', () => {
 
   it('renders the per-clause counter on active stages', () => {
     render(
-      withChatStream(<ScanTimeline invocationCount={3} />, {
+      withChatStream(<ScanTimeline invocations={[]} />, {
         initialEvents: [
           extractEvent([
             { clause_id: 'c1', clause_type: 'security_deposit' },
@@ -116,9 +117,13 @@ describe('ScanTimeline', () => {
     expect(counters.map((c) => c.textContent)).toContain('1 of 3');
   });
 
-  it('renders the drawer-toggle stub as disabled (Phase 1 affordance)', () => {
+  it('renders the drawer toggle disabled when there are no invocations behind it', () => {
+    // Defensive: the timeline can mount before any tool invocation has
+    // been wired through (e.g. an immediate re-render after a state
+    // change). The toggle should fall back to disabled rather than
+    // open an empty drawer.
     render(
-      withChatStream(<ScanTimeline invocationCount={5} />, {
+      withChatStream(<ScanTimeline invocations={[]} />, {
         initialEvents: [
           extractEvent([{ clause_id: 'c1', clause_type: 'security_deposit' }]),
         ],
@@ -127,13 +132,22 @@ describe('ScanTimeline', () => {
     const toggle = screen.getByTestId('scan-timeline-drawer-toggle');
     expect(toggle).toBeInTheDocument();
     expect(toggle).toBeDisabled();
-    expect(toggle).toHaveAttribute('aria-disabled', 'true');
-    expect(toggle.textContent).toMatch(/5\s*steps/i);
   });
 
   it('pluralises "step" / "steps" correctly on the toggle', () => {
-    render(
-      withChatStream(<ScanTimeline invocationCount={1} />, {
+    const single: ToolInvocation = {
+      id: 'inv-1',
+      name: 'extract_clauses',
+      input: {},
+      result: {},
+    };
+    const triple: ToolInvocation[] = [single, single, single].map((t, i) => ({
+      ...t,
+      id: `inv-${i}`,
+    }));
+
+    const { rerender } = render(
+      withChatStream(<ScanTimeline invocations={[single]} />, {
         initialEvents: [
           extractEvent([{ clause_id: 'c1', clause_type: 'security_deposit' }]),
         ],
@@ -142,11 +156,22 @@ describe('ScanTimeline', () => {
     expect(
       screen.getByTestId('scan-timeline-drawer-toggle').textContent,
     ).toMatch(/1\s*step\b/);
+
+    rerender(
+      withChatStream(<ScanTimeline invocations={triple} />, {
+        initialEvents: [
+          extractEvent([{ clause_id: 'c1', clause_type: 'security_deposit' }]),
+        ],
+      }),
+    );
+    expect(
+      screen.getByTestId('scan-timeline-drawer-toggle').textContent,
+    ).toMatch(/3\s*steps/i);
   });
 
   it('announces the most-recently-completed stage via aria-live', () => {
     render(
-      withChatStream(<ScanTimeline invocationCount={3} />, {
+      withChatStream(<ScanTimeline invocations={[]} />, {
         initialEvents: [
           extractEvent([
             { clause_id: 'c1', clause_type: 'security_deposit' },
@@ -167,7 +192,7 @@ describe('ScanTimeline', () => {
   it('renders static rows (no animated wrapper) under reduced motion', () => {
     useReducedMotionMock.mockReturnValue(true);
     render(
-      withChatStream(<ScanTimeline invocationCount={2} />, {
+      withChatStream(<ScanTimeline invocations={[]} />, {
         initialEvents: [
           extractEvent([{ clause_id: 'c1', clause_type: 'security_deposit' }]),
           gradeSuccess('c1'),
@@ -184,5 +209,95 @@ describe('ScanTimeline', () => {
     expect(rows.every((row) => row.getAttribute('data-status') !== null)).toBe(
       true,
     );
+  });
+
+  // S19.7 — the "Show what I did" toggle wires to an inline
+  // ActivityDrawer that renders the raw ToolCards behind the curtain.
+  // The drawer is closed by default; clicking the toggle flips
+  // aria-expanded and reveals the cards below the timeline.
+  describe('S19.7 — drawer toggle wiring', () => {
+    const invocations: ToolInvocation[] = [
+      {
+        id: 'inv-extract',
+        name: 'extract_clauses',
+        input: { lease_id: 'lease-1' },
+        result: { clauses: [{ clause_id: 'c1' }] },
+      },
+      {
+        id: 'inv-grade',
+        name: 'grade_clause_severity',
+        input: { clause_id: 'c1' },
+        result: {
+          clause_id: 'c1',
+          severity: 'high',
+          statute_citation: 'NJSA 46:8-1',
+          chunk_id: 'k',
+          reasoning: 'r',
+          recommended_action: 'a',
+        },
+      },
+    ];
+
+    function renderTimelineWithInvocations() {
+      return render(
+        withChatStream(<ScanTimeline invocations={invocations} />, {
+          initialEvents: [
+            extractEvent([
+              { clause_id: 'c1', clause_type: 'security_deposit' },
+            ]),
+            gradeSuccess('c1'),
+          ],
+        }),
+      );
+    }
+
+    it('renders the toggle button enabled (not aria-disabled) once invocations are present', () => {
+      renderTimelineWithInvocations();
+      const toggle = screen.getByTestId('scan-timeline-drawer-toggle');
+      expect(toggle).not.toBeDisabled();
+      expect(toggle.getAttribute('aria-disabled')).not.toBe('true');
+    });
+
+    it('starts with the drawer collapsed (aria-expanded=false)', () => {
+      renderTimelineWithInvocations();
+      const toggle = screen.getByTestId('scan-timeline-drawer-toggle');
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(screen.queryByTestId('activity-drawer')).not.toBeInTheDocument();
+    });
+
+    it('opens the drawer on toggle click and flips aria-expanded', () => {
+      renderTimelineWithInvocations();
+      const toggle = screen.getByTestId('scan-timeline-drawer-toggle');
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(screen.getByTestId('activity-drawer')).toBeInTheDocument();
+    });
+
+    it('toggle text flips between "Show what I did" and "Hide technical details"', () => {
+      renderTimelineWithInvocations();
+      const toggle = screen.getByTestId('scan-timeline-drawer-toggle');
+      expect(toggle.textContent ?? '').toMatch(/show what i did/i);
+      fireEvent.click(toggle);
+      expect(toggle.textContent ?? '').toMatch(/hide technical details/i);
+      fireEvent.click(toggle);
+      expect(toggle.textContent ?? '').toMatch(/show what i did/i);
+    });
+
+    it('wires aria-controls on the toggle to the drawer id', () => {
+      renderTimelineWithInvocations();
+      const toggle = screen.getByTestId('scan-timeline-drawer-toggle');
+      const drawerId = toggle.getAttribute('aria-controls');
+      expect(drawerId).toBeTruthy();
+      fireEvent.click(toggle);
+      expect(screen.getByTestId('activity-drawer').id).toBe(drawerId);
+    });
+
+    // S19.9 — the toggle is a primary interaction surface in the chat
+    // column; on mobile it has to clear the 44px touch-target floor.
+    it('S19.9 — drawer toggle reaches the 44px touch-target minimum', () => {
+      renderTimelineWithInvocations();
+      const toggle = screen.getByTestId('scan-timeline-drawer-toggle');
+      expect(toggle.className).toMatch(/\bmin-h-11\b/);
+    });
   });
 });

@@ -117,15 +117,25 @@ export function buildSystemPrompt(
   const reusePriorResultsSection =
     "When the conversation history already contains grade_clause_severity or extract_clauses tool_result blocks from earlier turns, REUSE those results to answer follow-up questions (ranking, summarising, drafting emails for specific clauses). Do NOT re-run the scan tools on follow-up turns unless the user explicitly asks for a re-scan, the lease changed, or a needed clause is missing from the prior results. When drafting emails or ranking by severity, cite the prior grading's `reasoning` and `statute_citation` directly rather than calling the tool again.";
 
-  // Sprint 23e — draft_negotiation_email rendering contract. When the
-  // model fires draft_negotiation_email ×N and then writes its assistant
-  // text, it tends to produce a SUMMARY TABLE of email titles instead
-  // of the actual emails — leaving the polished subject + body buried
-  // inside collapsed tool_result JSON cards that tenants cannot see.
-  // This section forces VERBATIM rendering of each email's subject and
-  // body in markdown so the user can read and copy the deliverable.
+  // Sprint 23e Phase 2b → Sprint 23f Phase 4 — draft_negotiation_email
+  // post-tool-call summary. Originally (s23e.3) this section forced
+  // VERBATIM rendering of each email because the tool result was
+  // invisible to tenants (collapsed JSON ToolCards). Sprint-23f added
+  // NegotiationEmailCard which renders each email's subject + body
+  // inline with a Copy button — so re-rendering the verbatim text
+  // would duplicate the cards and bury the user's eye below them.
+  // The instruction flips: cards do the rendering; the assistant text
+  // is a concise summary that helps the user pick which to copy first.
   const draftEmailRenderingSection =
-    'After every draft_negotiation_email tool_result, you MUST render the email VERBATIM in your assistant text using this exact markdown shape, one block per tool call: a `## Email N: {clause label}` heading, then a `**Subject:** {tool_result.subject}` line, then a blank line, then the full `tool_result.body` text rendered as plain paragraphs (preserve line breaks). Do NOT produce a summary table of email titles, a numbered list of clause names, or "I drafted N emails…" boilerplate — the user needs to read and copy the actual email body the tool generated. Do NOT paraphrase the body or omit any of its text. The subject line and body are the deliverable; everything else in the message is scaffolding.';
+    'After firing one or more draft_negotiation_email tool calls, the UI renders each email as a NegotiationEmailCard with its subject, body, and a Copy button inline. Your assistant text MUST NOT re-render the verbatim subject + body — that would duplicate every card and bury the screen below them. Instead, produce a CONCISE SUMMARY of what you drafted (under ~12 lines): a brief intro line (e.g. "I drafted N polished negotiation emails — one per high-severity clause"), then a short ranked list of the emails by priority (severity × negotiability), each with a one-sentence rationale (e.g. "1. Security deposit — highest legal exposure, most landlords will concede on the cap"). Close with a one-line nudge to start with the top pick. Do NOT include the email subject lines or body text in your reply — the cards are the deliverable.';
+
+  // Sprint 23f Phase 4 — scan-complete summary format. Without an
+  // explicit prescription the model drifted between two formats (a
+  // 4-column markdown table, vs. a flat bulleted list) across runs.
+  // The table reads as a scannable risk register; pin it as the
+  // canonical shape so the post-scan summary feels consistent.
+  const scanCompleteSummarySection =
+    "After completing a full lease scan (extract_clauses + grade_clause_severity for every clause), the right-pane RedFlagReport already shows each red flag as a card. Your assistant text MUST produce the post-scan summary as a markdown TABLE with the columns `# | Clause | Issue | Statute / Authority`, one row per HIGH and MEDIUM severity grading sorted by severity (high first) then by clause_index. Below the table: an `OK` line listing any severity='ok' clauses, an `Ungraded` line listing any clauses that errored during grading, and a brief `Next steps` bulleted list (3-5 items) ending with the verbatim disclaimer in **bold markdown**. Do NOT replace the table with a flat bulleted list of red flags — the table is the scannable risk register the user expects.";
 
   const sections = [
     // 1. Identity
@@ -140,8 +150,12 @@ export function buildSystemPrompt(
     // 2.6 — Sprint 23e: prefer prior tool results on follow-up turns.
     reusePriorResultsSection,
 
-    // 2.7 — Sprint 23e: verbatim email rendering after draft_negotiation_email.
+    // 2.7 — Sprint 23e + 23f Phase 4: concise summary after draft_negotiation_email
+    // (cards now render the verbatim subject + body inline).
     draftEmailRenderingSection,
+
+    // 2.8 — Sprint 23f Phase 4: scan-complete summary uses a markdown table.
+    scanCompleteSummarySection,
 
     // 3. Workflow + tool manifest
     'Tool surface and prescribed call order:',

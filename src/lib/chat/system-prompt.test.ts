@@ -183,12 +183,13 @@ describe('buildSystemPrompt', () => {
     });
   });
 
-  // Sprint 23e (extended) — closes the "10 collapsed tool cards but no
-  // visible emails" bug. After draft_negotiation_email fires N times,
-  // the model needs to render every email's subject and body verbatim
-  // so the user can read and copy the deliverable.
-  describe('Sprint 23e — verbatim draft-email rendering', () => {
-    it('instructs the model to render the email VERBATIM (subject + body)', () => {
+  // Sprint 23f Phase 4 — supersedes the s23e.3 "render verbatim"
+  // instruction. NegotiationEmailCard now renders each email's subject
+  // and body inline with a Copy button; the assistant text should be a
+  // concise summary that helps the user pick which to copy first, NOT
+  // a duplicate of the email content.
+  describe('Sprint 23f Phase 4 — concise summary after draft_negotiation_email', () => {
+    it('forbids re-rendering the verbatim subject + body in assistant text', () => {
       const prompt = buildSystemPrompt({
         role: 'Tenant',
         activeLease: {
@@ -198,14 +199,13 @@ describe('buildSystemPrompt', () => {
           clause_count: 15,
         },
       });
-      // The new section says "render the email VERBATIM" and calls out
-      // both `subject` and `body` as the load-bearing fields.
-      expect(prompt).toMatch(/render.*verbatim/i);
-      expect(prompt).toMatch(/subject/i);
-      expect(prompt).toMatch(/body/i);
+      // The flipped instruction says the cards are the deliverable —
+      // the text must not re-render the verbatim email content.
+      expect(prompt).toMatch(/must not re-render.*verbatim/i);
+      expect(prompt).toMatch(/cards are the deliverable/i);
     });
 
-    it('forbids the summary-table-of-titles failure mode explicitly', () => {
+    it('requires a concise ranked summary by priority/severity', () => {
       const prompt = buildSystemPrompt({
         role: 'Tenant',
         activeLease: {
@@ -215,14 +215,12 @@ describe('buildSystemPrompt', () => {
           clause_count: 15,
         },
       });
-      // The new section forbids the exact pattern the model was
-      // producing (summary table, numbered list, "I drafted N emails…").
-      expect(prompt).toMatch(
-        /do not produce.*summary table|summary table.*do not/i,
-      );
+      // The summary should be a concise ranked list.
+      expect(prompt).toMatch(/concise summary/i);
+      expect(prompt).toMatch(/ranked.*(priority|severity)|priority.*severity/i);
     });
 
-    it('names the markdown shape the model must follow per email', () => {
+    it('names the NegotiationEmailCard surface so the model knows the rendering exists', () => {
       const prompt = buildSystemPrompt({
         role: 'Tenant',
         activeLease: {
@@ -232,10 +230,57 @@ describe('buildSystemPrompt', () => {
           clause_count: 15,
         },
       });
-      // The shape spec mentions the H2 heading + Subject line so the
-      // model has a concrete template to follow.
-      expect(prompt).toMatch(/##\s*Email\s*N/i);
-      expect(prompt).toMatch(/\*\*Subject:\*\*/);
+      expect(prompt).toMatch(/NegotiationEmailCard/);
+    });
+  });
+
+  // Sprint 23f Phase 4 — scan-complete summary uses a markdown table
+  // with deterministic columns. Without this prescription the model
+  // drifted between table and bulleted-list formats across runs.
+  describe('Sprint 23f Phase 4 — scan-complete summary table format', () => {
+    it('prescribes a markdown table with the canonical column set', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The four-column header (or close paraphrase) must be present
+      // so the model has a concrete template.
+      expect(prompt).toMatch(/markdown\s+table/i);
+      expect(prompt).toMatch(/#\s*\|\s*Clause\s*\|\s*Issue\s*\|\s*Statute/i);
+    });
+
+    it('describes the sort order (severity then clause_index)', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      expect(prompt).toMatch(/sorted by severity/i);
+      expect(prompt).toMatch(/clause_index|clause index/i);
+    });
+
+    it('requires OK + Ungraded lines and a Next steps bulleted block under the table', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      expect(prompt).toMatch(/\bOK\b/);
+      expect(prompt).toMatch(/Ungraded/i);
+      expect(prompt).toMatch(/Next steps/i);
     });
   });
 });

@@ -173,6 +173,32 @@ Per-phase definitions of done live in [sprint.md](./sprint.md).
 
 ---
 
+## 4b. Phase 4 — system-prompt refinements enabled by the new card surface (in-scope addendum)
+
+Surfaced during the user's smoke walk after Phases 1-3 landed. Two prompt-side concerns that the new `NegotiationEmailCard` surface either creates or makes addressable:
+
+### Fix 4a — Cards are the deliverable; the assistant text is a summary
+
+Sprint-23e.3 forced the model to render each email's subject + body VERBATIM in markdown text because the tool_result was otherwise invisible (collapsed JSON ToolCards). With the new `NegotiationEmailCard` rendering the subject + body inline with a Copy button, the verbatim text is now duplicative — it pushes the cards below the fold and buries the actual deliverable.
+
+**Fix:** flip the section-2.7 instruction. The cards do the rendering; the assistant text MUST be a concise summary (under ~12 lines) — a brief intro + a ranked list of emails by priority/severity with one-sentence rationales + a top-pick nudge. The verbatim subject + body must NOT appear in the assistant text.
+
+### Fix 4b — Scan-complete summary uses a markdown table
+
+The scan-complete assistant message previously emitted a 4-column markdown table (`# | Clause | Issue | Statute / Authority`). Recent runs drifted to a flat bulleted list. The table reads as a scannable risk register; the bullets do not. The system prompt never explicitly prescribed the table format — the model's previous behavior was emergent.
+
+**Fix:** new section 2.8 — `scanCompleteSummarySection` — pins the table format: columns `# | Clause | Issue | Statute / Authority`, one row per HIGH and MEDIUM severity grading, sorted by severity (high first) then by clause_index, followed by `OK` / `Ungraded` / `Next steps` blocks.
+
+### Tests (Phase 4)
+
+- 3 new system-prompt tests for the flipped 2.7 section (forbids verbatim, requires concise summary, names the card surface).
+- 3 new system-prompt tests for section 2.8 (table format, sort order, OK/Ungraded/Next-steps blocks).
+- The 3 pre-existing s23e.3 tests for verbatim-render language are removed (the instruction no longer exists).
+
+Net delta: +3 (6 new − 3 removed).
+
+---
+
 ## 5. Out of scope
 
 - Editing the email body in-line (out-of-scope; future sprint could add "Refine" interaction).

@@ -3,6 +3,15 @@
 import { AlertTriangle, PenTool, User } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
+import type { ToolEvent } from '@/components/chat/ChatStreamContext';
+import {
+  CLAUSE_TYPE_LABEL,
+  clauseLabel,
+  type GradingResult,
+  isGradingResult,
+  type Severity,
+} from '@/components/lease/grading';
+import { NegotiationEmailCard } from '@/components/lease/NegotiationEmailCard';
 import { ScanTimeline } from '@/components/lease/ScanTimeline';
 import type { Role } from '@/lib/auth/types';
 import type { FollowUpPrompt } from '@/lib/chat/follow-up-prompts';
@@ -198,17 +207,68 @@ export function ChatMessage({
 }
 
 /*
- * Sprint 18 §5 — role-aware tool-invocation render.
+ * Sprint 18 §5 + Sprint 23f §2 — role-aware tool-invocation render.
  *
- * Three render paths share this block:
- *  1. Tenant + scan invocations → <ScanTimeline />, with the original
- *     ToolCard stack hidden behind the (Phase-1-disabled) drawer toggle.
- *  2. Tenant + non-scan invocations only → inline ToolCard stack (a
- *     drafted negotiation email is the user's deliverable; it stays
- *     visible).
- *  3. Reviewer / Admin (any invocations) → inline ToolCard stack
- *     unchanged. They're auditors; trace fidelity is the value.
+ * Four render paths share this block:
+ *  1. Tenant + scan invocations → <ScanTimeline />.
+ *  2. Tenant + draft_negotiation_email invocations → <NegotiationEmailCard />
+ *     (Sprint 23f). The card resolves clause label + severity from prior
+ *     grade_clause_severity tool_results in the event stream.
+ *  3. Tenant + other non-scan invocations → inline ToolCard stack.
+ *  4. Reviewer / Admin (any invocations) → inline ToolCard stack unchanged.
+ *     They're auditors; trace fidelity is the value.
  */
+
+const DRAFT_EMAIL_TOOL = 'draft_negotiation_email';
+
+interface DraftEmailResult {
+  email_id?: string;
+  clause_id?: string;
+  subject?: string;
+  body?: string;
+  tone?: string;
+}
+
+interface DraftEmailInvocationInput {
+  clause_id?: unknown;
+}
+
+/**
+ * Sprint 23f §2 — resolve clause label + severity for a
+ * draft_negotiation_email invocation by scanning the tool-event stream
+ * for the most-recent matching grade_clause_severity result. Falls
+ * back gracefully when no matching grading is in scope.
+ */
+function resolveClauseContext(
+  invocation: ToolInvocation,
+  toolEvents: readonly ToolEvent[],
+): { clauseLabel: string; severity: Severity | undefined } {
+  const clauseId =
+    typeof (invocation.input as DraftEmailInvocationInput)?.clause_id ===
+    'string'
+      ? ((invocation.input as DraftEmailInvocationInput).clause_id as string)
+      : (invocation.result as DraftEmailResult | undefined)?.clause_id;
+  if (!clauseId) {
+    return { clauseLabel: 'Clause', severity: undefined };
+  }
+  // Walk events in reverse — latest grading wins (handles re-runs).
+  for (let i = toolEvents.length - 1; i >= 0; i--) {
+    const event = toolEvents[i];
+    if (event.tool_name !== 'grade_clause_severity') continue;
+    if (!isGradingResult(event.result)) continue;
+    if (event.result.clause_id !== clauseId) continue;
+    return {
+      clauseLabel: clauseLabel(event.result as GradingResult),
+      severity: event.result.severity,
+    };
+  }
+  // Fallback — no matching grading in the stream.
+  return {
+    clauseLabel: CLAUSE_TYPE_LABEL.unknown ?? 'Clause',
+    severity: undefined,
+  };
+}
+
 function ToolInvocationsBlock({
   viewerRole,
   invocations,
@@ -216,6 +276,7 @@ function ToolInvocationsBlock({
   viewerRole: Role;
   invocations: ToolInvocation[];
 }): React.JSX.Element {
+  const { toolEvents } = useChatStream();
   const scanInvocations = invocations.filter((inv) =>
     SCAN_TOOL_NAMES.has(inv.name),
   );
@@ -223,6 +284,7 @@ function ToolInvocationsBlock({
     (inv) => !SCAN_TOOL_NAMES.has(inv.name),
   );
   const showTimeline = viewerRole === 'Tenant' && scanInvocations.length > 0;
+  const isTenant = viewerRole === 'Tenant';
 
   return (
     <div className="my-2">
@@ -233,9 +295,29 @@ function ToolInvocationsBlock({
           <ToolCard key={invocation.id} invocation={invocation} />
         ))
       )}
-      {nonScanInvocations.map((invocation) => (
-        <ToolCard key={invocation.id} invocation={invocation} />
-      ))}
+      {nonScanInvocations.map((invocation) => {
+        // Sprint 23f — Tenant + draft_negotiation_email routes to the
+        // dedicated NegotiationEmailCard surface. Reviewer/Admin keeps
+        // the raw ToolCard for trace fidelity.
+        if (isTenant && invocation.name === DRAFT_EMAIL_TOOL) {
+          const result = invocation.result as DraftEmailResult | undefined;
+          const { clauseLabel: label, severity } = resolveClauseContext(
+            invocation,
+            toolEvents,
+          );
+          return (
+            <NegotiationEmailCard
+              key={invocation.id}
+              clauseLabel={label}
+              severity={severity}
+              subject={result?.subject ?? ''}
+              body={result?.body ?? ''}
+              emailId={result?.email_id}
+            />
+          );
+        }
+        return <ToolCard key={invocation.id} invocation={invocation} />;
+      })}
     </div>
   );
 }

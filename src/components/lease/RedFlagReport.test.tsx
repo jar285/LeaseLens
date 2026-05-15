@@ -189,10 +189,11 @@ describe('RedFlagReport', () => {
       </ProviderWithEvents>,
     );
     const summary = screen.getByTestId('red-flag-summary');
-    // Compact "2 High · 1 Med · 1 OK" label, regardless of whitespace.
-    expect(summary.textContent?.replace(/\s+/g, ' ')).toMatch(
-      /2 High.*1 Med.*1 OK/,
-    );
+    // Compact "2 High · 1 Med · 1 OK" label. Counts + labels are
+    // adjacent inline elements (visual gap is CSS, no text whitespace)
+    // so collapse whitespace before matching.
+    const normalised = summary.textContent?.replace(/\s+/g, '') ?? '';
+    expect(normalised).toMatch(/2High.*1Med.*1OK/);
   });
 
   it('orders cards high → medium → low → ok', () => {
@@ -481,6 +482,95 @@ describe('RedFlagReport', () => {
       expect(
         screen.queryByTestId('red-flag-skeleton-card'),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  // Sprint 23d Phase 2 — cards + summary consume the new SeverityBadge
+  // primitive instead of inline pill spans / dot-text pairs. Triple-
+  // channel severity (icon + text + colour) closes the handoff §19
+  // accessibility gap.
+  describe('Sprint 23d — SeverityBadge consumption', () => {
+    it('each red-flag card renders a SeverityBadge in its header', () => {
+      render(
+        <ProviderWithEvents events={[grade()]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const card = screen.getByTestId('red-flag-card');
+      const badge = card.querySelector('[data-testid="severity-badge"]');
+      expect(badge, 'card should render a SeverityBadge').not.toBeNull();
+      expect(badge?.getAttribute('data-severity')).toBe('high');
+      // The badge contains an SVG icon (not a plain coloured pill).
+      expect(badge?.querySelector('svg')).not.toBeNull();
+    });
+
+    it('summary row renders one SeverityBadge per non-zero severity', () => {
+      render(
+        <ProviderWithEvents
+          events={[
+            grade({
+              input: { clause_id: 'a' },
+              result: {
+                ...(grade().result as object),
+                clause_id: 'a',
+                severity: 'high',
+              },
+            }),
+            grade({
+              input: { clause_id: 'b' },
+              result: {
+                ...(grade().result as object),
+                clause_id: 'b',
+                severity: 'medium',
+              },
+            }),
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const summary = screen.getByTestId('red-flag-summary');
+      const badges = summary.querySelectorAll('[data-testid="severity-badge"]');
+      // Two non-zero severities → 2 badges.
+      expect(badges.length).toBe(2);
+      // sm size — verified via the 10px utility (or text-xs canonical).
+      for (const badge of badges) {
+        expect(badge.className).toMatch(/text-\[10px\]|text-xs/);
+      }
+    });
+  });
+
+  // Sprint 23d Phase 4 — empty-state example preview card.
+  describe('Sprint 23d — empty-state example preview', () => {
+    it('renders an example preview card before any gradings exist', () => {
+      render(
+        <ProviderWithEvents events={[]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      // The empty branch carries an example-preview testid above the
+      // existing bulleted examples list.
+      expect(screen.getByTestId('red-flag-empty-preview')).toBeInTheDocument();
+      // The preview contains a SeverityBadge (proving it uses the real
+      // card pattern, not a separate visual language).
+      const preview = screen.getByTestId('red-flag-empty-preview');
+      expect(
+        preview.querySelector('[data-testid="severity-badge"]'),
+      ).not.toBeNull();
+    });
+
+    it('preview is visually muted (low opacity) and carries an "Example" eyebrow', () => {
+      render(
+        <ProviderWithEvents events={[]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const preview = screen.getByTestId('red-flag-empty-preview');
+      // Low-opacity treatment — opacity-60, opacity-70, or similar so
+      // the example reads as decorative rather than active data.
+      expect(preview.className).toMatch(/\bopacity-(60|65|70)\b/);
+      // "Example" eyebrow sits inside the preview container.
+      expect(preview.textContent ?? '').toMatch(/example/i);
     });
   });
 });

@@ -127,4 +127,160 @@ describe('buildSystemPrompt', () => {
     // dependency map and a severity heatmap.
     expect(prompt).toMatch(/clause|severity|heatmap|dependency/i);
   });
+
+  // Sprint 23e — closes the "model forgets prior gradings on follow-up
+  // turns" bug. The prompt must explicitly instruct the model to REUSE
+  // grade_clause_severity / extract_clauses tool_result blocks already
+  // in conversation history, and must carve out the explicit re-scan
+  // case so users can still ask for a fresh pass.
+  describe('Sprint 23e — prefer prior tool results on follow-ups', () => {
+    it('instructs the model to REUSE prior tool_result blocks', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // Match either "reuse … prior … tool_result" or the more general
+      // "reuse … prior … results" wording.
+      expect(prompt).toMatch(/reuse.*prior.*(tool_result|results)/i);
+    });
+
+    it('carves out an explicit re-scan exception so re-runs still work', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // Match any of: "re-scan", "scan again", "lease changed", or
+      // "user explicitly asks".
+      expect(prompt).toMatch(
+        /(re-scan|scan again|lease changed|user (?:asks|explicitly))/i,
+      );
+    });
+
+    it('names the specific tools whose results should be reused', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The reuse instruction calls out the two tools by name so the
+      // model knows which prior results to look for.
+      expect(prompt).toMatch(/grade_clause_severity/);
+      expect(prompt).toMatch(/extract_clauses/);
+    });
+  });
+
+  // Sprint 23f Phase 4 — supersedes the s23e.3 "render verbatim"
+  // instruction. NegotiationEmailCard now renders each email's subject
+  // and body inline with a Copy button; the assistant text should be a
+  // concise summary that helps the user pick which to copy first, NOT
+  // a duplicate of the email content.
+  describe('Sprint 23f Phase 4 — concise summary after draft_negotiation_email', () => {
+    it('forbids re-rendering the verbatim subject + body in assistant text', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The flipped instruction says the cards are the deliverable —
+      // the text must not re-render the verbatim email content.
+      expect(prompt).toMatch(/must not re-render.*verbatim/i);
+      expect(prompt).toMatch(/cards are the deliverable/i);
+    });
+
+    it('requires a concise ranked summary by priority/severity', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The summary should be a concise ranked list.
+      expect(prompt).toMatch(/concise summary/i);
+      expect(prompt).toMatch(/ranked.*(priority|severity)|priority.*severity/i);
+    });
+
+    it('names the NegotiationEmailCard surface so the model knows the rendering exists', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      expect(prompt).toMatch(/NegotiationEmailCard/);
+    });
+  });
+
+  // Sprint 23f Phase 4 — scan-complete summary uses a markdown table
+  // with deterministic columns. Without this prescription the model
+  // drifted between table and bulleted-list formats across runs.
+  describe('Sprint 23f Phase 4 — scan-complete summary table format', () => {
+    it('prescribes a markdown table with the canonical column set', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The four-column header (or close paraphrase) must be present
+      // so the model has a concrete template.
+      expect(prompt).toMatch(/markdown\s+table/i);
+      expect(prompt).toMatch(/#\s*\|\s*Clause\s*\|\s*Issue\s*\|\s*Statute/i);
+    });
+
+    it('describes the sort order (severity then clause_index)', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      expect(prompt).toMatch(/sorted by severity/i);
+      expect(prompt).toMatch(/clause_index|clause index/i);
+    });
+
+    it('requires OK + Ungraded lines and a Next steps bulleted block under the table', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      expect(prompt).toMatch(/\bOK\b/);
+      expect(prompt).toMatch(/Ungraded/i);
+      expect(prompt).toMatch(/Next steps/i);
+    });
+  });
 });

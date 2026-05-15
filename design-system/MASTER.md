@@ -1,10 +1,12 @@
 # LeaseLens Design System — Master Reference
 
-**Status:** Sprint 16A v1 (design-system documentation). Documentation source of truth for LeaseLens UI/UX direction.
+**Status:** Sprint 23j refresh — Open Design editorial palette (cream paper + terracotta), accessible PDF page nav, motion-preset module, ink-blue citation token. Documentation source of truth for LeaseLens UI/UX direction.
 **Implementation source of truth:** [`src/app/globals.css`](../src/app/globals.css) (Tailwind v4 `@theme` block) and the existing component classNames.
-**Last updated:** 2026-05-08.
+**Last updated:** 2026-05-14.
 
 > If a token value in this doc conflicts with `globals.css`, the CSS file wins. This doc documents *intent*; the runtime CSS is the *implementation*. Token names should be kept in sync — when one moves, both move.
+
+> **Sprint 23g–j brand refresh (2026-05).** The palette shifted from warm-neutral + soft-violet to a cream-paper + terracotta system inspired by [open-design.ai](https://open-design.ai/)'s editorial register. The Sage + Caregiver archetype is unchanged. Source Serif 4 now loads weight 700 + italic so the hero can carry a display-serif treatment with one italic emphasis word. A new `--color-citation` ink-blue token gives statute references a distinct semantic colour, separate from interactive primary. Cards now sit DEEPER than the base ("vellum inset" pattern) rather than lighter on top of it — closer to Open Design's one-tone-throughout treatment. See §2, §3, and §5 below.
 
 ---
 
@@ -65,7 +67,7 @@ The scan sweep is a thin horizontal stroke that translates `y: 5 → 18.5` with 
 **Where the mark may appear**
 
 - Chat home header — small, 14 px inside the accent-600 chip.
-- Chat welcome state hero — large, 28 px inside a 56 px (`h-14 w-14`) `bg-accent-50` chip with a continuous 4-second "breathing" pulse on the surrounding badge. The mark inside still does its one-shot scan on mount; the badge pulse and the scan are independent layers and coexist cleanly.
+- Chat welcome state hero — 28 px inside a 48 px (`h-12 w-12`) `bg-accent-50` chip with a continuous 4-second "breathing" pulse on the surrounding badge. The mark inside does its one-shot scan on mount, then enters Sprint 23g's opt-in **`idleShimmer`** — a fainter sweep that fires every ~14 s at 35% peak opacity. Reduced-motion users skip both. The small top-nav mark does NOT opt into idle shimmer; only the hero badge does.
 - Loading splash, error pages, or external surfaces (favicon, README, share images) — always at minimum 14 px so the text lines remain legible.
 - **Not** in the cockpit header — that view uses the lucide `Layers` icon with the "Operator Cockpit" wordmark, intentionally distinct from the chat surface so a glance tells you which view you're in.
 
@@ -82,41 +84,53 @@ The scan sweep is a thin horizontal stroke that translates `y: 5 → 18.5` with 
 
 Implementation lives in [`src/app/globals.css`](../src/app/globals.css)'s `@theme` block. The CSS file is canonical; the table below documents intent.
 
-### Warm-neutral scale
+### Warm-neutral scale (cream paper → espresso)
 
 | Token | Light hex | Role |
 |---|---|---|
-| `--color-neutral-50`  | `#FAFAF9` | page surface (light) |
-| `--color-neutral-100` | `#F4F4F2` | muted surface (light) |
-| `--color-neutral-150` | `#ECECE8` | divider |
-| `--color-neutral-200` | `#E2E2DC` | default border |
-| `--color-neutral-300` | `#C9C9C0` | strong border |
-| `--color-neutral-400` | `#A3A39A` | subtle foreground |
-| `--color-neutral-500` | `#75756B` | muted foreground |
-| `--color-neutral-600` | `#565650` | secondary foreground |
-| `--color-neutral-700` | `#3F3F3A` | strong foreground |
-| `--color-neutral-800` | `#28282A` | card surface (dark) |
-| `--color-neutral-900` | `#1A1A1C` | default foreground (light); muted surface (dark) |
-| `--color-neutral-950` | `#0E0E10` | page surface (dark) |
+| `--color-neutral-50`  | `#FCF8EE` | lightest cream — `surface-elevated` (hover / floating chrome) |
+| `--color-neutral-100` | `#F5EEDC` | cream paper — `surface-base` |
+| `--color-neutral-150` | `#EFE7D2` | divider / vellum panel — `surface-card` |
+| `--color-neutral-200` | `#E2D7BF` | default border, sunken — `surface-muted` / `surface-sunken` |
+| `--color-neutral-300` | `#C9BCA0` | strong border |
+| `--color-neutral-400` | `#A8997E` | subtle foreground (`fg-subtle`) |
+| `--color-neutral-500` | `#7D6F58` | medium warm — secondary text |
+| `--color-neutral-600` | `#5C4F3A` | muted foreground (`fg-muted`) |
+| `--color-neutral-700` | `#3F3527` | strong warm text |
+| `--color-neutral-800` | `#2D241A` | dark warm — `surface-card` (dark mode) |
+| `--color-neutral-900` | `#1A1410` | espresso — default foreground (light); `surface-base` (dark) |
+| `--color-neutral-950` | `#0E0A07` | deepest espresso |
 
-Warm-neutral, not cold grey. Hint of yellow-green to read as paper rather than steel.
+Warm cream, not cold grey. The progression reads as oatmeal paper at the light end and espresso at the dark end, so dark mode is the "negative space" of light mode — same world, inverted lightness.
 
-### Accent scale — keyed on `#6E5CE6`
+### Accent scale — terracotta, keyed on `#E07A5F`
 
-| Token | Light hex | Role |
-|---|---|---|
-| `--color-accent-50`  | `#F2EFFD` | accent tint (hover bg) |
-| `--color-accent-100` | `#E6E0FB` | accent soft (focus ring) |
-| `--color-accent-200` | `#CFC4F7` | accent edge |
-| `--color-accent-300` | `#B0A0F1` | accent ring (focus visible) |
-| `--color-accent-400` | `#8A77EB` | accent strong |
-| `--color-accent-500` | `#6E5CE6` | **brand primary** |
-| `--color-accent-600` | `#5A47DC` | primary action |
-| `--color-accent-700` | `#4B3AC0` | primary action hover |
+| Token | Light hex | Dark hex (OLED-brightened) | Role |
+|---|---|---|---|
+| `--color-accent-50`  | `#FCEFE7` | — | accent tint (hover bg) |
+| `--color-accent-100` | `#F8DECF` | — | accent soft (focus ring inner) |
+| `--color-accent-200` | `#F1BCA1` | — | accent edge |
+| `--color-accent-300` | `#EA9B7A` | — | accent ring (focus visible) |
+| `--color-accent-400` | `#E68265` | — | accent strong |
+| `--color-accent-500` | `#E07A5F` | `#EF8E73` | **brand primary** — terracotta sun |
+| `--color-accent-600` | `#CC6347` | `#E5775A` | primary action |
+| `--color-accent-700` | `#A85138` | `#D86348` | primary action active |
 
-Soft violet. Wide surface area is OUT of brand — the accent appears on the primary action, the sparkle icon, the active role pill, citation chips, and focus rings. Everything else stays neutral.
+Terracotta echoes Open Design's coral sun motif — warm, grounded, distinctive against cream. The same hue family in both modes; only the 500/600/700 stops brighten for OLED comfort. Wide surface area is OUT of brand: the accent appears on the primary action, the role-switcher pill, focus rings, and the LeaseLensMark badge. Everything else stays neutral.
+
+### Citation token (ink-blue) — Sprint 23h
+
+A second semantic accent reserved for **NJ statute references**. Distinct from the interactive primary so a user reads citation surfaces as "this is a reference to law", not "this is a button".
+
+| Token | Light | Dark | Role |
+|---|---|---|---|
+| `--color-citation` | `#1B3B6F` | `#7C9CD1` | CitationChip text + icon, the "View on page N" anchor copy (where it's a citation, not the action button itself) |
+
+Both pairs clear WCAG 4.5:1 with comfortable margin. Used by [`src/components/lease/CitationChip.tsx`](../src/components/lease/CitationChip.tsx); the chip's hover background + focus ring stay on the violet-replaced-by-terracotta interactive token, so a citation reads as ink-blue content with terracotta interactive feedback — two distinct semantic roles, never collapsed.
 
 ### Semantic colours (severity, status)
+
+Unchanged across the 23g–j refresh — severity must clear contrast against the new cream surface, which all four pairings already do.
 
 | Token | Light hex | Role |
 |---|---|---|
@@ -125,21 +139,23 @@ Soft violet. Wide surface area is OUT of brand — the accent appears on the pri
 | `--color-danger-100` / `-600` | `#FBDFDF` / `#B33232` | High severity / Error |
 | `--color-info-100` / `-600` | `#DBEEFD` / `#1E6FB8` | Low severity / Informational |
 
-### Semantic aliases (theme-flip surfaces)
+### Semantic aliases (theme-flip surfaces) — Sprint 23j inverted hierarchy
 
-These alias the scales above and flip in dark mode via the `:root.dark` block in `globals.css`.
+These alias the scales above and flip in dark mode via the `:root.dark` block in `globals.css`. **Sprint 23j inverted the card-vs-base relationship**: `surface-card` is now DARKER than `surface-base` (in both modes) so cards read as vellum panels inset into the paper, not bright cards floating on top. `surface-elevated` is reserved for hover / floating chrome that should visually rise.
 
 | Token | Light | Dark | Role |
 |---|---|---|---|
-| `--color-surface-base`   | `#FAFAF9` | `#0E0E10` | page background |
-| `--color-surface-card`   | `#FFFFFF` | `#1A1A1C` | card / panel background |
-| `--color-surface-muted`  | `#F4F4F2` | `#28282A` | hover surface, inline code background |
-| `--color-fg-default`     | `#1A1A1C` | `#F4F4F2` | primary text |
-| `--color-fg-muted`       | `#75756B` | `#A3A39A` | secondary text |
-| `--color-fg-subtle`      | `#A3A39A` | `#75756B` | placeholder, hint text |
-| `--color-border-hairline` | `rgb(0 0 0 / 0.08)` | `rgb(255 255 255 / 0.08)` | hairline 1px stroke |
-| `--color-border-default` | `#E2E2DC` | `#28282A` | standard border |
-| `--color-border-strong`  | `#C9C9C0` | `#3F3F3A` | emphasised border |
+| `--color-surface-base`     | `#F5EEDC` | `#1A1410` | page background (cream paper / espresso) |
+| `--color-surface-card`     | `#EFE7D2` | `#14110D` | card / panel — INSET into base |
+| `--color-surface-muted`    | `#E5DAC0` | `#0E0A07` | sunken regions, deepest inset |
+| `--color-surface-elevated` | `#FAF3DE` | `#2D241A` | hover, popovers, floating chrome — LIFTED above base |
+| `--color-surface-sunken`   | `#E5DAC0` | `#0E0A07` | scan-timeline strip, composer kbd-hint tray |
+| `--color-fg-default`       | `#1A1410` | `#F5EEDC` | primary text |
+| `--color-fg-muted`         | `#5C4F3A` | `#A8997E` | secondary text |
+| `--color-fg-subtle`        | `#A8997E` | `#7D6F58` | placeholder, hint text |
+| `--color-border-hairline`  | `rgb(20 12 8 / 0.10)` | `rgb(245 238 220 / 0.10)` | hairline 1px stroke |
+| `--color-border-default`   | `#D8CBA9` | `#3F3527` | standard border (deepened from 23i so card separation stays legible against the new inset surface) |
+| `--color-border-strong`    | `#C2B292` | `#5C4F3A` | emphasised border |
 
 Components consume these via Tailwind utilities (`bg-surface-base`, `text-fg-default`, `border-border-hairline`). No raw hex values in component className. No raw `gray-*` / `indigo-*` from Tailwind's default scales.
 
@@ -149,9 +165,10 @@ Body text (14px+ regular weight or 18px+ light weight) must clear **4.5:1 contra
 
 | Foreground / Background (light) | Ratio |
 |---|---|
-| `--color-fg-default` (`#1A1A1C`) on `--color-surface-base` (`#FAFAF9`) | ~15.8:1 ✅ |
-| `--color-fg-muted` (`#75756B`) on `--color-surface-base` | ~4.85:1 ✅ |
-| `--color-accent-600` (`#5A47DC`) on `--color-surface-base` | ~7.1:1 ✅ |
+| `--color-fg-default` (`#1A1410`) on `--color-surface-base` (`#F5EEDC`) | ~14.7:1 ✅ |
+| `--color-fg-muted` (`#5C4F3A`) on `--color-surface-base` | ~6.9:1 ✅ |
+| `--color-accent-600` (`#CC6347`) on `--color-surface-base` | ~4.6:1 ✅ |
+| `--color-citation` (`#1B3B6F`) on `--color-surface-card` (`#EFE7D2`) | ~10.4:1 ✅ |
 | `--color-danger-600` on `--color-danger-100` | ~5.2:1 ✅ |
 
 Equivalent pairs hold in dark mode. **`--color-fg-subtle` is below AA for body text** and is reserved for placeholders, hint text, and decorative ghosts — never for content the user needs to read.
@@ -164,13 +181,13 @@ Three families load via `next/font/google` in [`src/app/layout.tsx`](../src/app/
 
 ### Families
 
-| Token | Family | Use |
-|---|---|---|
-| `--font-sans`  | **Geist Sans** | All UI: nav, buttons, labels, body, transcript, dropzone copy. |
-| `--font-serif` | **Source Serif 4** | Editorial headings only: the empty-state H1, any landing-style hero. NEVER body. |
-| `--font-mono` | **Geist Mono** | Statute citations (`NJ Stat 46:8-19`), tool names, technical identifiers, code blocks, tabular numbers (when paired with `font-variant-numeric: tabular-nums`). |
+| Token | Family | Loaded weights / styles | Use |
+|---|---|---|---|
+| `--font-sans`  | **Geist Sans** | default | All UI: nav, buttons, labels, body, transcript, dropzone copy. |
+| `--font-serif` | **Source Serif 4** | 400, 600, 700 — `normal` + `italic` | Editorial headings only: the empty-state hero, any landing-style hero. NEVER body. Sprint 23i added 700 + italic so the hero can carry a display-serif treatment with one italic emphasis word (`"Find what to /negotiate/, before you sign."`). Real italic faces, not browser-synthesized. |
+| `--font-mono` | **Geist Mono** | default | Statute citations (`NJ Stat 46:8-19`), tool names, technical identifiers, code blocks, tabular numbers (when paired with `font-variant-numeric: tabular-nums`). Also: editorial small-caps — the workspaceName eyebrow, the `NJSA · 46:8 · TENANT LAW` system anchor, the `LIVE · v23.i` version stamp, the trust-metric section markers (`01 · 02 · 03`), and the `Nº 01` plate-number prefix on red-flag cards. |
 
-Body sets `font-feature-settings: "ss01", "cv11"` to engage Geist's small caps + alt 6/9 glyphs — improves readability for numeric statute IDs.
+Body sets `font-feature-settings: "ss01", "cv11"` to engage Geist's small caps + alt 6/9 glyphs — improves readability for numeric statute IDs. Body `line-height: 1.55` (Sprint 23h, up from default 1.5) for the editorial register.
 
 ### Type scale
 
@@ -274,13 +291,27 @@ Two tokens only.
 
 ### Spring conventions (motion library)
 
-For natural physics on hover/tap or `layoutId` transitions:
+**Sprint 23g** consolidated previously-inline spring configs into a single source of truth: [`src/lib/motion/presets.ts`](../src/lib/motion/presets.ts). Reach for these from `transition={}` callsites; component-specific tuning should start from one of these and only deviate when the pattern requires it.
 
-```ts
-{ type: 'spring', stiffness: 300–500, damping: 25–30 }
-```
+| Preset | Config | Use |
+|---|---|---|
+| `SPRING_GENTLE` | `stiffness: 260, damping: 30, mass: 0.9` | cards entering / exiting the red-flag rail, pane content swaps, AnimatePresence layout transitions. Settles ~360–420 ms. |
+| `SPRING_SNAPPY` | `stiffness: 500, damping: 38` | pills, badges, buttons, send-button tap, role-switcher pill background. Settles ~180–220 ms. |
+| `SPRING_SNAP_BACK` | `stiffness: 400, damping: 32, mass: 0.7` | drag gestures that always return to origin (reserved for future drag handles; not currently used after the 23g PDF-swipe rollback). |
 
-Stiffness 400 + damping 30 for the role-pill `layoutId`. Stiffness 500 + damping 25 for the send-button `whileTap`. Never let a spring overshoot beyond 1.08 scale — that reads as bouncy / playful.
+Plus two cubic easings (`EASE_OUT_SOFT`, `EASE_IN_OUT_SOFT`) that mirror the `--ease-*-soft` CSS tokens for non-spring transitions (fades, opacity, staggered list reveals).
+
+Never let a spring overshoot beyond 1.08 scale — that reads as bouncy / playful.
+
+### Layout-aware transitions (Sprint 23g)
+
+The red-flag rail uses Framer's layout-shared-element primitives so the list reorders smoothly during streaming + re-grades:
+
+- **`<LayoutGroup>`** wraps the rail container so all cards share layout context.
+- **`<AnimatePresence mode="popLayout">`** lets exiting cards drop out of layout immediately so the surviving cards' `layout` transitions spring-fill the gap. The wrapping container must be `position: relative` for popLayout to position exits correctly.
+- **`layout` prop** on each `motion.article` interpolates position changes (sibling reorder, sibling exit) instead of snapping.
+
+This is the canonical "list-of-cards" motion pattern across the codebase; new list surfaces should adopt the same trio.
 
 ### Reduced motion contract
 
@@ -373,6 +404,7 @@ Minimum **44 × 44px** for any tappable target on touch surfaces. The role-tab b
 - Every interactive element reachable via Tab.
 - Esc closes popovers (WorkspaceMenu already implements).
 - Enter and Space activate buttons (native HTML `<button>` handles this automatically — don't bind keyDown handlers that override).
+- **PDF pane page navigation (Sprint 23h).** The PDF scroll area is a semantic `<section>` with `aria-label`, `tabIndex={0}`, and an `onKeyDown` handler that intercepts ArrowLeft / ArrowRight to navigate to the previous / next page (reuses the same `scrollIntoView` path as CitationChip's "View on page N"). ArrowUp / ArrowDown are deliberately NOT hijacked so the browser's native line-by-line scroll keeps working. The handler also bails if `window.getSelection().toString()` is non-empty, so arrow-key text-selection extension still works. The Prev / Next buttons in `PdfReadingControls` cover the same nav for pointer users and live next to the page indicator.
 
 ---
 
@@ -415,7 +447,7 @@ This list is the negative of the brief's "Visual Direction → Avoid" section, e
 
 | Anti-pattern | Why we reject | What to use instead |
 |---|---|---|
-| Generic law-firm navy + gold + EB Garamond | Sage archetype, not Authority archetype. We're not a firm. | Warm-neutral + soft violet + Geist + Source Serif 4 |
+| Generic law-firm navy + gold + EB Garamond | Sage archetype, not Authority archetype. We're not a firm. | Cream paper + terracotta accent + ink-blue citations + Geist + Source Serif 4 (Sprint 23g–j) |
 | Glassmorphism (backdrop-blur cards on busy backgrounds) | Reads as gimmicky; fails AA contrast easily | Flat cards with hairline borders |
 | Heavy gradients (full-page bg gradients, gradient buttons) | Distracts from the legal-text content | Solid surface tokens |
 | Emoji icons in chrome (🚀 ⚖️ 🏠) | Reads as toy / consumer; fails on screen readers | Lucide icons |
@@ -479,7 +511,7 @@ Every PR closes against this checklist. The first six categories are non-negotia
 
 - [ ] `npm run typecheck` green
 - [ ] `npm run lint` 0 errors
-- [ ] `npm run test` ≥ 507/507 (pre-existing baseline)
+- [ ] `npm run test` ≥ 823/823 (Sprint 23j baseline; was 507 pre-S16, 813 pre-23g, 823 post-23j)
 - [ ] No regressions in Playwright E2E
 
 ---

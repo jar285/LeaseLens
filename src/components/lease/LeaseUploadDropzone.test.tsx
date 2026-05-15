@@ -206,4 +206,86 @@ describe('LeaseUploadDropzone', () => {
       expect(onUploaded).toHaveBeenCalledTimes(1);
     });
   });
+
+  // Sprint 23b Phase 1 — document-tray hierarchy. The pre-upload state
+  // should read as a calm document tray, not a landing-page hero: smaller
+  // icon, tighter padding, single-line footnote hint instead of a three-
+  // line stack.
+  describe('Sprint 23b — document-tray hierarchy', () => {
+    it('icon wrapper uses h-12 w-12 (tighter than the prior h-14 w-14)', () => {
+      render(<LeaseUploadDropzone onUploaded={() => {}} />);
+      const icon = screen.getByTestId('lease-upload-icon');
+      expect(icon.className).toMatch(/\bh-12\b/);
+      expect(icon.className).toMatch(/\bw-12\b/);
+      expect(icon.className).not.toMatch(/\bh-14\b/);
+    });
+
+    it('idle hints render as a single footnote line, not three stacked paragraphs', () => {
+      render(<LeaseUploadDropzone onUploaded={() => {}} />);
+      // One node carries the combined footnote text with `·` separators.
+      const footnote = screen.getByText(
+        /pdf up to 10 mb.*text-layer required.*informational/i,
+      );
+      expect(footnote).toBeInTheDocument();
+      // The legacy three-line variants must not coexist.
+      expect(
+        screen.queryByText('Your lease text stays in this session.'),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText('Informational analysis, not legal advice.'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('outer section drops to p-6 (tighter than the prior p-8)', () => {
+      render(<LeaseUploadDropzone onUploaded={() => {}} />);
+      const section = screen.getByTestId('lease-upload-dropzone');
+      expect(section.className).toMatch(/\bp-6\b/);
+      expect(section.className).not.toMatch(/\bp-8\b/);
+    });
+  });
+
+  // Sprint 23b Phase 6.2 — drag-drop file passthrough. The drop path
+  // bypasses the <input> element entirely (file goes straight into
+  // handleFile), so callers can't recover the File via the DOM. The
+  // dropzone must forward the File as a second arg to onUploaded so
+  // the parent shell can build a Blob URL for the PDF viewer.
+  describe('Sprint 23b — onUploaded file passthrough', () => {
+    it('passes the File object alongside UploadResult on click-to-upload', async () => {
+      const onUploaded = vi.fn();
+      render(<LeaseUploadDropzone onUploaded={onUploaded} />);
+
+      const input = screen.getByTestId(
+        'lease-upload-input',
+      ) as HTMLInputElement;
+      const file = makePdfFile('click-path.pdf');
+      Object.defineProperty(input, 'files', { value: [file] });
+      fireEvent.change(input);
+
+      await waitFor(() => {
+        expect(onUploaded).toHaveBeenCalledTimes(1);
+      });
+      const [result, passedFile] = onUploaded.mock.calls[0];
+      expect(result.lease_id).toBe('lease-stub');
+      expect(passedFile).toBeInstanceOf(File);
+      expect((passedFile as File).name).toBe('click-path.pdf');
+    });
+
+    it('passes the File object alongside UploadResult on drag-drop', async () => {
+      const onUploaded = vi.fn();
+      render(<LeaseUploadDropzone onUploaded={onUploaded} />);
+
+      const dropZone = screen.getByTestId('lease-upload-dropzone');
+      const file = makePdfFile('drop-path.pdf');
+      fireEvent.drop(dropZone, {
+        dataTransfer: { files: [file] },
+      });
+
+      await waitFor(() => {
+        expect(onUploaded).toHaveBeenCalledTimes(1);
+      });
+      const [, passedFile] = onUploaded.mock.calls[0];
+      expect(passedFile).toBeInstanceOf(File);
+      expect((passedFile as File).name).toBe('drop-path.pdf');
+    });
+  });
 });

@@ -124,8 +124,11 @@ export function ScanTimelineRow({
     >
       <div className="flex items-center gap-2.5">
         <StatusIcon status={stage.status} reduced={reduced} />
+        {/* Sprint 23c Phase 4 — stage label tightens with font-medium +
+            tracking-tight so the scan rhythm reads as a deliberate
+            progress strip rather than an event log. */}
         <span
-          className={`flex-1 text-[13px] ${
+          className={`flex-1 text-[13px] font-medium tracking-tight ${
             stage.status === 'pending' ? 'text-fg-subtle' : 'text-fg-default'
           }`}
         >

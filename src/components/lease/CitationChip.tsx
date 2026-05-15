@@ -37,12 +37,22 @@ export interface CitationChipProps {
 // container; the native `title` attribute exposes the full citation
 // as a hover tooltip for sighted users (screen readers already get
 // the full text via aria-label on the button variant).
+//
+// Sprint 23h — citation text + icon switched to the new `--color-citation`
+// (ink-blue) token. Establishes a distinct semantic color for "this is a
+// reference to NJ statute" — separate from the violet interactive primary,
+// so users can read at a glance "this is a legal citation, not a button."
+// Hover background + focus ring intentionally stay violet because those
+// signal "this is interactive," a system-wide pattern; ink-blue is for
+// the citation content itself.
 const CHIP_LAYOUT_CLASS = 'flex min-w-0 items-start gap-1.5';
-const CHIP_ICON_CLASS =
-  'h-3 w-3 shrink-0 translate-y-[2px] text-accent-500 dark:text-accent-300';
+const CHIP_ICON_CLASS = 'h-3 w-3 shrink-0 translate-y-[2px] text-citation';
 const CHIP_TEXT_CLASS =
-  'min-w-0 line-clamp-2 break-words text-[12px] leading-snug font-medium text-accent-600 dark:text-accent-300';
-const CHIP_BUTTON_CLASS = `${CHIP_LAYOUT_CLASS} rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:hover:bg-accent-500/10`;
+  'min-w-0 line-clamp-2 break-words text-[12px] leading-snug font-medium text-citation';
+// Sprint 23b Phase 5 — button variant gains an underline-on-hover so the
+// "this is a real link to the PDF page" affordance is unambiguous.
+const CHIP_TEXT_BUTTON_CLASS = `${CHIP_TEXT_CLASS} group-hover:underline`;
+const CHIP_BUTTON_CLASS = `group ${CHIP_LAYOUT_CLASS} rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:hover:bg-accent-500/10`;
 
 export function CitationChip({
   statuteCitation,
@@ -64,7 +74,7 @@ export function CitationChip({
         className={CHIP_BUTTON_CLASS}
       >
         <Paperclip aria-hidden="true" className={CHIP_ICON_CLASS} />
-        <span className={CHIP_TEXT_CLASS}>{statuteCitation}</span>
+        <span className={CHIP_TEXT_BUTTON_CLASS}>{statuteCitation}</span>
       </button>
     );
   }

@@ -41,7 +41,7 @@ export function ActivityDrawer({
       id={id}
       aria-label="Activity — technical details"
       data-testid="activity-drawer"
-      className="mt-2 space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800"
+      className="mt-2 space-y-2 border-t border-border-hairline pt-3"
     >
       {invocations.map((invocation) => (
         <ToolCard key={invocation.id} invocation={invocation} />

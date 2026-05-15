@@ -62,15 +62,16 @@ describe('buildContextWindow', () => {
     expect(result.trimmed).toBe(false);
   });
 
-  it('trims to MAX_MESSAGES when history exceeds 20 and starts with user', () => {
-    // 22 messages: 11 user/assistant pairs — trim to last 20, still starts with user
-    const input: ContextMessage[] = Array.from({ length: 22 }, (_, i) => ({
+  it('trims to MAX_MESSAGES when history exceeds the cap and starts with user', () => {
+    // Sprint 23e — cap bumped from 20 to 60. Use 62 messages so the
+    // trim still fires; the assertion follows the cap.
+    const input: ContextMessage[] = Array.from({ length: 62 }, (_, i) => ({
       role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
       content: `Message ${i}`,
     }));
 
     const result = buildContextWindow(input);
-    expect(result.contextMessages.length).toBeLessThanOrEqual(20);
+    expect(result.contextMessages.length).toBeLessThanOrEqual(60);
     expect(result.contextMessages[0].role).toBe('user');
     expect(result.trimmed).toBe(true);
   });
@@ -94,9 +95,9 @@ describe('buildContextWindow', () => {
   });
 
   it('window always starts with a user message after trimming', () => {
-    // 22 messages starting with user — after trim last 20 starts with assistant (index 2)
-    // but the role-guard drops leading assistant messages
-    const input: ContextMessage[] = Array.from({ length: 22 }, (_, i) => ({
+    // Sprint 23e — cap bumped to 60. Use 62 messages so the trim
+    // fires and the role-guard still has to drop a leading assistant.
+    const input: ContextMessage[] = Array.from({ length: 62 }, (_, i) => ({
       role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
       content: `Message ${i}`,
     }));
@@ -253,5 +254,154 @@ describe('buildContextWindow', () => {
     // Interior tool_result preserved at index 2.
     const interior = result.contextMessages[2].content;
     expect(Array.isArray(interior)).toBe(true);
+  });
+
+  // Sprint 23e — full-scan survival across a follow-up turn.
+  //
+  // Bug surfaced during the 23d smoke walk: after a 15-clause scan,
+  // turn-2 ("rank the red flags") re-ran the scan tools wastefully,
+  // and turn-3 ("draft emails") replied "I don't have a record of
+  // clause gradings". Root cause: MAX_MESSAGES = 20 was too small for
+  // the ~34-message scan transcript, so trim + orphan-drop stripped
+  // most tool_result blocks before the model could see them.
+  //
+  // This test builds the canonical post-scan transcript and asserts
+  // that EVERY grade_clause_severity tool_use + tool_result pair plus
+  // the extract_clauses pair survives the window when a follow-up
+  // user message is appended. The window must also remain valid for
+  // Anthropic (start with a user message).
+  describe('Sprint 23e — full-scan survival', () => {
+    function countToolBlocks(
+      messages: ContextMessage[],
+      blockType: 'tool_use' | 'tool_result',
+      toolName?: string,
+    ): number {
+      let count = 0;
+      for (const msg of messages) {
+        if (typeof msg.content === 'string') continue;
+        for (const block of msg.content) {
+          if (typeof block !== 'object' || block === null) continue;
+          const b = block as { type?: string; name?: string };
+          if (b.type !== blockType) continue;
+          if (toolName && b.name !== toolName) continue;
+          count += 1;
+        }
+      }
+      return count;
+    }
+
+    it('preserves all 15 grade_clause_severity tool_result blocks after a follow-up turn', () => {
+      // Build a 34-message scan transcript: 1 user kickoff + 1
+      // extract_clauses pair + 15 grade_clause_severity pairs + 1
+      // assistant summary, then a 35th user follow-up message.
+      const transcript: ContextMessage[] = [
+        { role: 'user', content: 'Run a standard scan on this lease.' },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'tu-extract',
+              name: 'extract_clauses',
+              input: { lease_id: 'lease-1' },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'tu-extract',
+              content: JSON.stringify({
+                clauses: Array.from({ length: 15 }, (_, i) => ({
+                  clause_id: `c${i + 1}`,
+                  clause_type: 'security_deposit',
+                  clause_index: i,
+                })),
+              }),
+            },
+          ],
+        },
+      ];
+
+      // 15 × {assistant tool_use grade_clause_severity, user tool_result}
+      for (let i = 0; i < 15; i++) {
+        transcript.push({
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: `tu-grade-${i + 1}`,
+              name: 'grade_clause_severity',
+              input: { clause_id: `c${i + 1}` },
+            },
+          ],
+        });
+        transcript.push({
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: `tu-grade-${i + 1}`,
+              content: JSON.stringify({
+                clause_id: `c${i + 1}`,
+                severity: 'high',
+                statute_citation: 'NJ Stat 46:8-19',
+                chunk_id: 'security-deposit-cap',
+                reasoning: 'Two months exceeds 1.5-month cap.',
+                recommended_action: 'Negotiate to 1.5 months.',
+                page_number: 1,
+              }),
+            },
+          ],
+        });
+      }
+
+      // Final assistant text summary + user follow-up.
+      transcript.push({
+        role: 'assistant',
+        content: 'Lease Scan Complete: 15 red flags graded.',
+      });
+      transcript.push({
+        role: 'user',
+        content:
+          'Draft polished negotiation emails for the high-severity clauses.',
+      });
+
+      // Sanity: 34 + 1 = 35 messages constructed.
+      expect(transcript).toHaveLength(35);
+
+      const result = buildContextWindow(transcript);
+
+      // All 15 grade_clause_severity tool_use blocks survive.
+      const gradeUseCount = countToolBlocks(
+        result.contextMessages,
+        'tool_use',
+        'grade_clause_severity',
+      );
+      expect(gradeUseCount).toBe(15);
+
+      // All 16 tool_result blocks survive (1 extract + 15 gradings).
+      const totalResultCount = countToolBlocks(
+        result.contextMessages,
+        'tool_result',
+      );
+      expect(totalResultCount).toBe(16);
+
+      // The extract_clauses tool_use survives.
+      const extractUseCount = countToolBlocks(
+        result.contextMessages,
+        'tool_use',
+        'extract_clauses',
+      );
+      expect(extractUseCount).toBe(1);
+
+      // Window starts with a user message (Anthropic requirement).
+      expect(result.contextMessages[0]?.role).toBe('user');
+
+      // No trim happened — the window is large enough.
+      expect(result.trimmed).toBe(false);
+    });
   });
 });

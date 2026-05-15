@@ -27,6 +27,7 @@
 import './url-parse-polyfill';
 import { MapPin, Maximize2, ScrollText } from 'lucide-react';
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -61,7 +62,6 @@ const MIN_PAGE_WIDTH = 280;
 // pane (or full-viewport Focus mode in S20.2) can actually render
 // the document at a comfortable reading width.
 const MAX_PAGE_WIDTH = 1100;
-const PADDING_AROUND_PAGE = 16; // px taken by viewport horizontal padding
 const FALLBACK_WIDTH = 560;
 
 // Phase 10.8 — keep these in sync with the operator-facing labels
@@ -120,7 +120,16 @@ export function PdfViewerClient({
   const [focused, setFocused] = useState<boolean>(false);
   const [currentPage, setCurrentPage] = useState<number | null>(null);
 
-  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const scrollAreaRef = useRef<HTMLElement | null>(null);
+  // Sprint 23h fix — separate ref for the inner page container (the
+  // <div className="mx-auto flex w-full flex-col gap-3 max-w-5xl">).
+  // Measuring this directly gives the exact width pages should render
+  // at; measuring the outer <section> instead (which has px-4 padding
+  // + a max-w-5xl child cap) under-counted by 16 px and overcounted by
+  // up to 76 px depending on viewport, causing the canvas to render
+  // wider than its <div className="overflow-hidden ..."> wrapper and
+  // clip the right edge of the text layer.
+  const pageContainerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   // S20.7 — smart zoom: clicking +/- auto-disables Fit Width so the
@@ -169,30 +178,85 @@ export function PdfViewerClient({
     : null;
   const activeClauseIndex = activeFinding?.clause_index;
 
+  // Sprint 23g (kept in 23h) — extracted into a callback so both the
+  // imperative handle (for external scrollToPage calls from CitationChip
+  // / red-flag cards) AND the new prev/next buttons + keyboard navigation
+  // share the exact same scroll behaviour. One source of truth.
+  const scrollToPageNumber = useCallback((page: number) => {
+    if (page < 1 || page > pageRefs.current.length) return;
+    const el = pageRefs.current[page - 1];
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   useImperativeHandle(
     pdfViewerRef,
     () => ({
-      scrollToPage(page: number) {
-        if (page < 1 || page > pageRefs.current.length) return;
-        const el = pageRefs.current[page - 1];
-        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      },
+      scrollToPage: scrollToPageNumber,
     }),
-    [],
+    [scrollToPageNumber],
   );
 
-  // Responsive Page width — measure the scroll viewport and pass an
-  // appropriate `width` prop to <Page> so the rendered canvas fills
-  // the available space without horizontal overflow.
+  // Sprint 23h — page-navigation derived state. `currentPage` is set by
+  // the IntersectionObserver further down; before the user has scrolled
+  // (or in test environments where IO doesn't fire), it can be null.
+  // Treat null as "page 1" so the Next button is enabled on a fresh
+  // upload — ArrowRight / clicking Next should advance to page 2 from
+  // the initial state.
+  const effectiveCurrentPage = currentPage ?? 1;
+  const canGoPrev = effectiveCurrentPage > 1;
+  const canGoNext = effectiveCurrentPage < numPages;
+  const handlePrevPage = useCallback(() => {
+    if (effectiveCurrentPage > 1) scrollToPageNumber(effectiveCurrentPage - 1);
+  }, [effectiveCurrentPage, scrollToPageNumber]);
+  const handleNextPage = useCallback(() => {
+    if (effectiveCurrentPage < numPages)
+      scrollToPageNumber(effectiveCurrentPage + 1);
+  }, [effectiveCurrentPage, numPages, scrollToPageNumber]);
+
+  // Sprint 23h — keyboard navigation. ArrowLeft / ArrowRight advance
+  // pages when the PDF scroll area has focus. ArrowUp / ArrowDown are
+  // deliberately NOT hijacked so the browser's native line-by-line
+  // scroll keeps working. We also bail when the user has an active text
+  // selection — extending a selection with arrow keys must not trigger
+  // page navigation.
+  const handleScrollAreaKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      const selection =
+        typeof window !== 'undefined' ? window.getSelection() : null;
+      if (selection && selection.toString().length > 0) return;
+      if (event.key === 'ArrowLeft' && canGoPrev) {
+        event.preventDefault();
+        handlePrevPage();
+      } else if (event.key === 'ArrowRight' && canGoNext) {
+        event.preventDefault();
+        handleNextPage();
+      }
+    },
+    [canGoPrev, canGoNext, handlePrevPage, handleNextPage],
+  );
+
+  // Responsive Page width — measure the inner page container directly
+  // (the `<div className="mx-auto flex w-full flex-col gap-3 ...">`)
+  // and pass its clientWidth straight through as the <Page> `width`
+  // prop. This auto-accounts for both the outer <section>'s `px-4`
+  // padding AND the `max-w-5xl` cap on the inner container, so the
+  // canvas always renders at exactly the width its wrapper will accept.
+  // Sprint 23h root-cause fix — the previous version measured the
+  // outer scroll <section> and subtracted a hard-coded `16` for
+  // padding, but `px-4` is 32 px total (16 each side), so the canvas
+  // came out 16 px too wide and got right-clipped by the page card's
+  // `overflow-hidden`. See Context7 react-pdf docs: "use ResizeObserver
+  // to measure the parent and pass width prop."
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const measure = () => {
-      const el = scrollAreaRef.current;
+      const el = pageContainerRef.current;
       if (!el) return;
       const next = Math.max(
         MIN_PAGE_WIDTH,
-        Math.min(MAX_PAGE_WIDTH, el.clientWidth - PADDING_AROUND_PAGE),
+        Math.min(MAX_PAGE_WIDTH, el.clientWidth),
       );
       setContainerWidth(next);
     };
@@ -200,7 +264,7 @@ export function PdfViewerClient({
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(measure);
-    if (scrollAreaRef.current) ro.observe(scrollAreaRef.current);
+    if (pageContainerRef.current) ro.observe(pageContainerRef.current);
     return () => ro.disconnect();
   }, []);
 
@@ -264,85 +328,96 @@ export function PdfViewerClient({
       data-testid="pdf-viewer"
       className="flex h-full min-h-0 w-full flex-1 flex-col bg-surface-muted dark:bg-neutral-950"
     >
-      {/* Header chrome — filename · pages · clauses · status pill, all
-          in a single row so the reading surface gets the maximum
-          vertical real estate. S20.1 collapsed the previous two-row
-          layout into one. */}
+      {/* Sprint 23b Phase 3 — two-row dock header.
+          Row 1: brand icon + filename + parsed/failed pill + expand button.
+          Row 2: page/clause meta + reading controls (secondary),
+          set on `bg-surface-sunken` so the two visual registers separate
+          cleanly.
+          Sprint 23b Phase 6.1 — Expand moved from row 2 to row 1 and
+          row 2 takes flex-wrap so reading controls reflow under the
+          metadata at very narrow pane widths instead of overlapping. */}
       <header
         data-testid="pdf-viewer-header"
-        className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 bg-surface-card px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900"
+        className="flex shrink-0 flex-col border-b border-neutral-100 dark:border-neutral-800"
       >
         <div
-          data-testid="pdf-viewer-meta"
-          className="flex min-w-0 items-center gap-2 text-[12px] leading-tight"
+          data-testid="pdf-viewer-header-row1"
+          className="flex items-center justify-between gap-3 bg-surface-card px-3 py-2 dark:bg-neutral-900"
         >
-          <span
-            aria-hidden="true"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300"
-          >
-            <ScrollText className="h-3 w-3" strokeWidth={2.25} />
-          </span>
-          <span
-            data-testid="pdf-viewer-filename"
-            className="truncate font-medium text-fg-default"
-          >
-            {filename ?? 'Lease document'}
-          </span>
-          <span className="shrink-0 text-fg-muted" aria-hidden="true">
-            ·
-          </span>
-          <span className="shrink-0 text-fg-muted">
-            {numPages > 0 ? pluralize(numPages, 'page') : 'Loading…'}
-          </span>
-          {typeof clauseCount === 'number' ? (
-            <>
-              <span className="shrink-0 text-fg-muted" aria-hidden="true">
-                ·
-              </span>
-              <span className="shrink-0 text-fg-muted">
-                {pluralize(clauseCount, 'clause')}
-              </span>
-            </>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {/* S20.6 — reading controls live in Focus mode ONLY. The
-              inline pane is a narrow preview surface (~26rem); cramming
-              zoom + fit + page indicator + expand + parsed pill into
-              that strip causes label collisions ("agl00% 1 u" garble
-              in production screenshots) and pushes the filename out of
-              the available width. Focus mode has the full viewport, so
-              the reading controls land there instead. */}
-          {hideFocusToggle ? (
-            <PdfReadingControls
-              zoom={zoom}
-              fit={fit}
-              currentPage={currentPage}
-              totalPages={numPages}
-              onZoomIn={handleZoomIn}
-              onZoomOut={handleZoomOut}
-              onToggleFit={handleToggleFit}
-            />
-          ) : (
-            <button
-              type="button"
-              aria-label="Expand to full viewport"
-              data-testid="pdf-viewer-expand"
-              onClick={() => setFocused(true)}
-              className="inline-flex min-h-9 items-center justify-center rounded-md border border-neutral-200 bg-surface-card px-2 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
+          <div className="flex min-w-0 items-center gap-2 text-[13px] leading-tight">
+            <span
+              aria-hidden="true"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300"
             >
-              <Maximize2 className="h-3 w-3" aria-hidden="true" />
-            </button>
-          )}
-          {loadError ? (
-            <span className="rounded-full bg-danger-100 px-2 py-0.5 text-[11px] font-medium text-danger-600 dark:bg-danger-600/15 dark:text-danger-100">
-              Failed
+              <ScrollText className="h-3 w-3" strokeWidth={2.25} />
             </span>
-          ) : numPages > 0 ? (
-            <span className="rounded-full bg-success-100 px-2 py-0.5 text-[11px] font-medium text-success-600 dark:bg-success-600/15 dark:text-success-100">
-              Parsed
+            <span
+              data-testid="pdf-viewer-filename"
+              title={filename ?? 'Lease document'}
+              className="truncate font-medium text-fg-default"
+            >
+              {filename ?? 'Lease document'}
             </span>
-          ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {loadError ? (
+              <span className="rounded-full bg-danger-100 px-2 py-0.5 text-[11px] font-medium text-danger-600 dark:bg-danger-600/15 dark:text-danger-100">
+                Failed
+              </span>
+            ) : numPages > 0 ? (
+              <span className="rounded-full bg-success-100 px-2 py-0.5 text-[11px] font-medium text-success-600 dark:bg-success-600/15 dark:text-success-100">
+                Parsed
+              </span>
+            ) : null}
+            {!hideFocusToggle ? (
+              <button
+                type="button"
+                aria-label="Expand to full viewport"
+                data-testid="pdf-viewer-expand"
+                onClick={() => setFocused(true)}
+                className="inline-flex min-h-9 items-center justify-center rounded-md border border-neutral-200 bg-surface-card px-2 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
+              >
+                <Maximize2 className="h-3 w-3" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div
+          data-testid="pdf-viewer-header-row2"
+          className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 bg-surface-sunken px-3 py-1.5"
+        >
+          <div
+            data-testid="pdf-viewer-meta"
+            className="flex min-w-0 items-center gap-2 text-[11px] leading-tight text-fg-muted"
+          >
+            <span className="shrink-0">
+              {numPages > 0 ? pluralize(numPages, 'page') : 'Loading…'}
+            </span>
+            {typeof clauseCount === 'number' ? (
+              <>
+                <span className="shrink-0" aria-hidden="true">
+                  ·
+                </span>
+                <span className="shrink-0">
+                  {pluralize(clauseCount, 'clause')}
+                </span>
+              </>
+            ) : null}
+          </div>
+          <PdfReadingControls
+            zoom={zoom}
+            fit={fit}
+            currentPage={currentPage}
+            totalPages={numPages}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+            onToggleFit={handleToggleFit}
+            onPrevPage={handlePrevPage}
+            onNextPage={handleNextPage}
+            canGoPrev={canGoPrev}
+            canGoNext={canGoNext}
+            compact={!hideFocusToggle}
+          />
         </div>
       </header>
 
@@ -351,10 +426,29 @@ export function PdfViewerClient({
           parent flex grants it height and the child gets its own
           independent scrollbar. overscroll-contain prevents the
           chat pane from rubber-band-scrolling when this hits its end. */}
-      <div
+      {/* Sprint 23h — semantic <section> + aria-label gives screen readers
+          a landmark identity, tabIndex + onKeyDown enable ArrowLeft /
+          ArrowRight page navigation when the region has keyboard focus.
+          The biome-ignore below carves out the WAI-ARIA "scrollable
+          region with keyboard nav" pattern that doesn't map to a built-in
+          interactive element (same precedent as the resize-handle pattern
+          in ResizableSplitLayout — handoff §21 "biome-ignore-all" note). */}
+      <section
         ref={scrollAreaRef}
         data-testid="pdf-viewer-scroll-area"
-        className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-4"
+        aria-label="Lease document. Use arrow left and arrow right to navigate pages."
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: tabIndex is required so the <section> can receive keyboard focus for ArrowLeft/Right page nav.
+        tabIndex={0}
+        onKeyDown={handleScrollAreaKeyDown}
+        // Sprint 23h root-cause fix — `overflow-auto` (was
+        // `overflow-y-auto`) allows the section to scroll both axes.
+        // When the user zooms past fit-width, the page canvases become
+        // wider than the visible content area; this lets them pan
+        // horizontally to see the right edge of every page. At
+        // fit-width the page canvas is now exactly container-width
+        // (see measure() above), so no horizontal scrollbar appears
+        // until the user actually zooms in.
+        className="relative flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-inset"
       >
         {/* Phase 10.8 — sticky callout. Pinned to the top of the
             scroll area while a clause is active, fades out with the
@@ -363,7 +457,7 @@ export function PdfViewerClient({
         {activeClauseId && activePageNumber ? (
           <div
             data-testid="pdf-viewer-active-callout"
-            className="pointer-events-none sticky top-0 z-10 mb-2 flex justify-center"
+            className="pointer-events-none sticky top-0 z-raised mb-2 flex justify-center"
           >
             <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-accent-200 bg-surface-card/95 px-3 py-1 text-[11px] font-medium text-accent-700 shadow-sm backdrop-blur dark:border-accent-500/40 dark:bg-neutral-900/95 dark:text-accent-300">
               <MapPin className="h-3 w-3" aria-hidden="true" />
@@ -378,6 +472,7 @@ export function PdfViewerClient({
         ) : null}
 
         <div
+          ref={pageContainerRef}
           className={`mx-auto flex w-full flex-col gap-3 ${
             // S20.7 — inline mode caps page-container width at
             // max-w-5xl (1024px) so the lease doesn't render wider
@@ -412,6 +507,13 @@ export function PdfViewerClient({
               const pageNumber = i + 1;
               const isActivePage = activePageNumber === pageNumber;
               return (
+                // Sprint 23h — restored plain <div> wrapper after the
+                // 23g motion.div + drag="x" experiment was found to
+                // intercept vertical scroll on macOS trackpads + touch
+                // (Framer issues #185 / #429 / #1341). Horizontal page
+                // navigation is now provided by Prev/Next buttons in
+                // the dock header + ArrowLeft/ArrowRight keys on the
+                // scroll area — both pure native scroll-friendly paths.
                 <div
                   key={pageNumber}
                   ref={(el) => {
@@ -419,7 +521,18 @@ export function PdfViewerClient({
                   }}
                   data-page-number={pageNumber}
                   data-active-page={isActivePage ? 'true' : 'false'}
-                  className={`overflow-hidden rounded-md bg-white shadow-sm transition-all duration-300 ${
+                  // Sprint 23h root-cause fix — pinning the wrapper to
+                  // the EXACT page-canvas width prevents `overflow-hidden`
+                  // from clipping the text layer's right edge. `self-center`
+                  // opts out of the parent column flex's default
+                  // `align-items: stretch`, which would otherwise force
+                  // the wrapper to match the inner container width and
+                  // make the canvas overflow it. When the user zooms past
+                  // fit-width, the wrapper grows wider than the inner
+                  // container and the outer <section overflow-auto>
+                  // takes over for horizontal pan.
+                  style={{ width: effectivePageWidth }}
+                  className={`self-center overflow-hidden rounded-md bg-white shadow-sm transition-all duration-300 ${
                     isActivePage
                       ? 'ring-4 ring-accent-300 ring-offset-2 ring-offset-surface-muted dark:ring-offset-neutral-950'
                       : 'ring-1 ring-neutral-200 dark:ring-neutral-700'
@@ -435,7 +548,7 @@ export function PdfViewerClient({
             })}
           </Document>
         </div>
-      </div>
+      </section>
       {!hideFocusToggle ? (
         <PdfFocusDialog
           open={focused}

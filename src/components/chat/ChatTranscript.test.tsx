@@ -214,11 +214,12 @@ describe('ChatTranscript', () => {
         />,
       ),
     );
-    // Heading uses workspaceName, not the hardcoded sample brand.
-    expect(screen.getByRole('heading', { name: 'Acme' })).toBeInTheDocument();
-    expect(
-      screen.queryByRole('heading', { name: /Side Quest Syndicate/i }),
-    ).not.toBeInTheDocument();
+    // Sprint 23g — workspaceName now renders in the editorial eyebrow
+    // (a <p>, not a heading). The Hero H2 carries the fixed value-prop
+    // headline; workspaceName lives above it as the small-caps mono
+    // label.
+    expect(screen.getByTestId('chat-empty-eyebrow')).toHaveTextContent('Acme');
+    expect(screen.queryByText(/Side Quest Syndicate/i)).not.toBeInTheDocument();
   });
 
   describe('S19.4 — synthetic intro/summary messages', () => {
@@ -236,6 +237,27 @@ describe('ChatTranscript', () => {
       expect(
         screen.getByRole('button', { name: /run standard scan/i }),
       ).toBeInTheDocument();
+    });
+
+    // Sprint 23c Phase 2 — the synthetic intro is rendered as a dedicated
+    // UploadedLeaseCard (not a regular ChatMessage). The card carries
+    // the filename in a mono span and the four action chips as buttons.
+    it('routes the synthetic intro through UploadedLeaseCard (Phase 2)', () => {
+      render(
+        withChatStream(<ChatTranscript messages={[]} workspaceName="Test" />, {
+          activeLease: LEASE,
+        }),
+      );
+      // The dedicated card renders with its testid.
+      const card = screen.getByTestId('uploaded-lease-card');
+      expect(card).toBeInTheDocument();
+      // The filename is present inside the card (and only there — not
+      // also rendered as a regular ChatMessage).
+      expect(card).toHaveTextContent('my-lease.pdf');
+      // Verify the intro is rendered exactly once (one card; no
+      // additional chat-message rendering of the same content).
+      const filenameMatches = screen.getAllByText(/my-lease\.pdf/i);
+      expect(filenameMatches.length).toBe(1);
     });
 
     it('inserts the intro at the top of a populated transcript when there is no scan yet', () => {

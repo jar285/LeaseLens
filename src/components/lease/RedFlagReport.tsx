@@ -17,10 +17,16 @@
 'use client';
 
 import { ChevronDown, ExternalLink, Paperclip } from 'lucide-react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import {
+  AnimatePresence,
+  LayoutGroup,
+  motion,
+  useReducedMotion,
+} from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStream } from '@/components/chat/ChatStreamContext';
 import { EmptyState } from '@/components/states/EmptyState';
+import { SPRING_GENTLE } from '@/lib/motion/presets';
 import { CitationChip } from './CitationChip';
 import {
   clauseLabel,
@@ -143,6 +149,15 @@ export function RedFlagReport(): React.JSX.Element {
                 />
                 <div className="py-3 pr-3 pl-4">
                   <div className="flex items-center gap-1.5">
+                    {/* Sprint 23i — mirror the live cards' "Nº" plate
+                        prefix in the example preview so the editorial
+                        pattern is visible before the first scan runs. */}
+                    <span
+                      aria-hidden="true"
+                      className="font-mono text-[10px] tracking-wider text-fg-subtle"
+                    >
+                      Nº&nbsp;01
+                    </span>
                     <SeverityBadge severity="high" size="md" />
                     <span className="truncate text-[11px] font-medium text-fg-default">
                       Security deposit · §3
@@ -151,9 +166,12 @@ export function RedFlagReport(): React.JSX.Element {
                   <p className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-fg-muted">
                     Two months exceeds NJ's 1.5-month security-deposit cap.
                   </p>
-                  <p className="mt-2 inline-flex items-start gap-1.5 text-[12px] font-medium text-accent-600 dark:text-accent-300">
+                  {/* Sprint 23i — the example citation here also picks
+                      up the new `text-citation` token so the preview
+                      stays in lock-step with the live CitationChip. */}
+                  <p className="mt-2 inline-flex items-start gap-1.5 text-[12px] font-medium text-citation">
                     <Paperclip
-                      className="h-3 w-3 shrink-0 translate-y-0.5 text-accent-500 dark:text-accent-300"
+                      className="h-3 w-3 shrink-0 translate-y-0.5 text-citation"
                       aria-hidden="true"
                     />
                     NJ Stat 46:8-19
@@ -223,191 +241,224 @@ export function RedFlagReport(): React.JSX.Element {
   );
 
   return (
-    <div className="flex flex-col gap-3" data-testid="red-flag-report">
-      {/* Summary row — at-a-glance severity counts. */}
-      {animate ? (
-        <motion.div
-          key={pulseKey}
-          data-testid="red-flag-summary"
-          className="flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-fg-muted"
-          animate={{ opacity: [1, 0.7, 1] }}
-          transition={{ duration: 0.35, ease: 'easeInOut' }}
-        >
-          {summaryInner}
-        </motion.div>
-      ) : (
-        <div
-          data-testid="red-flag-summary"
-          className="flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-fg-muted"
-        >
-          {summaryInner}
-        </div>
-      )}
+    // Sprint 23g — relative positioning is required by AnimatePresence
+    // `mode="popLayout"` so exiting cards drop out of layout without
+    // shifting siblings until the surviving cards' `layout` animation
+    // catches up. Wrapping in LayoutGroup shares the layout context so
+    // sibling reorders (e.g. when severity changes during a re-grade)
+    // interpolate instead of snapping.
+    <LayoutGroup>
+      <div
+        className="relative flex flex-col gap-3"
+        data-testid="red-flag-report"
+      >
+        {/* Summary row — at-a-glance severity counts. */}
+        {animate ? (
+          <motion.div
+            key={pulseKey}
+            data-testid="red-flag-summary"
+            className="flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-fg-muted"
+            animate={{ opacity: [1, 0.7, 1] }}
+            transition={{ duration: 0.35, ease: 'easeInOut' }}
+          >
+            {summaryInner}
+          </motion.div>
+        ) : (
+          <div
+            data-testid="red-flag-summary"
+            className="flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-fg-muted"
+          >
+            {summaryInner}
+          </div>
+        )}
 
-      {/* Cards — slide in from the right with an 8px offset. AnimatePresence
+        {/* Cards — slide in from the right with an 8px offset. AnimatePresence
           wraps the list so removed cards exit cleanly when a new lease is
-          uploaded. */}
-      <AnimatePresence initial={false}>
-        {gradings.map((g) => {
-          const isExpanded = expandedIds.has(g.clause_id);
-          const isActive = activeClauseId === g.clause_id;
-          const toggle = () => {
-            setExpandedIds((prev) => {
-              const next = new Set(prev);
-              if (next.has(g.clause_id)) next.delete(g.clause_id);
-              else next.add(g.clause_id);
-              return next;
-            });
-          };
+          uploaded.
+          Sprint 23g — `mode="popLayout"` lets exiting cards drop out
+          of layout immediately so siblings spring-fill the gap via
+          the `layout` prop on each card, instead of waiting for the
+          exit animation to finish before reflowing. */}
+        <AnimatePresence initial={false} mode="popLayout">
+          {gradings.map((g) => {
+            const isExpanded = expandedIds.has(g.clause_id);
+            const isActive = activeClauseId === g.clause_id;
+            const toggle = () => {
+              setExpandedIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(g.clause_id)) next.delete(g.clause_id);
+                else next.add(g.clause_id);
+                return next;
+              });
+            };
 
-          // Sprint 18 §4 — single jump-to-page handler shared by the
-          // CitationChip (above the fold) and the in-body
-          // "View on page N" button (expanded view). Both surfaces drive
-          // the same activeClauseId broadcast + PDF scroll so the ring
-          // animation kicks off identically regardless of entry point.
-          const jumpToClausePage = (clause: GradingResult) => {
-            if (typeof clause.page_number !== 'number') return;
-            setActiveClauseId(clause.clause_id);
-            window.setTimeout(
-              () => setActiveClauseId(null),
-              HIGHLIGHT_DURATION_MS,
-            );
-            pdfViewerRef.current?.scrollToPage(clause.page_number);
-          };
+            // Sprint 18 §4 — single jump-to-page handler shared by the
+            // CitationChip (above the fold) and the in-body
+            // "View on page N" button (expanded view). Both surfaces drive
+            // the same activeClauseId broadcast + PDF scroll so the ring
+            // animation kicks off identically regardless of entry point.
+            const jumpToClausePage = (clause: GradingResult) => {
+              if (typeof clause.page_number !== 'number') return;
+              setActiveClauseId(clause.clause_id);
+              window.setTimeout(
+                () => setActiveClauseId(null),
+                HIGHLIGHT_DURATION_MS,
+              );
+              pdfViewerRef.current?.scrollToPage(clause.page_number);
+            };
 
-          // Sprint 18 §4 — the active-card ring used to be a class swap
-          // that snapped on/off. Now the card always carries a neutral
-          // border; a separately-rendered <ActiveRing /> overlay handles
-          // the highlight with a 200ms fade-in → 3.6s hold → 200ms
-          // fade-out (driven by HIGHLIGHT_DURATION_MS in the setTimeout).
-          const cardClass =
-            'relative overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline transition-shadow hover:shadow-lift dark:border-neutral-800 dark:bg-neutral-900';
+            // Sprint 18 §4 — the active-card ring used to be a class swap
+            // that snapped on/off. Now the card always carries a neutral
+            // border; a separately-rendered <ActiveRing /> overlay handles
+            // the highlight with a 200ms fade-in → 3.6s hold → 200ms
+            // fade-out (driven by HIGHLIGHT_DURATION_MS in the setTimeout).
+            const cardClass =
+              'relative overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline transition-shadow hover:shadow-lift dark:border-neutral-800 dark:bg-neutral-900';
 
-          const cardInner = (
-            <>
-              <span
-                aria-hidden="true"
-                className={`absolute top-0 left-0 h-full w-1 ${SEVERITY_BAR[g.severity]}`}
-              />
-              <ActiveRing isActive={isActive} reduced={reduced ?? false} />
+            const cardInner = (
+              <>
+                <span
+                  aria-hidden="true"
+                  className={`absolute top-0 left-0 h-full w-1 ${SEVERITY_BAR[g.severity]}`}
+                />
+                <ActiveRing isActive={isActive} reduced={reduced ?? false} />
 
-              {/* Always-visible header. Click anywhere to expand/collapse. */}
-              {/* Sprint 18 §4 — the expand toggle covers the severity row +
+                {/* Always-visible header. Click anywhere to expand/collapse. */}
+                {/* Sprint 18 §4 — the expand toggle covers the severity row +
                   reasoning but NOT the citation. The citation now lives
                   outside this button so it can be its own real <button>
                   (nested buttons are invalid HTML), giving the user a
                   one-click jump-to-page without having to expand the card
                   first. */}
-              <button
-                type="button"
-                onClick={toggle}
-                aria-expanded={isExpanded}
-                data-testid="red-flag-card-toggle"
-                className="flex w-full items-start gap-2 py-3 pr-3 pl-4 text-left transition-colors hover:bg-surface-muted/60 focus-visible:bg-surface-muted/60 focus-visible:outline-none dark:hover:bg-neutral-800/40"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    {/* Sprint 23d Phase 2 — SeverityBadge replaces the
+                <button
+                  type="button"
+                  onClick={toggle}
+                  aria-expanded={isExpanded}
+                  data-testid="red-flag-card-toggle"
+                  className="flex w-full items-start gap-2 py-3 pr-3 pl-4 text-left transition-colors hover:bg-surface-muted/60 focus-visible:bg-surface-muted/60 focus-visible:outline-none dark:hover:bg-neutral-800/40"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      {/* Sprint 23i — editorial "Nº" plate-number prefix
+                          on every flag, mirroring Open Design's
+                          "PLATE Nº 08" treatment. Reads as an index
+                          marker (this is flag N of M) rather than a
+                          severity ranking. Zero-padded to 2 digits so
+                          a stacked list aligns visually. */}
+                      <span
+                        aria-hidden="true"
+                        className="font-mono text-[10px] tracking-wider text-fg-subtle"
+                      >
+                        Nº&nbsp;
+                        {String((g.clause_index ?? 0) + 1).padStart(2, '0')}
+                      </span>
+                      {/* Sprint 23d Phase 2 — SeverityBadge replaces the
                         inline pill so severity is communicated by icon
                         + text + colour (handoff §19). */}
-                    <SeverityBadge severity={g.severity} size="md" />
-                    <span className="truncate text-[11px] font-medium text-fg-default">
-                      {clauseLabel(g)}
-                    </span>
+                      <SeverityBadge severity={g.severity} size="md" />
+                      <span className="truncate text-[11px] font-medium text-fg-default">
+                        {clauseLabel(g)}
+                      </span>
+                    </div>
+                    <p
+                      className={`mt-1.5 text-[12px] leading-snug text-fg-muted ${
+                        isExpanded ? '' : 'line-clamp-2'
+                      }`}
+                    >
+                      {g.reasoning}
+                    </p>
                   </div>
-                  <p
-                    className={`mt-1.5 text-[12px] leading-snug text-fg-muted ${
-                      isExpanded ? '' : 'line-clamp-2'
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={`h-4 w-4 shrink-0 text-fg-subtle transition-transform ${
+                      isExpanded ? 'rotate-180' : ''
                     }`}
-                  >
-                    {g.reasoning}
-                  </p>
-                </div>
-                <ChevronDown
-                  aria-hidden="true"
-                  className={`h-4 w-4 shrink-0 text-fg-subtle transition-transform ${
-                    isExpanded ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-              {/* Citation row — sibling of the toggle, click-isolated.
+                  />
+                </button>
+                {/* Citation row — sibling of the toggle, click-isolated.
                   When page_number is set the chip becomes clickable and
                   drives the same activeClauseId + scrollToPage flow as
                   the in-body "View on page N" button below. */}
-              <div data-testid="red-flag-citation-row" className="px-4 pb-3">
-                <CitationChip
-                  statuteCitation={g.statute_citation}
-                  pageNumber={g.page_number}
-                  onClick={
-                    typeof g.page_number === 'number'
-                      ? () => jumpToClausePage(g)
-                      : undefined
-                  }
-                />
-              </div>
-
-              {/* Expanded body — recommended action + jump-to-page. */}
-              {isExpanded ? (
-                <div
-                  data-testid="red-flag-card-body"
-                  className="border-t border-neutral-100 bg-surface-muted/40 px-4 py-3 pl-5 dark:border-neutral-800 dark:bg-neutral-800/30"
-                >
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-                    Recommended action
-                  </p>
-                  <p className="mt-1 text-[12px] leading-relaxed text-fg-default">
-                    {g.recommended_action}
-                  </p>
-                  {typeof g.page_number === 'number' ? (
-                    <button
-                      type="button"
-                      data-testid="red-flag-jump-to-page"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        jumpToClausePage(g);
-                      }}
-                      className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
-                    >
-                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                      View on page {g.page_number}
-                    </button>
-                  ) : null}
+                <div data-testid="red-flag-citation-row" className="px-4 pb-3">
+                  <CitationChip
+                    statuteCitation={g.statute_citation}
+                    pageNumber={g.page_number}
+                    onClick={
+                      typeof g.page_number === 'number'
+                        ? () => jumpToClausePage(g)
+                        : undefined
+                    }
+                  />
                 </div>
-              ) : null}
-            </>
-          );
 
-          return animate ? (
-            <motion.article
-              key={g.clause_id}
-              data-testid="red-flag-card"
-              data-severity={g.severity}
-              data-expanded={isExpanded ? 'true' : 'false'}
-              data-active={isActive ? 'true' : 'false'}
-              className={cardClass}
-              initial={{ opacity: 0, x: 8 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -8 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            >
-              {cardInner}
-            </motion.article>
-          ) : (
-            <article
-              key={g.clause_id}
-              data-testid="red-flag-card"
-              data-severity={g.severity}
-              data-expanded={isExpanded ? 'true' : 'false'}
-              data-active={isActive ? 'true' : 'false'}
-              className={cardClass}
-            >
-              {cardInner}
-            </article>
-          );
-        })}
-      </AnimatePresence>
+                {/* Expanded body — recommended action + jump-to-page. */}
+                {isExpanded ? (
+                  <div
+                    data-testid="red-flag-card-body"
+                    className="border-t border-neutral-100 bg-surface-muted/40 px-4 py-3 pl-5 dark:border-neutral-800 dark:bg-neutral-800/30"
+                  >
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+                      Recommended action
+                    </p>
+                    <p className="mt-1 text-[12px] leading-relaxed text-fg-default">
+                      {g.recommended_action}
+                    </p>
+                    {typeof g.page_number === 'number' ? (
+                      <button
+                        type="button"
+                        data-testid="red-flag-jump-to-page"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          jumpToClausePage(g);
+                        }}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
+                      >
+                        <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                        View on page {g.page_number}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            );
 
-      {/*
+            return animate ? (
+              <motion.article
+                key={g.clause_id}
+                data-testid="red-flag-card"
+                data-severity={g.severity}
+                data-expanded={isExpanded ? 'true' : 'false'}
+                data-active={isActive ? 'true' : 'false'}
+                className={cardClass}
+                // Sprint 23g — `layout` makes the card spring into place
+                // when siblings exit or when severity reorders the list.
+                // Combined with the parent LayoutGroup + popLayout mode,
+                // grading streams in (and re-grades reorder) smoothly
+                // instead of snapping.
+                layout
+                initial={{ opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -8 }}
+                transition={SPRING_GENTLE}
+              >
+                {cardInner}
+              </motion.article>
+            ) : (
+              <article
+                key={g.clause_id}
+                data-testid="red-flag-card"
+                data-severity={g.severity}
+                data-expanded={isExpanded ? 'true' : 'false'}
+                data-active={isActive ? 'true' : 'false'}
+                className={cardClass}
+              >
+                {cardInner}
+              </article>
+            );
+          })}
+        </AnimatePresence>
+
+        {/*
         Sprint 18 §2 — trailing skeletons for clauses the scan hasn't yet
         attempted. We base the count on `scan.attempted` (success + error)
         rather than `gradings.length` (success only) so a clause whose
@@ -416,13 +467,14 @@ export function RedFlagReport(): React.JSX.Element {
         no skeletons render even if some gradings failed — the user sees
         only the cards we actually have data for.
       */}
-      {scan.phase === 'grading' && scan.total > scan.attempted
-        ? Array.from({ length: scan.total - scan.attempted }).map((_, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders are interchangeable until real cards land
-            <RedFlagSkeletonCard key={`pending-${i}`} delay={i * 0.08} />
-          ))
-        : null}
-    </div>
+        {scan.phase === 'grading' && scan.total > scan.attempted
+          ? Array.from({ length: scan.total - scan.attempted }).map((_, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders are interchangeable until real cards land
+              <RedFlagSkeletonCard key={`pending-${i}`} delay={i * 0.08} />
+            ))
+          : null}
+      </div>
+    </LayoutGroup>
   );
 }
 

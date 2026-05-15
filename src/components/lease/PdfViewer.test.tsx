@@ -8,7 +8,7 @@
 // useImperativeHandle inside the component) — RedFlagReport reads it
 // from there.
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { type ReactNode, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -104,10 +104,14 @@ describe('PdfViewerClient', () => {
     expect(header).toHaveTextContent(/12 clauses/i);
   });
 
-  it('exposes a scroll-area container with overflow-y-auto for independent scrolling', () => {
+  it('exposes a scroll-area container with overflow-auto for independent scrolling', () => {
+    // Sprint 23h root-cause fix — section was changed from
+    // `overflow-y-auto` to `overflow-auto` so the user can pan
+    // horizontally when zoomed past fit-width. Vertical scroll
+    // behaviour is unchanged.
     render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
     const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
-    expect(scrollArea.className).toMatch(/overflow-y-auto/);
+    expect(scrollArea.className).toMatch(/\boverflow-auto\b/);
     expect(scrollArea.className).toMatch(/min-h-0/);
     expect(scrollArea.className).toMatch(/flex-1/);
   });
@@ -208,6 +212,83 @@ describe('PdfViewerClient', () => {
       expect(screen.getByText(/^Fit width$/)).toBeInTheDocument();
       expect(screen.getByTestId('pdf-page-indicator')).toBeInTheDocument();
       expect(screen.queryByTestId('pdf-viewer-expand')).not.toBeInTheDocument();
+    });
+  });
+
+  // Sprint 23h — page navigation. After the 23g motion.div + drag="x"
+  // experiment broke vertical scrolling on macOS trackpads + touch
+  // (Framer issues #185/#429/#1341), horizontal page navigation is now
+  // delivered via Prev/Next buttons in the dock header + ArrowLeft /
+  // ArrowRight keyboard shortcuts on the focusable scroll area. Both
+  // paths share the imperative `scrollToPage` -> `scrollIntoView` flow
+  // already used by CitationChip and red-flag jump-to-page.
+  describe('Sprint 23h — page navigation (buttons + keyboard)', () => {
+    it('renders Prev / Next buttons next to the page indicator', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      expect(screen.getByTestId('pdf-prev-page')).toBeInTheDocument();
+      expect(screen.getByTestId('pdf-next-page')).toBeInTheDocument();
+    });
+
+    it('disables Prev at page 1 and enables Next when there are more pages', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      // IntersectionObserver does not fire in jsdom; effectiveCurrentPage
+      // falls back to 1, so Prev is disabled and Next is enabled.
+      expect(screen.getByTestId('pdf-prev-page')).toBeDisabled();
+      expect(screen.getByTestId('pdf-next-page')).not.toBeDisabled();
+    });
+
+    it('clicking Next scrolls to page 2 (calls scrollIntoView on its page ref)', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      fireEvent.click(screen.getByTestId('pdf-next-page'));
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+
+    it('ArrowRight on the focused scroll area advances to the next page', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
+      fireEvent.keyDown(scrollArea, { key: 'ArrowRight' });
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+
+    it('ArrowLeft at page 1 is a no-op (no scrollIntoView call)', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
+      fireEvent.keyDown(scrollArea, { key: 'ArrowLeft' });
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('ArrowUp / ArrowDown are NOT hijacked (browser-native scroll preserved)', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
+      fireEvent.keyDown(scrollArea, { key: 'ArrowDown' });
+      fireEvent.keyDown(scrollArea, { key: 'ArrowUp' });
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('scroll area is focusable (tabIndex=0) so keyboard navigation has a target', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
+      expect(scrollArea.getAttribute('tabindex')).toBe('0');
     });
   });
 });

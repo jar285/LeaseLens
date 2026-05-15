@@ -37,11 +37,18 @@ export interface CitationChipProps {
 // container; the native `title` attribute exposes the full citation
 // as a hover tooltip for sighted users (screen readers already get
 // the full text via aria-label on the button variant).
+//
+// Sprint 23h — citation text + icon switched to the new `--color-citation`
+// (ink-blue) token. Establishes a distinct semantic color for "this is a
+// reference to NJ statute" — separate from the violet interactive primary,
+// so users can read at a glance "this is a legal citation, not a button."
+// Hover background + focus ring intentionally stay violet because those
+// signal "this is interactive," a system-wide pattern; ink-blue is for
+// the citation content itself.
 const CHIP_LAYOUT_CLASS = 'flex min-w-0 items-start gap-1.5';
-const CHIP_ICON_CLASS =
-  'h-3 w-3 shrink-0 translate-y-[2px] text-accent-500 dark:text-accent-300';
+const CHIP_ICON_CLASS = 'h-3 w-3 shrink-0 translate-y-[2px] text-citation';
 const CHIP_TEXT_CLASS =
-  'min-w-0 line-clamp-2 break-words text-[12px] leading-snug font-medium text-accent-600 dark:text-accent-300';
+  'min-w-0 line-clamp-2 break-words text-[12px] leading-snug font-medium text-citation';
 // Sprint 23b Phase 5 — button variant gains an underline-on-hover so the
 // "this is a real link to the PDF page" affordance is unambiguous.
 const CHIP_TEXT_BUTTON_CLASS = `${CHIP_TEXT_CLASS} group-hover:underline`;

@@ -16,7 +16,14 @@ const geistMono = Geist_Mono({
 
 const sourceSerif = Source_Serif_4({
   subsets: ['latin'],
-  weight: ['400', '600'],
+  // Sprint 23i — added 700 + italic style for the Open-Design-inspired
+  // editorial hero treatment: bold upright body words with one italic
+  // word as emphasis ("Find what to /negotiate/, before you sign.").
+  // Without an explicit italic in the loader, browsers synthesise it
+  // from the upright face, which looks measurably worse than Source
+  // Serif 4's real italics.
+  weight: ['400', '600', '700'],
+  style: ['normal', 'italic'],
   variable: '--font-source-serif',
   display: 'swap',
 });

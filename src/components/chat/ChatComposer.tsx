@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { SPRING_SNAPPY } from '@/lib/motion/presets';
 
 export interface ChatComposerProps {
   onSubmit: (text: string) => void;
@@ -70,12 +71,17 @@ export function ChatComposer({ onSubmit, isLocked }: ChatComposerProps) {
 
   const sendDisabled = isLocked || !text.trim();
 
-  // Sprint 15 Phase 4 — focus-within crossfade. Tailwind transition-colors
-  // on the wrapper handles the 120ms crossfade between neutral-200 (idle)
-  // and accent-400 (focus). Ring is also accent-tinted.
+  // Sprint 15 Phase 4 — focus-within crossfade. Tailwind transitions on
+  // the wrapper handle the crossfade between neutral-200 (idle) and
+  // accent-400 (focus). Ring is also accent-tinted.
+  // Sprint 23g — explicit `transition-[border-color,box-shadow]` so the
+  // focus ring (Tailwind ring-* is implemented as box-shadow) animates
+  // smoothly alongside the border-colour change. `transition-colors` was
+  // missing box-shadow, so the ring snapped on/off while the border
+  // crossfaded — the source of the "not quite smooth" focus feel.
   return (
     <div className="border-t border-neutral-100 bg-surface-card px-6 pb-4 pt-3.5 dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="relative mx-auto flex max-w-2xl items-end gap-2.5 rounded-xl border border-neutral-200 bg-surface-card p-2 transition-colors duration-120 ease-out-soft focus-within:border-accent-400 focus-within:ring-2 focus-within:ring-accent-100 dark:border-neutral-800 dark:bg-neutral-900 dark:focus-within:border-accent-500 dark:focus-within:ring-accent-500/15">
+      <div className="relative mx-auto flex max-w-2xl items-end gap-2.5 rounded-xl border border-neutral-200 bg-surface-card p-2 transition-[border-color,box-shadow] duration-150 ease-out-soft focus-within:border-accent-400 focus-within:ring-2 focus-within:ring-accent-100 dark:border-neutral-800 dark:bg-neutral-900 dark:focus-within:border-accent-500 dark:focus-within:ring-accent-500/15">
         <label htmlFor="chat-composer-input" className="sr-only">
           Type a message
         </label>
@@ -126,7 +132,7 @@ export function ChatComposer({ onSubmit, isLocked }: ChatComposerProps) {
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-600 text-white shadow-sm transition-colors hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:opacity-35 disabled:hover:bg-accent-600"
             whileHover={sendDisabled ? undefined : { scale: 1.05 }}
             whileTap={sendDisabled ? undefined : { scale: 0.97 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+            transition={SPRING_SNAPPY}
           >
             <ArrowUp className="h-4 w-4" aria-hidden="true" strokeWidth={2.5} />
           </motion.button>

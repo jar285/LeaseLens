@@ -107,22 +107,37 @@ export default async function Home() {
     <main className="flex h-dvh flex-col overflow-hidden bg-surface-base font-sans text-fg-default">
       <header className="z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
         <div className="flex items-center gap-4">
-          <Link
-            href="/"
-            className="flex items-center gap-2.5 rounded-md text-[15px] font-semibold tracking-tight text-neutral-800 transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-100"
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-600 text-white">
-              {/*
-                Sprint 17.2 — bespoke LeaseLensMark replaces the generic
-                lucide FileSearch. Same metaphor (document + magnifying
-                glass), but custom geometry plus a one-shot scan sweep on
-                mount give the brand a real visual signature. See
-                design-system/MASTER.md → Brand mark for the rules.
-              */}
-              <LeaseLensMark className="h-3.5 w-3.5" />
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="flex items-center gap-2.5 rounded-md text-[15px] font-semibold tracking-tight text-neutral-800 transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-100"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-600 text-white">
+                {/*
+                  Sprint 17.2 — bespoke LeaseLensMark replaces the generic
+                  lucide FileSearch. Same metaphor (document + magnifying
+                  glass), but custom geometry plus a one-shot scan sweep on
+                  mount give the brand a real visual signature. See
+                  design-system/MASTER.md → Brand mark for the rules.
+                */}
+                <LeaseLensMark className="h-3.5 w-3.5" />
+              </span>
+              LeaseLens
+            </Link>
+            {/* Sprint 23h — persistent system anchor (the LeaseLens
+                equivalent of open-design.ai's "52.5200° N · 13.4050° E"
+                coordinate stamp). Identifies the legal-system scope at
+                a glance, in mono small-caps so it reads as metadata,
+                not a tagline. Hidden on narrow viewports so the brand
+                lockup stays clean on mobile. */}
+            <span
+              aria-hidden="true"
+              data-testid="brand-system-anchor"
+              className="hidden font-mono text-[10px] tracking-[0.2em] text-fg-subtle uppercase md:inline"
+            >
+              NJSA · 46:8 · Tenant Law
             </span>
-            LeaseLens
-          </Link>
+          </div>
           {currentRole !== 'Tenant' && (
             <Link
               href="/cockpit"
@@ -136,8 +151,22 @@ export default async function Home() {
             bottom-right group (which overlapped the last red-flag
             card) into the global header. Always rendered in dev for
             persona testing.
-            Sprint 15.1 — paired with the theme toggle (system/light/dark). */}
-        <div className="flex items-center gap-2">
+            Sprint 15.1 — paired with the theme toggle (system/light/dark).
+            Sprint 23i — editorial version stamp added at the left of
+            this cluster. Mirrors Open Design's masthead "• LIVE ·
+            V0.7.0" element — a small status dot + uppercase mono caps
+            label that frames the app like a print masthead frames an
+            issue. Hidden on narrow viewports so the right side stays
+            clean on mobile. */}
+        <div className="flex items-center gap-3">
+          <span
+            data-testid="brand-live-stamp"
+            aria-hidden="true"
+            className="hidden font-mono text-[10px] tracking-[0.18em] text-fg-subtle uppercase md:inline-flex md:items-center md:gap-1.5"
+          >
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-success-600" />
+            Live · v23.i
+          </span>
           <ThemeToggle />
           <RoleSwitcher currentRole={currentRole} />
         </div>

@@ -214,11 +214,12 @@ describe('ChatTranscript', () => {
         />,
       ),
     );
-    // Heading uses workspaceName, not the hardcoded sample brand.
-    expect(screen.getByRole('heading', { name: 'Acme' })).toBeInTheDocument();
-    expect(
-      screen.queryByRole('heading', { name: /Side Quest Syndicate/i }),
-    ).not.toBeInTheDocument();
+    // Sprint 23g — workspaceName now renders in the editorial eyebrow
+    // (a <p>, not a heading). The Hero H2 carries the fixed value-prop
+    // headline; workspaceName lives above it as the small-caps mono
+    // label.
+    expect(screen.getByTestId('chat-empty-eyebrow')).toHaveTextContent('Acme');
+    expect(screen.queryByText(/Side Quest Syndicate/i)).not.toBeInTheDocument();
   });
 
   describe('S19.4 — synthetic intro/summary messages', () => {

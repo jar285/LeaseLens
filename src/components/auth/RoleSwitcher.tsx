@@ -15,6 +15,7 @@
 'use client';
 
 import { motion, useReducedMotion } from 'motion/react';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 import { switchRole } from '@/lib/auth/actions';
 import type { Role } from '@/lib/auth/types';
@@ -23,15 +24,23 @@ const ROLES: Role[] = ['Tenant', 'Reviewer', 'Admin'];
 
 export function RoleSwitcher({ currentRole }: { currentRole: Role }) {
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
   const reduced = useReducedMotion();
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // Sprint 25.1 (R1) — call router.refresh() after the server action
+  // resolves so the home page re-renders with the new role-derived
+  // props (initialActiveLease, initialToolEvents, viewerRole) WITHOUT
+  // remounting LeaseLensWorkspaceShell. The previous revalidatePath
+  // path forced a remount and triggered Sprint 25's "Restoring..."
+  // IndexedDB-lookup placeholder; this avoids that.
   const handleRoleSwitch = (role: Role) => {
-    startTransition(() => {
-      switchRole(role);
+    startTransition(async () => {
+      await switchRole(role);
+      router.refresh();
     });
   };
 

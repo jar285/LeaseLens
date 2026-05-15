@@ -220,6 +220,20 @@ export async function POST(req: NextRequest) {
     const toolRegistry = createToolRegistry(db);
     const availableTools: AnthropicTool[] = toolRegistry.getToolsForRole(role);
 
+    // Sprint 25.1 (R2) — Anthropic prompt-cache breakpoint on the LAST
+    // tool definition. Cache hierarchy is tools → system → messages, so
+    // marking the trailing entry caches the entire tools-array prefix.
+    // Tools are sorted alphabetically in toolRegistry.getToolsForRole
+    // (registry.ts:49), so "last" is deterministic across requests.
+    const toolsForRequest =
+      availableTools.length > 0
+        ? availableTools.map((t, i, arr) =>
+            i === arr.length - 1
+              ? { ...t, cache_control: { type: 'ephemeral' as const } }
+              : t,
+          )
+        : undefined;
+
     // Demo-only guardrails
     let quotaRemaining: number | null = null;
 
@@ -355,6 +369,19 @@ export async function POST(req: NextRequest) {
       context: ragContext,
       activeLease,
     });
+
+    // Sprint 25.1 (R2) — wrap the system prompt in a single cache-broken
+    // text block so the entire system text is cached. Combined with the
+    // tools-array cache breakpoint above, repeat turns within the TTL
+    // pay 0.1× input price for the cached prefix per Anthropic pricing.
+    const systemForRequest = [
+      {
+        type: 'text' as const,
+        text: systemPrompt,
+        cache_control: { type: 'ephemeral' as const },
+      },
+    ];
+
     const encoder = new TextEncoder();
 
     const responseStream = new ReadableStream({
@@ -406,17 +433,14 @@ export async function POST(req: NextRequest) {
               // Streaming for final text response
               const stream = getAnthropicClient().messages.stream({
                 model: env.LEASELENS_ANTHROPIC_MODEL,
-                system: systemPrompt,
+                system: systemForRequest,
                 // Phase 10.8.3 — context-window's content-block widening
                 // intentionally types content as `string | unknown[]` so
                 // that file stays SDK-agnostic. The cast here re-asserts
                 // the structured-block shape to the Anthropic types.
                 messages: contextMessages as MessageParam[],
                 max_tokens: MAX_OUTPUT_TOKENS,
-                tools:
-                  availableTools.length > 0
-                    ? (availableTools as Tool[])
-                    : undefined,
+                tools: toolsForRequest as Tool[] | undefined,
               });
 
               let streamText = '';
@@ -486,17 +510,14 @@ export async function POST(req: NextRequest) {
               // Non-streaming for tool-use iterations
               const response = await getAnthropicClient().messages.create({
                 model: env.LEASELENS_ANTHROPIC_MODEL,
-                system: systemPrompt,
+                system: systemForRequest,
                 // Phase 10.8.3 — context-window's content-block widening
                 // intentionally types content as `string | unknown[]` so
                 // that file stays SDK-agnostic. The cast here re-asserts
                 // the structured-block shape to the Anthropic types.
                 messages: contextMessages as MessageParam[],
                 max_tokens: MAX_OUTPUT_TOKENS,
-                tools:
-                  availableTools.length > 0
-                    ? (availableTools as Tool[])
-                    : undefined,
+                tools: toolsForRequest as Tool[] | undefined,
               });
 
               tokensIn += response.usage.input_tokens;

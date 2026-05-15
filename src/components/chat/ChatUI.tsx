@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertCircle, RotateCcw, SquarePen } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
 import { getPdfBinaryRepository } from '@/lib/lease/pdf-binary-repository';
 import { ChatComposer } from './ChatComposer';
@@ -85,7 +85,22 @@ export function ChatUI({
   const { activeLease, toolEvents, resetConversation, restoreConversation } =
     useChatStream();
 
+  // Sprint 25.1 (R8) — track the in-flight chat fetch so we can abort
+  // on unmount / "New conversation" / rapid re-submit. Without this,
+  // navigating away mid-stream leaves the reader loop running and
+  // updating state on a soon-to-unmount component.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+    },
+    [],
+  );
+
   const handleNewConversation = () => {
+    // Cancel any in-flight stream before clearing state so the reader
+    // loop sees AbortError before it can race against the reset.
+    abortRef.current?.abort();
     if (activeConversationId !== null || messages.length > 0 || activeLease) {
       // Sprint 24.7 — if the stash is being overwritten by a different
       // lease, revoke the soon-to-be-orphaned pdfUrl. The OLD stashed
@@ -205,6 +220,12 @@ export function ChatUI({
     // Track pending tool invocations for this response
     const pendingTools = new Map<string, ToolInvocation>();
 
+    // Sprint 25.1 (R8) — replace any prior controller so a rapid re-submit
+    // cancels the previous in-flight stream before starting the new one.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -213,6 +234,7 @@ export function ChatUI({
           message: trimmed,
           conversationId: activeConversationId,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok || !response.body) {
@@ -334,6 +356,15 @@ export function ChatUI({
 
       setStatus('idle');
     } catch (error) {
+      // Sprint 25.1 (R8) — silent cancel: user clicked New, unmounted, or
+      // re-submitted while a stream was in flight. Drop the in-progress
+      // assistant bubble; don't render an error banner. Other dispatched
+      // state (status, errorMsg) is reset by whichever path triggered
+      // the abort.
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setMessages((prev) => prev.filter((m) => m.id !== assistantMessageId));
+        return;
+      }
       console.error(error);
       setErrorMsg(getErrorMessage(error));
       setStatus('error');

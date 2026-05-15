@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CockpitAuditRow } from '@/lib/cockpit/types';
+import type { CockpitToolCallRow } from '@/lib/cockpit/types';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 
 vi.mock('@/app/cockpit/actions', () => ({
@@ -10,22 +10,32 @@ vi.mock('@/app/cockpit/actions', () => ({
 
 import { AuditFeedPanel } from './AuditFeedPanel';
 
-function makeRow(over: Partial<CockpitAuditRow> = {}): CockpitAuditRow {
+/**
+ * Sprint 24.5 — fixtures now represent unified tool-call rows. The
+ * `audit_id` field is the load-bearing distinction between a mutating
+ * row (Undo affordance applicable) and a read-only one (no Undo). By
+ * default `makeRow` builds a mutating-shaped fixture so the legacy
+ * test assertions about Undo visibility remain valid.
+ */
+function makeRow(over: Partial<CockpitToolCallRow> = {}): CockpitToolCallRow {
   return {
     id: 'audit-1',
-    tool_name: 'schedule_content_item',
-    tool_use_id: null,
+    tool_name: 'draft_negotiation_email',
+    tool_use_id: 'toolu_1',
     actor_user_id: 'editor-id',
     actor_role: 'Reviewer',
     conversation_id: null,
     workspace_id: SAMPLE_WORKSPACE.id,
-    input_json: '{"document_slug":"brand-identity"}',
-    output_json: '{"id":"sched-1"}',
-    compensating_action_json: '{"schedule_id":"sched-1"}',
-    status: 'executed',
+    tool_call_status: 'success',
+    error_message: null,
+    latency_ms: 42,
     created_at: 1735689600,
-    rolled_back_at: null,
     actor_display_name: 'Demo Editor',
+    // Mutating row by default: audit_id present, audit_status='executed'.
+    audit_id: 'audit-1',
+    audit_status: 'executed',
+    audit_input_json: '{"clause_id":"c-1"}',
+    rolled_back_at: null,
     ...over,
   };
 }

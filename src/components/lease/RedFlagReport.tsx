@@ -360,17 +360,30 @@ export function RedFlagReport(): React.JSX.Element {
                         {clauseLabel(g)}
                       </span>
                     </div>
+                    {/* Sprint 24.6 — added `mb-2` so the overview paragraph
+                        breathes before the citation row below. Paired with
+                        `pt-2` on the citation row sibling so the citation
+                        reads as its own evidence row, not a continuation of
+                        the paragraph. Net gap (mb-2 + toggle pb-3 + citation
+                        pt-2 = 28px) sits in the "calm and premium" range,
+                        well above the prior 12px which felt glued. */}
                     <p
-                      className={`mt-1.5 text-[12px] leading-snug text-fg-muted ${
+                      className={`mt-1.5 mb-2 text-[12px] leading-snug text-fg-muted ${
                         isExpanded ? '' : 'line-clamp-2'
                       }`}
                     >
                       {g.reasoning}
                     </p>
                   </div>
+                  {/* Sprint 24.2 — chevron rotation duration bumped from
+                      Tailwind's 150ms default to 220ms `ease-out-soft` so
+                      the icon rotation lands in sync with the body height
+                      animation (~500ms spring). Without this the chevron
+                      finished its rotation before the body even started
+                      revealing, which was part of the "snappy" feel. */}
                   <ChevronDown
                     aria-hidden="true"
-                    className={`h-4 w-4 shrink-0 text-fg-subtle transition-transform ${
+                    className={`h-4 w-4 shrink-0 text-fg-subtle transition-transform duration-220 ease-out-soft ${
                       isExpanded ? 'rotate-180' : ''
                     }`}
                   />
@@ -378,8 +391,17 @@ export function RedFlagReport(): React.JSX.Element {
                 {/* Citation row — sibling of the toggle, click-isolated.
                   When page_number is set the chip becomes clickable and
                   drives the same activeClauseId + scrollToPage flow as
-                  the in-body "View on page N" button below. */}
-                <div data-testid="red-flag-citation-row" className="px-4 pb-3">
+                  the in-body "View on page N" button below.
+                  Sprint 24.6 — `pt-2` paired with `mb-2` on the overview
+                  paragraph above creates a deliberate gap so the citation
+                  reads as its own evidence row supporting the paragraph,
+                  not a trailing line of it. The subtle border-t on the
+                  Recommended-action section below remains the divider
+                  between citation (evidence) and action (next step). */}
+                <div
+                  data-testid="red-flag-citation-row"
+                  className="px-4 pt-2 pb-3"
+                >
                   <CitationChip
                     statuteCitation={g.statute_citation}
                     pageNumber={g.page_number}
@@ -391,10 +413,91 @@ export function RedFlagReport(): React.JSX.Element {
                   />
                 </div>
 
-                {/* Expanded body — recommended action + jump-to-page. */}
-                {isExpanded ? (
+                {/*
+                  Sprint 24.4 — Expanded body, animation v2.
+
+                  v1 (Sprint 24.2) ran opacity 0→1 in parallel with
+                  height 0→auto. Two problems:
+                    (a) opacity reached 1 at ~220ms while the height
+                        spring was still settling at ~500ms — content
+                        was painted at full strength inside a
+                        still-growing card, so users saw the body
+                        "drop in" via overflow cropping rather than a
+                        smooth reveal. The opacity tween made the
+                        content feel "dropped in" because it landed
+                        before the box was ready.
+                    (b) the outer motion.article had `layout` (animates
+                        both position AND size) which double-animated
+                        the size axis against this inner height tween,
+                        amplifying the mismatch.
+
+                  v2 (this sprint) fixes both:
+                    - `layout="position"` on the article (one line up)
+                      removes the size double-tween. Article only
+                      animates its position; the body owns its size.
+                    - Drop the opacity tween entirely. `overflow:
+                      hidden` on the motion.div already clips content
+                      during the height grow — that IS the reveal, and
+                      it's cleaner because the content appears
+                      gradually from the top edge as the box reveals
+                      it, exactly like a real accordion drawer.
+                    - Slow the height spring (170 / 32 / 1.0 — settles
+                      ~620ms, no overshoot) so the reveal reads as
+                      deliberate, not snappy.
+
+                  Reduced-motion users still fall back to the instant
+                  conditional render.
+                */}
+                {animate ? (
+                  <AnimatePresence initial={false}>
+                    {isExpanded ? (
+                      <motion.div
+                        key="body"
+                        data-testid="red-flag-card-body"
+                        data-motion="on"
+                        initial={{ height: 0 }}
+                        animate={{ height: 'auto' }}
+                        exit={{ height: 0 }}
+                        transition={{
+                          type: 'spring',
+                          stiffness: 170,
+                          damping: 32,
+                          mass: 1.0,
+                        }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        <div className="border-t border-neutral-100 bg-surface-muted/40 px-4 py-3 pl-5 dark:border-neutral-800 dark:bg-neutral-800/30">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+                            Recommended action
+                          </p>
+                          <p className="mt-1 text-[12px] leading-relaxed text-fg-default">
+                            {g.recommended_action}
+                          </p>
+                          {typeof g.page_number === 'number' ? (
+                            <button
+                              type="button"
+                              data-testid="red-flag-jump-to-page"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                jumpToClausePage(g);
+                              }}
+                              className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
+                            >
+                              <ExternalLink
+                                className="h-3 w-3"
+                                aria-hidden="true"
+                              />
+                              View on page {g.page_number}
+                            </button>
+                          ) : null}
+                        </div>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                ) : isExpanded ? (
                   <div
                     data-testid="red-flag-card-body"
+                    data-motion="off"
                     className="border-t border-neutral-100 bg-surface-muted/40 px-4 py-3 pl-5 dark:border-neutral-800 dark:bg-neutral-800/30"
                   >
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
@@ -435,7 +538,18 @@ export function RedFlagReport(): React.JSX.Element {
                 // Combined with the parent LayoutGroup + popLayout mode,
                 // grading streams in (and re-grades reorder) smoothly
                 // instead of snapping.
-                layout
+                //
+                // Sprint 24.4 — switched from `layout` (animates BOTH
+                // position AND size) to `layout="position"` so the inner
+                // accordion-body motion.div owns the size tween. With
+                // plain `layout`, the article's own bounding-box snapshot
+                // ran a linear tween on size while the inner div ran a
+                // spring on height — two competing animations on the same
+                // axis, which is what caused the "drops information"
+                // mismatch the user reported. `layout="position"` keeps
+                // sibling reordering smooth via LayoutGroup while letting
+                // the body own its height.
+                layout="position"
                 initial={{ opacity: 0, x: 8 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -8 }}

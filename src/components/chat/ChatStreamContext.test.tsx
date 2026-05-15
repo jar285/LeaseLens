@@ -4,10 +4,11 @@
 // registers an imperative ref so the citation-chip click can scroll
 // the PDF.
 
-import { cleanup, render, renderHook } from '@testing-library/react';
+import { act, cleanup, render, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type ActiveLeaseRef,
   ChatStreamProvider,
   type ToolEvent,
   useChatStream,
@@ -73,5 +74,112 @@ describe('ChatStreamContext', () => {
     expect(
       container.querySelector('[data-testid="child"]'),
     ).toBeInTheDocument();
+  });
+
+  // Sprint 24.7 — root-cause fix coverage. resetConversation + restoreConversation
+  // are the two new context actions ChatUI calls on "New conversation" /
+  // "Continue previous." These unit tests pin their contract independent
+  // of the shell + ChatUI wiring.
+  describe('Sprint 24.7 — resetConversation / restoreConversation', () => {
+    beforeEach(() => {
+      global.URL.revokeObjectURL = vi.fn();
+    });
+
+    it('resetConversation clears toolEvents, activeClauseId, and activeLease', () => {
+      const { result } = renderHook(() => useChatStream(), { wrapper });
+
+      act(() => {
+        result.current.pushToolEvent({
+          tool_name: 'grade_clause_severity',
+          input: { clause_id: 'c1' },
+          result: { severity: 'high' },
+          audit_id: undefined,
+        });
+        result.current.setActiveClauseId('c1');
+        result.current.setActiveLease({
+          lease_id: 'lease-A',
+          filename: 'A.pdf',
+          pdfUrl: 'blob:fake-url-a',
+        });
+      });
+
+      expect(result.current.toolEvents).toHaveLength(1);
+      expect(result.current.activeClauseId).toBe('c1');
+      expect(result.current.activeLease?.lease_id).toBe('lease-A');
+
+      act(() => {
+        result.current.resetConversation();
+      });
+
+      expect(result.current.toolEvents).toEqual([]);
+      expect(result.current.activeClauseId).toBeNull();
+      expect(result.current.activeLease).toBeNull();
+    });
+
+    it('resetConversation does NOT revoke the active blob URL (revocation moved to the commit boundary in ChatUI)', () => {
+      const { result } = renderHook(() => useChatStream(), { wrapper });
+
+      act(() => {
+        result.current.setActiveLease({
+          lease_id: 'lease-A',
+          filename: 'A.pdf',
+          pdfUrl: 'blob:url-still-needed-by-undo-stash',
+        });
+      });
+
+      act(() => {
+        result.current.resetConversation();
+      });
+
+      // The blob URL must stay alive after reset: ChatUI stashes the
+      // same activeLease object for "Continue previous", and revoking
+      // here would orphan the URL the undo path needs to reload.
+      expect(global.URL.revokeObjectURL).not.toHaveBeenCalled();
+    });
+
+    it('resetConversation is a no-op-safe when no lease is attached', () => {
+      const { result } = renderHook(() => useChatStream(), { wrapper });
+
+      act(() => {
+        result.current.resetConversation();
+      });
+
+      expect(result.current.toolEvents).toEqual([]);
+      expect(result.current.activeLease).toBeNull();
+      expect(global.URL.revokeObjectURL).not.toHaveBeenCalled();
+    });
+
+    it('restoreConversation replays a snapshot of lease + toolEvents', () => {
+      const { result } = renderHook(() => useChatStream(), { wrapper });
+
+      const snapshot: {
+        activeLease: ActiveLeaseRef | null;
+        toolEvents: ToolEvent[];
+      } = {
+        activeLease: {
+          lease_id: 'lease-B',
+          filename: 'B.pdf',
+          pdfUrl: 'blob:fake-url-b',
+        },
+        toolEvents: [
+          {
+            tool_name: 'grade_clause_severity',
+            input: { clause_id: 'c-replayed' },
+            result: { severity: 'medium' },
+            audit_id: undefined,
+          },
+        ],
+      };
+
+      act(() => {
+        result.current.restoreConversation(snapshot);
+      });
+
+      expect(result.current.activeLease?.lease_id).toBe('lease-B');
+      expect(result.current.toolEvents).toHaveLength(1);
+      expect(result.current.toolEvents[0].input).toEqual({
+        clause_id: 'c-replayed',
+      });
+    });
   });
 });

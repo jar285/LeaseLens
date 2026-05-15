@@ -4,13 +4,21 @@ import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
 import { ThemeToggle } from '@/components/auth/ThemeToggle';
 import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
+import type { ToolEvent } from '@/components/chat/ChatStreamContext';
 import { LeaseLensWorkspaceShell } from '@/components/lease/LeaseLensWorkspaceShell';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { ensureDemoUsersExist } from '@/lib/auth/ensure-demo-users';
 import { decrypt } from '@/lib/auth/session';
 import { getLatestConversationForWorkspace } from '@/lib/chat/conversations';
-import { rehydrateConversationMessages } from '@/lib/chat/rehydrate-history';
+import {
+  rehydrateConversationMessages,
+  rehydrateToolEvents,
+} from '@/lib/chat/rehydrate-history';
 import { db } from '@/lib/db';
+import {
+  type ActiveLeaseSnapshot,
+  getActiveLeaseSnapshot,
+} from '@/lib/lease/queries';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   decodeWorkspace,
@@ -79,6 +87,13 @@ export default async function Home() {
   // Fetch conversation and messages
   let conversationId: string | null = null;
   let initialMessages: ChatMessageProps[] = [];
+  // Sprint 25 — also rehydrate the right-pane red-flag stream and the
+  // left-pane PDF metadata from the persisted conversation, so role
+  // switches (revalidatePath('/')) and cockpit round-trips don't reset
+  // the workspace to the empty state. The Blob URL itself is restored
+  // client-side from IndexedDB; see PdfBinaryRepository.
+  let initialToolEvents: ToolEvent[] = [];
+  let initialActiveLease: ActiveLeaseSnapshot | null = null;
 
   if (currentUserId) {
     // Round 3 — filter by workspace_id so previous-workspace history doesn't
@@ -96,6 +111,8 @@ export default async function Home() {
         )
         .all(conversationId) as { id: string; role: string; content: string }[];
       initialMessages = rehydrateConversationMessages(msgs);
+      initialToolEvents = rehydrateToolEvents(msgs);
+      initialActiveLease = getActiveLeaseSnapshot(db, conversationId);
     }
   }
 
@@ -187,6 +204,8 @@ export default async function Home() {
         conversationId={conversationId}
         workspaceName={workspace.name}
         viewerRole={currentRole}
+        initialToolEvents={initialToolEvents}
+        initialActiveLease={initialActiveLease}
       />
     </main>
   );

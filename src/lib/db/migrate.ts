@@ -42,6 +42,20 @@ function columnExists(
 }
 
 /**
+ * Sprint 24.1 — helper for table-presence checks. Lets migrations that
+ * touch a table created in a later sprint skip cleanly when run against
+ * a pre-existing-sprint fixture (the migrate.test.ts fixtures construct
+ * partial schemas to test column-addition paths). New DBs always have
+ * every table from SCHEMA, so this returns true in production.
+ */
+function tableExists(db: Database.Database, table: string): boolean {
+  const row = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .get(table) as { name: string } | undefined;
+  return row !== undefined;
+}
+
+/**
  * Returns true when `documents` carries a column-level UNIQUE on `slug`
  * (origin='u' in PRAGMA index_list — a constraint, not a CREATE INDEX).
  * The composite UNIQUE on (slug, workspace_id) lives under origin='c' and
@@ -150,5 +164,18 @@ export function migrate(db: Database.Database): void {
   // DB or an already-migrated dev DB is a no-op.
   if (!columnExists(db, 'conversations', 'active_lease_id')) {
     db.exec(`ALTER TABLE conversations ADD COLUMN active_lease_id TEXT`);
+  }
+
+  // Sprint 24.1 — clauses.severity (nullable, written by
+  // grade_clause_severity after validation). Source of truth for the
+  // cockpit SeverityDistribution panel. New DBs get the column with
+  // the CHECK(severity IN ('high','medium','low','ok')) constraint
+  // from SCHEMA; pre-Sprint-24 dev DBs get the column via ALTER
+  // (SQLite ALTER TABLE ADD COLUMN doesn't accept CHECK inline). The
+  // grading-tool validation + the TS Severity type at the application
+  // boundary keep the value space identical between fresh and migrated
+  // DBs, so the missing CHECK on migrated rows is cosmetic only.
+  if (tableExists(db, 'clauses') && !columnExists(db, 'clauses', 'severity')) {
+    db.exec(`ALTER TABLE clauses ADD COLUMN severity TEXT`);
   }
 }

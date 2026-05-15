@@ -265,6 +265,16 @@ export function createGradeClauseSeverityTool(
       const parsed = JSON.parse(jsonText) as GradingPayload;
       const validated = validateGrading(parsed, retrieved);
 
+      // Sprint 24.1 — persist the validated severity back to the
+      // clauses row. This is the source of truth the cockpit
+      // SeverityDistribution panel reads from. The write happens
+      // AFTER validation so a failed citation grounding never poisons
+      // the clauses table with an unverified grade. Idempotent: a
+      // re-grade overwrites the prior severity in place.
+      db.prepare(
+        `UPDATE clauses SET severity = ? WHERE id = ? AND workspace_id = ?`,
+      ).run(validated.severity, clauseId, ctx.workspaceId);
+
       return {
         clause_id: clauseId,
         clause_type: clause.clause_type,

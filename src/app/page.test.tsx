@@ -6,8 +6,16 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useChatStream } from '@/components/chat/ChatStreamContext';
 import { ChatUI } from '@/components/chat/ChatUI';
 import { withChatStream } from '@/components/chat/test-helpers';
+
+function LeaseProbe(): React.JSX.Element {
+  const { activeLease } = useChatStream();
+  return (
+    <div data-testid="lease-probe">{activeLease?.lease_id ?? '__empty__'}</div>
+  );
+}
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -354,6 +362,144 @@ describe('Homepage Chat UI', () => {
     expect(
       screen.queryByTestId('continue-previous-btn'),
     ).not.toBeInTheDocument();
+  });
+
+  // Sprint 24.7 — verifies the real handleNewConversation wiring:
+  // clicking "New conversation" must clear the context-level lease
+  // (which gates the dropzone-vs-PdfViewer swap in the shell). The
+  // LeaseProbe (defined at module scope above) reads context.activeLease
+  // and renders its lease_id (or '__empty__') so assertions are plain
+  // DOM text.
+  it('Sprint 24.7 — New conversation clears the context lease', () => {
+    render(
+      withChatStream(
+        <>
+          <ChatUI
+            initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]}
+            conversationId="conv-1"
+            workspaceName="Side Quest Syndicate"
+          />
+          <LeaseProbe />
+        </>,
+        {
+          activeLease: {
+            lease_id: 'lease-pre-reset',
+            filename: 'old.pdf',
+          },
+        },
+      ),
+    );
+
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent(
+      'lease-pre-reset',
+    );
+
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent('__empty__');
+  });
+
+  // Sprint 24.7 — verifies the Continue-previous path does NOT revoke
+  // the stashed pdfUrl. Earlier iterations revoked inside
+  // resetConversation, which left a dead Blob URL in the stash and
+  // made PdfViewer crash with "Unexpected server response (0)" when
+  // undo restored the lease. Revocation moved to the commit boundary
+  // (handleSubmit). This test pins the contract: New -> Continue
+  // previous must NOT touch URL.revokeObjectURL.
+  it('Sprint 24.7 — New -> Continue previous keeps the Blob URL alive', () => {
+    const revoke = vi.fn();
+    global.URL.revokeObjectURL = revoke;
+
+    render(
+      withChatStream(
+        <ChatUI
+          initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hi' }]}
+          conversationId="conv-1"
+          workspaceName="Side Quest Syndicate"
+        />,
+        {
+          activeLease: {
+            lease_id: 'lease-keep-alive',
+            filename: 'a.pdf',
+            pdfUrl: 'blob:keep-alive',
+          },
+        },
+      ),
+    );
+
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+    fireEvent.click(screen.getByTestId('continue-previous-btn'));
+
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  // Sprint 24.7 — revocation happens at the commit boundary: when the
+  // user sends a message in the new thread, the stashed lease is
+  // provably unreachable and its Blob URL is freed. This prevents the
+  // leak the old reset-time revoke was meant to address, without
+  // breaking undo.
+  it('Sprint 24.7 — sending a message after New revokes the stashed blob URL', async () => {
+    const revoke = vi.fn();
+    global.URL.revokeObjectURL = revoke;
+
+    render(
+      withChatStream(
+        <ChatUI
+          initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hi' }]}
+          conversationId="conv-1"
+          workspaceName="Side Quest Syndicate"
+        />,
+        {
+          activeLease: {
+            lease_id: 'lease-commit',
+            filename: 'a.pdf',
+            pdfUrl: 'blob:commit-target',
+          },
+        },
+      ),
+    );
+
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+    expect(revoke).not.toHaveBeenCalled();
+
+    const input = screen.getByLabelText('Type a message');
+    fireEvent.change(input, { target: { value: 'commit to new thread' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => {
+      expect(revoke).toHaveBeenCalledWith('blob:commit-target');
+    });
+  });
+
+  // Sprint 24.7 — verifies the undo also restores the lease, not just
+  // the chat thread. Without this, "Continue previous" was a half-undo.
+  it('Sprint 24.7 — Continue previous restores the lease alongside the chat', () => {
+    render(
+      withChatStream(
+        <>
+          <ChatUI
+            initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]}
+            conversationId="conv-1"
+            workspaceName="Side Quest Syndicate"
+          />
+          <LeaseProbe />
+        </>,
+        {
+          activeLease: {
+            lease_id: 'lease-original',
+            filename: 'old.pdf',
+          },
+        },
+      ),
+    );
+
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent('__empty__');
+
+    fireEvent.click(screen.getByTestId('continue-previous-btn'));
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent(
+      'lease-original',
+    );
   });
 
   it('remounts on workspace change so the prior thread does not bleed across', () => {

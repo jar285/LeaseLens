@@ -18,6 +18,7 @@ import type {
   ToolExecutionResult,
 } from './domain';
 import { ToolAccessDeniedError, UnknownToolError } from './errors';
+import { writeToolCall } from './tool-calls';
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDescriptor>();
@@ -83,47 +84,84 @@ export class ToolRegistry {
       throw new ToolAccessDeniedError(name, context.role);
     }
 
-    if (descriptor.compensatingAction) {
-      if (!this.db) {
-        throw new Error(
-          `Mutating tool "${name}" registered but ToolRegistry has no db ` +
-            `to write the audit row. Construct via new ToolRegistry(db).`,
-        );
-      }
-      const db = this.db;
+    // Sprint 24.5 — observability instrumentation. EVERY execute() —
+    // read-only AND mutating — records a `tool_calls` row in the
+    // `finally` block below, with success/error status and latency.
+    // The audit_log write for mutating tools is unchanged (inside the
+    // txn); tool_calls writes happen OUTSIDE so a failed mutation
+    // still produces a record of the attempt.
+    const startMs = Date.now();
+    let toolCallStatus: 'success' | 'error' = 'success';
+    let toolCallError: string | null = null;
 
-      // Sprint 13: optional async preparation step (e.g., LLM call) runs
-      // BEFORE the transaction. Throws here propagate out without any DB
-      // write. The resolved value is passed to execute as `prepared`.
-      const prepared = descriptor.prepare
-        ? await descriptor.prepare(input, context)
-        : undefined;
+    try {
+      if (descriptor.compensatingAction) {
+        if (!this.db) {
+          throw new Error(
+            `Mutating tool "${name}" registered but ToolRegistry has no db ` +
+              `to write the audit row. Construct via new ToolRegistry(db).`,
+          );
+        }
+        const db = this.db;
 
-      const txn = db.transaction((): ToolExecutionResult => {
-        const outcome = descriptor.execute(
-          input,
-          context,
-          prepared,
-        ) as MutationOutcome;
-        const audit_id = writeAuditRow(db, {
-          tool_name: name,
-          tool_use_id: context.toolUseId ?? null,
-          context,
-          input,
-          output: outcome.result,
-          compensatingActionPayload: outcome.compensatingActionPayload,
+        // Sprint 13: optional async preparation step (e.g., LLM call) runs
+        // BEFORE the transaction. Throws here propagate out without any DB
+        // write. The resolved value is passed to execute as `prepared`.
+        const prepared = descriptor.prepare
+          ? await descriptor.prepare(input, context)
+          : undefined;
+
+        const txn = db.transaction((): ToolExecutionResult => {
+          const outcome = descriptor.execute(
+            input,
+            context,
+            prepared,
+          ) as MutationOutcome;
+          const audit_id = writeAuditRow(db, {
+            tool_name: name,
+            tool_use_id: context.toolUseId ?? null,
+            context,
+            input,
+            output: outcome.result,
+            compensatingActionPayload: outcome.compensatingActionPayload,
+          });
+          return { result: outcome.result, audit_id };
         });
-        return { result: outcome.result, audit_id };
-      });
-      return txn();
-    }
+        return txn();
+      }
 
-    // Read-only path. Descriptor's execute return type is the union
-    // `Promise<unknown> | MutationOutcome`; for read-only tools it's
-    // always a Promise. `await` on a non-Promise resolves to the value,
-    // so the union is harmless at runtime.
-    const rawResult = await descriptor.execute(input, context);
-    return { result: rawResult, audit_id: undefined };
+      // Read-only path. Descriptor's execute return type is the union
+      // `Promise<unknown> | MutationOutcome`; for read-only tools it's
+      // always a Promise. `await` on a non-Promise resolves to the value,
+      // so the union is harmless at runtime.
+      const rawResult = await descriptor.execute(input, context);
+      return { result: rawResult, audit_id: undefined };
+    } catch (err) {
+      toolCallStatus = 'error';
+      toolCallError = err instanceof Error ? err.message : String(err);
+      throw err;
+    } finally {
+      // Sprint 24.5 — best-effort tool_calls write. Wrapped in its own
+      // try/catch so an observability-log failure never breaks the
+      // tool-call return path. The audit_log invariants are unchanged.
+      if (this.db) {
+        try {
+          writeToolCall(this.db, {
+            tool_name: name,
+            tool_use_id: context.toolUseId ?? null,
+            actor_user_id: context.userId,
+            actor_role: context.role,
+            conversation_id: context.conversationId ?? null,
+            workspace_id: context.workspaceId,
+            status: toolCallStatus,
+            error_message: toolCallError,
+            latency_ms: Date.now() - startMs,
+          });
+        } catch {
+          /* swallow observability-log failures */
+        }
+      }
+    }
   }
 
   /**

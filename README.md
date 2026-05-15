@@ -283,7 +283,9 @@ The same registry that filters the prompt's tool manifest also gates execution �
 
 ### PDF Pipeline
 
-`POST /api/leases` accepts a `application/pdf` upload (max 1 MB, max 30 pages by default). The route runs `parsePdf(buffer)` from [`src/lib/lease/parse-pdf.ts`](src/lib/lease/parse-pdf.ts) using `pdfjs-dist`, segments each page on numbered-section prefixes (`1.`, `(a)`, `ARTICLE I`), classifies each clause by type (security_deposit, late_fee, early_termination, …), and inserts into `leases` / `clauses`. Scanned PDFs with no text layer return 422 with `error: 'pdf_no_text_layer'` — OCR is out of scope. The client viewer is `react-pdf` over the same `pdfjs-dist`, with a citation-chip hook that scrolls to the cited page.
+`POST /api/leases` accepts a `application/pdf` upload (max 1 MB, max 30 pages by default). The route runs `parsePdf(buffer)` from [`src/lib/lease/parse-pdf.ts`](src/lib/lease/parse-pdf.ts) using `pdfjs-dist`, segments each page on numbered-section prefixes (`1.`, `(a)`, `ARTICLE I`), classifies each clause by type (security_deposit, late_fee, early_termination, …), and inserts into `leases` / `clauses`. Scanned PDFs with no text layer return 422 with `error: 'pdf_no_text_layer'` — OCR is out of scope.
+
+The client viewer is `react-pdf` over the same `pdfjs-dist`. **Navigation (Sprint 23h):** Prev / Next page buttons in the dock header drive the same `scrollToPage` path the citation chips use, and `ArrowLeft` / `ArrowRight` on the focusable scroll `<section>` paginate by keyboard (skipped while there's an active text selection so arrow-key selection extension still works). **Width sizing:** a `ResizeObserver` measures the inner page container directly and pins each page wrapper to the canvas width via inline style, so the text layer no longer right-clips at fit-width and zoom past 100 % pans horizontally.
 
 ### Two-Tier Eval Harness
 
@@ -396,13 +398,19 @@ ContentOps/
 │       ├── evals/                        # Tier 1 runner, Tier 2 runner, golden + lease cases
 │       ├── lease/                        # parse-pdf, segment-clauses, classify-clause,
 │       │                                 # validate-upload, queries, ownership, disclaimer
+│       ├── motion/                       # SPRING_GENTLE / SPRING_SNAPPY / SPRING_SNAP_BACK
+│       │                                 # + EASE_OUT_SOFT presets (Sprint 23g)
 │       ├── rag/                          # ingest, chunk, embed (Xenova WASM), retrieve
 │       ├── tools/                        # registry, lease-tools, corpus-tools, diagram-tools,
 │       │                                 # audit-log, create-registry
 │       └── workspaces/                   # cookie helpers + per-visitor brand list
+├── design-system/
+│   └── MASTER.md                         # design tokens, typography, motion presets,
+│                                         # accessibility rules, anti-patterns
 └── docs/
     ├── _meta/                            # charter, guidelines, architecture snapshot
-    └── _specs/sprint-13-leaselens/       # spec, sprint plan, impl-qa
+    └── _specs/                           # spec.md + spec-qa.md + sprint.md
+                                          # + sprint-qa.md + impl-qa.md per sprint
 ```
 
 ---
@@ -411,7 +419,7 @@ ContentOps/
 
 LeaseLens is built sprint-by-sprint with a spec → QA → sprint plan → implementation → QA loop. All artifacts live in [`docs/_specs/`](docs/_specs/).
 
-Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases while preserving every architectural invariant. Sprint 14 hardened the eval harness with Tier 2 lease grading, cleared lint, and shipped the cockpit two-tier display. Sprint 16 will deliver the Vercel deployment and a 90-second Loom walkthrough.
+Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases while preserving every architectural invariant. Sprint 14 hardened the eval harness with Tier 2 lease grading. Sprints 15–22 built out the design system (Tailwind v4 tokens, MASTER.md, Source Serif 4), the tenant-friendly conversational scan UX, and PDF reading controls. The Sprint 23 series modernised the three-pane workspace pane by pane — UI foundation tokens (23a), document dock (23b), conversation workspace (23c), risk-radar rail (23d), chat memory (23e), negotiation-email card (23f) — and 23g–k landed an Open-Design-inspired editorial brand refresh: cream-paper + terracotta palette in both modes, Source Serif 4 weight 700 + italic for the display-serif hero, ink-blue citation token, motion-preset module, accessible PDF page navigation (Prev/Next buttons + ArrowLeft/Right keyboard), and an `animate-ping` ripple on the LIVE status indicator. Vercel deployment and the Loom walkthrough remain the closeout work.
 
 | Sprint | Scope | Status |
 |--------|-------|--------|
@@ -430,11 +438,22 @@ Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG 
 | 12 | Diagram tool (Mermaid) + Motion polish | Complete |
 | 13 | LeaseLens vertical pivot — NJ corpus, lease tools, three-pane shell | Complete |
 | 14 | Tier 2 lease-grading eval, cockpit two-tier display, lint cleanup, manual-smoke template | Complete |
-| 15 | Polish backlog (paste-text fallback, in-app Tier 2 button, sample-lease CTA) | Planned |
-| 16 | Vercel deployment + README polish + Loom | Planned |
+| 15 | UI polish — Tailwind v4 `@theme` tokens, Geist + Source Serif 4 typography, chat-surface refactor | Complete |
+| 16A | Design-system documentation ([`design-system/MASTER.md`](design-system/MASTER.md)) | Complete |
+| 16B | PDF viewer dark-mode coverage + GFM table support in chat markdown | Complete |
+| 18 | Scan-progress UI + tenant-friendly grading scaffolding | Complete |
+| 19–22 | Tenant-friendly conversational scan, PDF reading controls (zoom / fit / focus mode), corpus-grounding refinements | Complete |
+| 23a | UI foundation tokens — z-index scale, surface-elevation aliases, backdrop tokens, motion-duration normalisation; vestigial workspace-picker removal | Complete |
+| 23b | Document dock — LeaseUploadDropzone tray, compact `PdfReadingControls`, two-row dock header, focus-dialog polish, CitationChip hover affordance | Complete |
+| 23c | Conversation workspace — compact `ChatEmptyState`, `UploadedLeaseCard` with chips, command-bar `ChatComposer`, ScanTimeline + ActivityDrawer polish | Complete |
+| 23d | Risk radar — `SeverityBadge` primitive, refreshed `RedFlagReport`, skeleton card hierarchy, example preview card in the empty state | Complete |
+| 23e | Chat memory — `MAX_MESSAGES` raised 20 → 60, system prompt prefers prior tool results on follow-ups, verbatim draft-email rendering | Complete |
+| 23f | `NegotiationEmailCard` — clipboard + fade-in, Tenant-mode `draft_negotiation_email` routing, system-prompt refinements | Complete |
+| 23g–j | Open Design editorial brand refresh — cream-paper + terracotta palette (light + dark), Source Serif 4 weight 700 + italic, NJSA system anchor + Live · v23.x version stamp + Nº plate-numbers on red-flag cards, motion-preset module (`src/lib/motion/presets.ts`), `LayoutGroup` + `popLayout` on the rail, ink-blue `--color-citation` token, vellum-inset surface hierarchy; PDF page nav (Prev/Next buttons in `PdfReadingControls` + ArrowLeft/Right on the focusable scroll `<section>`); width-calc fix so the page canvas no longer right-clips at fit-width | Complete |
+| 23k | `animate-ping` radar ripple on the LIVE status indicator (Tailwind two-layer pattern, `motion-safe:` gated) | Complete |
 
 ---
 
 ## License
 
-ISC
+MIT

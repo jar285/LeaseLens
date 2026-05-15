@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 import {
   rehydrateConversationMessages,
   rehydrateToolEvents,
@@ -111,6 +115,37 @@ describe('rehydrateToolEvents', () => {
     ]);
 
     expect(events).toEqual([]);
+  });
+
+  // Sprint 25.1 (R14) — orphan tool_result (no matching tool_use) should
+  // be skipped AND surface a console.warn so DB corruption / migration
+  // bugs don't render an incomplete red-flag report silently.
+  it('warns and skips orphan tool_result rows with no matching tool_use', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const events = rehydrateToolEvents([
+      {
+        id: 'm1',
+        role: 'tool',
+        content: JSON.stringify({
+          tool_result: {
+            id: 'never-used',
+            name: 'grade_clause_severity',
+            result: { severity: 'high' },
+          },
+        }),
+      },
+    ]);
+
+    expect(events).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      '[rehydrate] orphan tool_result with no matching tool_use',
+      expect.objectContaining({
+        tool_result_id: 'never-used',
+        tool_name: 'grade_clause_severity',
+      }),
+    );
   });
 
   it('preserves insertion order across multiple tool pairs', () => {

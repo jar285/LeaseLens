@@ -1,4 +1,3 @@
-import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { switchRole } from './actions';
@@ -15,9 +14,10 @@ vi.mock('next/headers', () => {
   };
 });
 
-vi.mock('next/cache', () => ({
-  revalidatePath: vi.fn(),
-}));
+// Sprint 25.1 (R1) — switchRole no longer touches next/cache; the
+// RoleSwitcher client component drives a soft re-render via
+// router.refresh() instead. Mock + assertions for revalidatePath
+// removed accordingly.
 
 describe('switchRole Server Action', () => {
   beforeEach(() => {
@@ -26,7 +26,7 @@ describe('switchRole Server Action', () => {
       'a-very-long-test-secret-that-is-at-least-32-chars';
   });
 
-  it('should set the session cookie and revalidate path for a valid role', async () => {
+  it('should set the session cookie for a valid role', async () => {
     await switchRole('Reviewer');
 
     // Verify cookie store was awaited and set was called
@@ -51,10 +51,6 @@ describe('switchRole Server Action', () => {
       role: 'Reviewer',
       displayName: expectedUser?.display_name,
     });
-
-    // Verify revalidatePath
-    expect(revalidatePath).toHaveBeenCalledWith('/');
-    expect(revalidatePath).toHaveBeenCalledTimes(1);
   });
 
   it('should throw an error for an invalid role', async () => {
@@ -65,6 +61,5 @@ describe('switchRole Server Action', () => {
 
     const cookieStore = await cookies();
     expect(cookieStore.set).not.toHaveBeenCalled();
-    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });

@@ -92,6 +92,21 @@ export function RedFlagReport(): React.JSX.Element {
     previousCountRef.current = gradings.length;
   }, [gradings.length]);
 
+  // Sprint 25.1 (R7) — single timer for the highlight-ring lifecycle.
+  // Rapid citation clicks used to schedule overlapping timeouts; the
+  // earliest would fire and clear the ring while the user was still
+  // looking at the most recent jump. Holding one ref + clear-on-replace
+  // ensures the most recent click owns the full HIGHLIGHT_DURATION_MS.
+  const highlightTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    },
+    [],
+  );
+
   // Sprint 18 §2 — when the scan has started but no clauses have been
   // graded yet, show one skeleton per known clause instead of the static
   // examples list. The examples are only for the truly-idle state (no
@@ -297,13 +312,19 @@ export function RedFlagReport(): React.JSX.Element {
             // "View on page N" button (expanded view). Both surfaces drive
             // the same activeClauseId broadcast + PDF scroll so the ring
             // animation kicks off identically regardless of entry point.
+            //
+            // Sprint 25.1 (R7) — clear any in-flight clear-timer before
+            // scheduling a new one so rapid clicks don't clip each other.
             const jumpToClausePage = (clause: GradingResult) => {
               if (typeof clause.page_number !== 'number') return;
               setActiveClauseId(clause.clause_id);
-              window.setTimeout(
-                () => setActiveClauseId(null),
-                HIGHLIGHT_DURATION_MS,
-              );
+              if (highlightTimerRef.current !== null) {
+                window.clearTimeout(highlightTimerRef.current);
+              }
+              highlightTimerRef.current = window.setTimeout(() => {
+                setActiveClauseId(null);
+                highlightTimerRef.current = null;
+              }, HIGHLIGHT_DURATION_MS);
               pdfViewerRef.current?.scrollToPage(clause.page_number);
             };
 

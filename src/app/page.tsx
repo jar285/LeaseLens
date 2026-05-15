@@ -164,7 +164,17 @@ export default async function Home() {
             aria-hidden="true"
             className="hidden font-mono text-[10px] tracking-[0.18em] text-fg-subtle uppercase md:inline-flex md:items-center md:gap-1.5"
           >
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-success-600" />
+            {/* Sprint 23k — radar-ping ripple on the LIVE indicator.
+                Canonical Tailwind two-layer ping: a static dot with an
+                absolutely-positioned sibling that scales + fades to
+                read as a notification pulse. `motion-safe:` gate so
+                reduced-motion users see only the static dot (the
+                ping is decorative reinforcement of the static label,
+                not the sole signal — accessibility preserved). */}
+            <span className="relative inline-flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-success-600 opacity-75 motion-safe:animate-ping" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-success-600" />
+            </span>
             Live · v23.i
           </span>
           <ThemeToggle />

@@ -251,9 +251,12 @@ describe('ChatMessage — Sprint 18 §5 ScanTimeline role gate', () => {
     expect(screen.getByText('extract_clauses')).toBeInTheDocument();
   });
 
-  it('keeps non-scan tool calls (e.g. draft_negotiation_email) as visible tool cards even for Tenants', () => {
-    // A drafted email is the user's deliverable — it should never be
-    // hidden behind the timeline drawer, in any role.
+  // Sprint 23f Phase 2 — Tenant + draft_negotiation_email routes to
+  // the new NegotiationEmailCard primitive. The drafted email is the
+  // user's deliverable and stays inline regardless of role; the
+  // visual register differs by role (Tenant gets the email card,
+  // Reviewer/Admin gets the raw ToolCard for trace fidelity).
+  it('Tenant + draft_negotiation_email routes to NegotiationEmailCard (Sprint 23f)', () => {
     render(
       withChatStream(
         <ChatMessage
@@ -266,7 +269,12 @@ describe('ChatMessage — Sprint 18 §5 ScanTimeline role gate', () => {
               id: 't-draft',
               name: 'draft_negotiation_email',
               input: { clause_id: 'c1' },
-              result: { subject: 'Lease deposit', body: '…' },
+              result: {
+                email_id: 'email-1',
+                clause_id: 'c1',
+                subject: 'Request to Revise Security Deposit',
+                body: 'Hi [Landlord Name],\n\nThank you for sending…',
+              },
             },
           ]}
         />,
@@ -282,8 +290,83 @@ describe('ChatMessage — Sprint 18 §5 ScanTimeline role gate', () => {
       ),
     );
     expect(screen.getByTestId('scan-timeline')).toBeInTheDocument();
-    // The drafted-email card stays inline.
+    // The drafted-email card renders as the new NegotiationEmailCard,
+    // not the raw ToolCard with the tool name.
+    expect(screen.getByTestId('negotiation-email-card')).toBeInTheDocument();
+    expect(
+      screen.queryByText('draft_negotiation_email'),
+    ).not.toBeInTheDocument();
+    // The card carries the clause label resolved from the prior
+    // grade_clause_severity event (clause_type: 'security_deposit').
+    expect(screen.getByTestId('negotiation-email-card')).toHaveTextContent(
+      /Security deposit/i,
+    );
+  });
+
+  it('Reviewer + draft_negotiation_email keeps the inline ToolCard (Sprint 23f)', () => {
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content=""
+          toolInvocations={[
+            {
+              id: 't-draft',
+              name: 'draft_negotiation_email',
+              input: { clause_id: 'c1' },
+              result: {
+                email_id: 'email-1',
+                clause_id: 'c1',
+                subject: 'Request to Revise',
+                body: '…',
+              },
+            },
+          ]}
+        />,
+        { viewerRole: 'Reviewer' },
+      ),
+    );
+    expect(
+      screen.queryByTestId('negotiation-email-card'),
+    ).not.toBeInTheDocument();
+    // The raw ToolCard renders with the tool name header.
     expect(screen.getByText('draft_negotiation_email')).toBeInTheDocument();
+  });
+
+  it('Tenant + draft_negotiation_email without a matching grading falls back gracefully', () => {
+    // Edge case: the draft_negotiation_email tool result arrives but
+    // no grade_clause_severity event exists in the stream for the
+    // matching clause_id. The card should still render (with a
+    // generic clause label and no SeverityBadge) instead of crashing.
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content=""
+          toolInvocations={[
+            {
+              id: 't-draft',
+              name: 'draft_negotiation_email',
+              input: { clause_id: 'cX' },
+              result: {
+                email_id: 'email-x',
+                clause_id: 'cX',
+                subject: 'Request to Revise',
+                body: 'Body content',
+              },
+            },
+          ]}
+        />,
+        // No initialEvents — the toolEvents stream is empty.
+        { viewerRole: 'Tenant' },
+      ),
+    );
+    const card = screen.getByTestId('negotiation-email-card');
+    expect(card).toBeInTheDocument();
+    // No severity badge when the matching grading is absent.
+    expect(card.querySelector('[data-testid="severity-badge"]')).toBeNull();
   });
 
   // S19.9 — touch-target rule: every follow-up chip must be at least

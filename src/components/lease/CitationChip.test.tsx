@@ -93,4 +93,28 @@ describe('CitationChip', () => {
       expect(span.getAttribute('title')).toBe(LONG);
     });
   });
+
+  // Sprint 23b Phase 5 — hover affordance. When the chip is used as a
+  // button (clickable, jumps to PDF page), it should signal "this is
+  // clickable" with both the existing background-tint hover AND a
+  // text underline. The span variant stays unchanged (no underline).
+  describe('Sprint 23b — hover affordance', () => {
+    it('button variant text receives group-hover underline', () => {
+      render(
+        <CitationChip statuteCitation="NJ Stat 46:8-21.2" onClick={() => {}} />,
+      );
+      // The button carries the `group` modifier so descendants can hook
+      // group-hover. The visible citation text gets group-hover:underline.
+      const btn = screen.getByRole('button', { name: /NJ Stat 46:8-21\.2/ });
+      expect(btn.className).toMatch(/\bgroup\b/);
+      const text = screen.getByText('NJ Stat 46:8-21.2');
+      expect(text.className).toMatch(/group-hover:underline/);
+    });
+
+    it('span variant text does NOT receive any underline class', () => {
+      render(<CitationChip statuteCitation="NJ Stat 46:8-21.2" />);
+      const text = screen.getByText('NJ Stat 46:8-21.2');
+      expect(text.className).not.toMatch(/underline/);
+    });
+  });
 });

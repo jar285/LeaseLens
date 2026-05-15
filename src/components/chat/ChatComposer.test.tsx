@@ -101,12 +101,57 @@ describe('ChatComposer', () => {
     const textarea = screen.getByLabelText(
       'Type a message',
     ) as HTMLTextAreaElement;
-    setScrollHeightGetter(textarea, () => (textarea.value ? 128 : 38));
+    // Sprint 23c Phase 3 — min-height bumped from 38 to 44 to clear the
+    // touch-target floor as a tappable input on mobile + give the
+    // composer more visual weight as a command bar.
+    setScrollHeightGetter(textarea, () => (textarea.value ? 128 : 44));
     fireEvent.change(textarea, { target: { value: 'Please schedule this' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
 
     expect(onSubmit).toHaveBeenCalledWith('Please schedule this');
     expect(textarea).toHaveValue('');
-    expect(textarea).toHaveStyle({ height: '38px', overflowY: 'hidden' });
+    expect(textarea).toHaveStyle({ height: '44px', overflowY: 'hidden' });
+  });
+
+  // Sprint 23c Phase 3 — command-bar polish: bigger touch target,
+  // refreshed placeholder copy, visible "/" slash-command hint kbd at
+  // idle (no actual slash-command behavior — visual hint only).
+  describe('Sprint 23c — command-bar polish', () => {
+    it('textarea min-height is 44px (was 38) — canonical min-h-11', () => {
+      render(<ChatComposer isLocked={false} onSubmit={vi.fn()} />);
+      const textarea = screen.getByLabelText('Type a message');
+      expect(textarea.className).toMatch(/\bmin-h-11\b/);
+      expect(textarea.className).not.toMatch(/min-h-\[38px\]/);
+    });
+
+    it('placeholder mentions clause + rewrite + slash-actions', () => {
+      render(<ChatComposer isLocked={false} onSubmit={vi.fn()} />);
+      const textarea = screen.getByLabelText(
+        'Type a message',
+      ) as HTMLTextAreaElement;
+      expect(textarea.placeholder).toMatch(/clause/i);
+      expect(textarea.placeholder).toMatch(/rewrite/i);
+      expect(textarea.placeholder).toMatch(/\/ for actions/i);
+    });
+
+    it('renders a "/" slash-command hint kbd that is visible when the textarea is empty', () => {
+      render(<ChatComposer isLocked={false} onSubmit={vi.fn()} />);
+      const hint = screen.getByTestId('composer-slash-hint');
+      expect(hint.tagName).toBe('KBD');
+      expect(hint).toHaveTextContent('/');
+      // Visible when empty — the wrapper does not carry the hidden modifier.
+      expect(hint.className).not.toMatch(/\bopacity-0\b/);
+    });
+
+    it('hides the slash hint once the user types in the textarea', () => {
+      render(<ChatComposer isLocked={false} onSubmit={vi.fn()} />);
+      const textarea = screen.getByLabelText('Type a message');
+      fireEvent.change(textarea, { target: { value: 'hello' } });
+      // Either the hint is unmounted or carries the hidden treatment.
+      const hint = screen.queryByTestId('composer-slash-hint');
+      if (hint) {
+        expect(hint.className).toMatch(/\bopacity-0\b/);
+      }
+    });
   });
 });

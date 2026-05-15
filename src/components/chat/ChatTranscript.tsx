@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { SyntheticAssistantMessage } from '@/components/lease/scan-narrative';
+import { UploadedLeaseCard } from '@/components/lease/UploadedLeaseCard';
 import { useScanNarrative } from '@/components/lease/use-scan-narrative';
 import { FOLLOW_UP_PROMPTS } from '@/lib/chat/follow-up-prompts';
 import { ChatEmptyState } from './ChatEmptyState';
 import { ChatMessage, type ChatMessageProps } from './ChatMessage';
+import { useChatStream } from './ChatStreamContext';
 
 export interface ChatTranscriptProps {
   messages: ChatMessageProps[];
@@ -37,12 +39,21 @@ function modelProducedClosingReply(messages: ChatMessageProps[]): boolean {
   return (last.content?.trim().length ?? 0) >= SUBSTANTIVE_REPLY_MIN_CHARS;
 }
 
+// Sprint 23c Phase 2 — the synthetic-intro source tag is carried through
+// the merge so ChatTranscript can route the intro row to UploadedLeaseCard
+// (a dedicated visual card) instead of the generic ChatMessage path. The
+// summary still routes to ChatMessage as before.
+type MergedMessage = ChatMessageProps & {
+  synthetic?: true;
+  source?: SyntheticAssistantMessage['source'];
+};
+
 function mergeSyntheticMessages(
   real: ChatMessageProps[],
   intro: SyntheticAssistantMessage | null,
   summary: SyntheticAssistantMessage | null,
-): Array<ChatMessageProps & { synthetic?: true }> {
-  const merged: Array<ChatMessageProps & { synthetic?: true }> = [];
+): MergedMessage[] {
+  const merged: MergedMessage[] = [];
   if (intro) {
     merged.push({
       id: intro.id,
@@ -50,6 +61,7 @@ function mergeSyntheticMessages(
       content: intro.content,
       followUpPrompts: intro.followUpPrompts,
       synthetic: true,
+      source: intro.source,
     });
   }
   merged.push(...real);
@@ -60,6 +72,7 @@ function mergeSyntheticMessages(
       content: summary.content,
       followUpPrompts: summary.followUpPrompts,
       synthetic: true,
+      source: summary.source,
     });
   }
   return merged;
@@ -75,6 +88,7 @@ export function ChatTranscript({
   const pinnedToBottom = useRef(true);
 
   const { intro, summary } = useScanNarrative();
+  const { activeLease } = useChatStream();
   // S20.7 + S20.8 — when the model has already produced a substantive
   // closing assistant message, the synthetic summary is at best
   // redundant and at worst contradicts the model (e.g. model writes a
@@ -179,22 +193,45 @@ export function ChatTranscript({
     >
       <div className="mx-auto w-full max-w-3xl shrink-0">
         <ul className="m-0 list-none space-y-1 p-0 pb-4">
-          {merged.map((msg, idx) => (
-            <ChatMessage
-              key={msg.id}
-              {...msg}
-              onSelectPrompt={onSelectPrompt}
-              followUpPrompts={
-                msg.followUpPrompts ??
-                (!isStreaming && idx === lastIndex && lastIsRealAssistant
-                  ? FOLLOW_UP_PROMPTS
-                  : undefined)
-              }
-              isStreaming={
-                isStreaming && idx === lastIndex && lastIsRealAssistant
-              }
-            />
-          ))}
+          {merged.map((msg, idx) => {
+            // Sprint 23c Phase 2 — route the synthetic intro through the
+            // UploadedLeaseCard surface; everything else (real messages +
+            // synthetic summary) still goes through ChatMessage.
+            if (
+              msg.synthetic &&
+              msg.source === 'intro' &&
+              activeLease &&
+              msg.followUpPrompts
+            ) {
+              return (
+                <li key={msg.id}>
+                  <UploadedLeaseCard
+                    filename={activeLease.filename}
+                    pageCount={activeLease.page_count}
+                    clauseCount={activeLease.clause_count}
+                    prompts={msg.followUpPrompts}
+                    onSelectPrompt={(prompt) => onSelectPrompt?.(prompt)}
+                  />
+                </li>
+              );
+            }
+            return (
+              <ChatMessage
+                key={msg.id}
+                {...msg}
+                onSelectPrompt={onSelectPrompt}
+                followUpPrompts={
+                  msg.followUpPrompts ??
+                  (!isStreaming && idx === lastIndex && lastIsRealAssistant
+                    ? FOLLOW_UP_PROMPTS
+                    : undefined)
+                }
+                isStreaming={
+                  isStreaming && idx === lastIndex && lastIsRealAssistant
+                }
+              />
+            );
+          })}
           <div data-testid="transcript-bottom" className="h-1" />
         </ul>
       </div>

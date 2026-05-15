@@ -5,7 +5,6 @@ import { redirect } from 'next/navigation';
 import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
 import { ThemeToggle } from '@/components/auth/ThemeToggle';
 import { CockpitDashboard } from '@/components/cockpit/CockpitDashboard';
-import { WorkspaceHeader } from '@/components/cockpit/WorkspaceHeader';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
@@ -26,10 +25,7 @@ import {
   decodeWorkspace,
   WORKSPACE_COOKIE_NAME,
 } from '@/lib/workspaces/cookie';
-import {
-  getActiveWorkspace,
-  listVisitorBrands,
-} from '@/lib/workspaces/queries';
+import { getActiveWorkspace } from '@/lib/workspaces/queries';
 
 export const runtime = 'nodejs';
 
@@ -68,14 +64,6 @@ export default async function CockpitPage() {
     };
   }
 
-  const otherBrands = workspacePayload
-    ? listVisitorBrands(
-        db,
-        workspacePayload.created_workspace_ids,
-        workspace.id,
-      )
-    : [];
-
   const isAdmin = role === 'Admin';
   const actorFilter = isAdmin ? undefined : userId;
 
@@ -112,7 +100,7 @@ export default async function CockpitPage() {
         scroll. The chat page header is pinned by its h-dvh + flex-col
         layout; cockpit uses natural document scroll and needs sticky.
       */}
-      <header className="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
+      <header className="sticky top-0 z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
         <div className="flex items-center gap-4">
           <Link
             href="/"
@@ -130,7 +118,6 @@ export default async function CockpitPage() {
             </span>
             Operator Cockpit
           </span>
-          <WorkspaceHeader workspace={workspace} otherBrands={otherBrands} />
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />

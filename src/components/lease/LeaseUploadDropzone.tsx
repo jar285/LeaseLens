@@ -33,7 +33,14 @@ export interface UploadResult {
 }
 
 export interface LeaseUploadDropzoneProps {
-  onUploaded: (result: UploadResult) => void;
+  /**
+   * Sprint 23b Phase 6.2 — the File object is forwarded alongside the
+   * parsed UploadResult so the parent can build a Blob URL for the
+   * PDF viewer without re-reading `<input>.files`. The earlier DOM-
+   * sniff pattern only worked for the click-to-upload path and broke
+   * silently on drag-drop (the dropzone bypasses the <input> element).
+   */
+  onUploaded: (result: UploadResult, file: File) => void;
   onError?: (message: string) => void;
   conversationId?: string | null;
 }
@@ -109,7 +116,7 @@ export function LeaseUploadDropzone({
       setStatusMsg(
         `${ok.page_count} page${pluralPages} · ${ok.clause_count} clause${pluralClauses}`,
       );
-      onUploaded(ok);
+      onUploaded(ok, file);
     } catch (err) {
       reportError(err instanceof Error ? err.message : 'Upload failed');
     }
@@ -165,7 +172,7 @@ export function LeaseUploadDropzone({
           : 'border-2 border-dashed border-neutral-200 bg-surface-card hover:border-accent-300 hover:bg-surface-muted dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-accent-500/40 dark:hover:bg-neutral-800/60';
 
   const iconWrapperClass = classNames(
-    'flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl transition-colors duration-200',
+    'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-colors duration-200',
     isDragOver &&
       'bg-accent-100 text-accent-600 dark:bg-accent-500/25 dark:text-accent-200',
     isUploading &&
@@ -201,7 +208,7 @@ export function LeaseUploadDropzone({
       onDrop={onDrop}
       aria-label="Lease PDF upload area"
       className={classNames(
-        'group relative flex w-full flex-1 flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl p-8 text-center transition-all duration-200',
+        'group relative flex w-full flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl p-6 text-center transition-all duration-200',
         borderStyle,
       )}
     >
@@ -214,7 +221,7 @@ export function LeaseUploadDropzone({
           // re-mount the animation each time isDragOver flips on
           key={isDragOver ? 'over' : 'rest'}
           animate={isDragOver ? { scale: [1, 1.08, 1] } : { scale: 1 }}
-          transition={{ duration: 0.4, ease: 'easeOut' }}
+          transition={{ duration: 0.35, ease: 'easeOut' }}
         >
           {iconNode}
         </motion.div>
@@ -267,16 +274,17 @@ export function LeaseUploadDropzone({
       ) : null}
 
       {/*
-        Hints — idle state only. Sprint 17 §5.2 added the privacy + legal
+        Hints — idle state only. Sprint 17 §5.2 added privacy + legal
         disclaimer lines so a tenant pausing before uploading a real
-        document sees what LeaseLens does (and doesn't) do.
+        document sees what LeaseLens does (and doesn't) do. Sprint 23b
+        Phase 1 collapsed the three-line stack into one footnote so the
+        dropzone reads as a document tray, not a landing-page hero.
       */}
       {status === 'idle' ? (
-        <div className="space-y-1 text-[11px] leading-tight text-fg-subtle">
-          <p>PDF up to 10 MB · text-layer required</p>
-          <p>Your lease text stays in this session.</p>
-          <p>Informational analysis, not legal advice.</p>
-        </div>
+        <p className="text-[11px] leading-tight text-fg-subtle">
+          PDF up to 10 MB · text-layer required · informational analysis only,
+          not legal advice
+        </p>
       ) : null}
 
       <input

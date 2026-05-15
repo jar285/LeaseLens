@@ -43,7 +43,7 @@ export function RoleSwitcher({ currentRole }: { currentRole: Role }) {
       data-testid="role-switcher"
       role="group"
       aria-label="Switch role"
-      className="inline-flex items-center gap-0.5 rounded-md border border-neutral-200 bg-white p-0.5 dark:border-neutral-800 dark:bg-neutral-900"
+      className="inline-flex items-center gap-0.5 rounded-md border border-neutral-200 bg-surface-card p-0.5 dark:border-neutral-800 dark:bg-neutral-900"
     >
       {ROLES.map((role) => {
         const isActive = currentRole === role;

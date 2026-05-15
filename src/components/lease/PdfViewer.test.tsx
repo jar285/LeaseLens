@@ -8,7 +8,7 @@
 // useImperativeHandle inside the component) — RedFlagReport reads it
 // from there.
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { type ReactNode, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -104,10 +104,14 @@ describe('PdfViewerClient', () => {
     expect(header).toHaveTextContent(/12 clauses/i);
   });
 
-  it('exposes a scroll-area container with overflow-y-auto for independent scrolling', () => {
+  it('exposes a scroll-area container with overflow-auto for independent scrolling', () => {
+    // Sprint 23h root-cause fix — section was changed from
+    // `overflow-y-auto` to `overflow-auto` so the user can pan
+    // horizontally when zoomed past fit-width. Vertical scroll
+    // behaviour is unchanged.
     render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
     const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
-    expect(scrollArea.className).toMatch(/overflow-y-auto/);
+    expect(scrollArea.className).toMatch(/\boverflow-auto\b/);
     expect(scrollArea.className).toMatch(/min-h-0/);
     expect(scrollArea.className).toMatch(/flex-1/);
   });
@@ -119,44 +123,172 @@ describe('PdfViewerClient', () => {
     );
   });
 
-  // S20.6 — header cleanup. The inline pane is a preview surface, not a
-  // reading surface; reading controls (zoom / fit / page indicator)
-  // moved into Focus mode where they have room. The inline header
-  // keeps only file metadata + Expand + Parsed pill.
-  describe('S20.6 — inline header is preview-density (no reading controls)', () => {
-    it('does not render the zoom buttons in the inline header', () => {
-      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
-      expect(screen.queryByLabelText(/zoom in/i)).not.toBeInTheDocument();
-      expect(screen.queryByLabelText(/zoom out/i)).not.toBeInTheDocument();
+  // Sprint 23b Phase 3 — two-row dock header. Row 1 = filename + parsed
+  // pill; row 2 = page/clause meta + reading controls (compact) + expand
+  // button. Supersedes the S20.6 "no reading controls in inline" decision:
+  // compact mode lets the controls fit inside the inline pane without
+  // crowding the filename row.
+  describe('Sprint 23b — two-row dock header', () => {
+    it('row 1 carries the filename, the parsed/failed pill, and the Expand button', () => {
+      render(
+        wrap(
+          <PdfViewerClient
+            pdfUrl="/sample.pdf"
+            filename="tenant-lease.pdf"
+            pageCount={3}
+            clauseCount={12}
+          />,
+        ),
+      );
+      const row1 = screen.getByTestId('pdf-viewer-header-row1');
+      expect(row1).toHaveTextContent('tenant-lease.pdf');
+      // The Parsed pill renders when numPages > 0 (3 in this test).
+      expect(row1).toHaveTextContent(/parsed/i);
+      // Sprint 23b Phase 6.1 — Expand moved from row 2 to row 1 so the
+      // affordance sits next to the Parsed pill and row 2 has room for
+      // the metadata + reading controls without overflow.
+      const expand = screen.getByTestId('pdf-viewer-expand');
+      expect(row1.contains(expand)).toBe(true);
     });
 
-    it('does not render the fit-width toggle in the inline header', () => {
-      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
-      expect(screen.queryByLabelText(/fit.*width/i)).not.toBeInTheDocument();
+    it('row 2 carries the page/clause meta, uses surface-sunken, and flex-wraps', () => {
+      render(
+        wrap(
+          <PdfViewerClient
+            pdfUrl="/sample.pdf"
+            filename="tenant-lease.pdf"
+            pageCount={3}
+            clauseCount={12}
+          />,
+        ),
+      );
+      const row2 = screen.getByTestId('pdf-viewer-header-row2');
+      expect(row2).toHaveTextContent(/3 pages/i);
+      expect(row2).toHaveTextContent(/12 clauses/i);
+      expect(row2.className).toMatch(/\bbg-surface-sunken\b/);
+      // Sprint 23b Phase 6.1 — flex-wrap so at very narrow pane widths
+      // the metadata + reading controls stack instead of overlapping.
+      expect(row2.className).toMatch(/\bflex-wrap\b/);
     });
 
-    it('does not render the page indicator in the inline header', () => {
-      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
-      expect(
-        screen.queryByTestId('pdf-page-indicator'),
-      ).not.toBeInTheDocument();
+    it('Expand button is NOT in row 2 (moved to row 1 in Phase 6.1)', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={2} />));
+      const row2 = screen.getByTestId('pdf-viewer-header-row2');
+      const expand = screen.getByTestId('pdf-viewer-expand');
+      expect(row2.contains(expand)).toBe(false);
     });
 
-    it('still renders the Expand button as the gateway to Focus mode', () => {
-      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
-      expect(screen.getByTestId('pdf-viewer-expand')).toBeInTheDocument();
+    it('inline mode renders compact reading controls (zoom + fit + Page N)', () => {
+      // Supersedes the S20.6 "inline = no controls" decision. Compact mode
+      // hides the visible "Fit width" text and drops the "/ Total" suffix,
+      // so the controls fit beside the metadata at narrow pane widths.
+      render(
+        wrap(
+          <PdfViewerClient
+            pdfUrl="/sample.pdf"
+            filename="tenant-lease.pdf"
+            pageCount={3}
+            clauseCount={12}
+          />,
+        ),
+      );
+      expect(screen.getByLabelText(/zoom in/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/zoom out/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/fit.*width/i)).toBeInTheDocument();
+      // Compact form — no visible "Fit width" text.
+      expect(screen.queryByText(/^Fit width$/)).not.toBeInTheDocument();
+      const indicator = screen.getByTestId('pdf-page-indicator');
+      // Compact form drops "/ Total".
+      expect(indicator.textContent).not.toMatch(/\/\s*3/);
     });
 
-    it('renders the reading controls inside Focus mode (hideFocusToggle=true variant)', () => {
-      // The inner PdfViewer rendered inside the focus dialog skips the
-      // Expand button (hideFocusToggle=true) and gains the reading
-      // controls — the only surface where they belong.
+    it('focus mode (hideFocusToggle) renders full-form reading controls', () => {
       render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" hideFocusToggle />));
       expect(screen.getByLabelText(/zoom in/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/zoom out/i)).toBeInTheDocument();
       expect(screen.getByLabelText(/fit.*width/i)).toBeInTheDocument();
+      // Full form — visible "Fit width" text node is in the DOM (the
+      // sm:inline class is media-query-driven; jsdom keeps the node).
+      expect(screen.getByText(/^Fit width$/)).toBeInTheDocument();
       expect(screen.getByTestId('pdf-page-indicator')).toBeInTheDocument();
       expect(screen.queryByTestId('pdf-viewer-expand')).not.toBeInTheDocument();
+    });
+  });
+
+  // Sprint 23h — page navigation. After the 23g motion.div + drag="x"
+  // experiment broke vertical scrolling on macOS trackpads + touch
+  // (Framer issues #185/#429/#1341), horizontal page navigation is now
+  // delivered via Prev/Next buttons in the dock header + ArrowLeft /
+  // ArrowRight keyboard shortcuts on the focusable scroll area. Both
+  // paths share the imperative `scrollToPage` -> `scrollIntoView` flow
+  // already used by CitationChip and red-flag jump-to-page.
+  describe('Sprint 23h — page navigation (buttons + keyboard)', () => {
+    it('renders Prev / Next buttons next to the page indicator', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      expect(screen.getByTestId('pdf-prev-page')).toBeInTheDocument();
+      expect(screen.getByTestId('pdf-next-page')).toBeInTheDocument();
+    });
+
+    it('disables Prev at page 1 and enables Next when there are more pages', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      // IntersectionObserver does not fire in jsdom; effectiveCurrentPage
+      // falls back to 1, so Prev is disabled and Next is enabled.
+      expect(screen.getByTestId('pdf-prev-page')).toBeDisabled();
+      expect(screen.getByTestId('pdf-next-page')).not.toBeDisabled();
+    });
+
+    it('clicking Next scrolls to page 2 (calls scrollIntoView on its page ref)', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      fireEvent.click(screen.getByTestId('pdf-next-page'));
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+
+    it('ArrowRight on the focused scroll area advances to the next page', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
+      fireEvent.keyDown(scrollArea, { key: 'ArrowRight' });
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+
+    it('ArrowLeft at page 1 is a no-op (no scrollIntoView call)', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
+      fireEvent.keyDown(scrollArea, { key: 'ArrowLeft' });
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('ArrowUp / ArrowDown are NOT hijacked (browser-native scroll preserved)', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
+      fireEvent.keyDown(scrollArea, { key: 'ArrowDown' });
+      fireEvent.keyDown(scrollArea, { key: 'ArrowUp' });
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('scroll area is focusable (tabIndex=0) so keyboard navigation has a target', () => {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
+      const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
+      expect(scrollArea.getAttribute('tabindex')).toBe('0');
     });
   });
 });

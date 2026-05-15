@@ -76,16 +76,26 @@ function ShellInner({
   const { pushToolEvent, setActiveLease: setContextLease } = useChatStream();
   const [activeLease, setActiveLease] = useState<ActiveLease | null>(null);
 
-  function handleUploaded(result: UploadResult, file?: File): void {
+  function handleUploaded(result: UploadResult, file: File): void {
     // Hold the PDF as a Blob URL for the viewer. Per spec H4 the binary
     // is intentionally not persisted — on refresh the user re-uploads.
-    const pdfUrl = file ? URL.createObjectURL(file) : 'blob:placeholder';
-    const filename = file?.name ?? 'Lease document';
+    // Sprint 23b Phase 6.2 — the File is now forwarded by the dropzone
+    // explicitly (both click and drag paths), so the prior 'blob:placeholder'
+    // fallback that left the viewer in an error state on drag-drop is gone.
+    const pdfUrl = URL.createObjectURL(file);
+    const filename = file.name;
     setActiveLease({ ...result, pdfUrl, filename });
     // S19.3 — also surface the narrative-relevant fields on the chat
     // context so useScanNarrative / ChatEmptyState can render the
     // synthetic "Lease uploaded" intro and the post-scan summary.
-    setContextLease({ lease_id: result.lease_id, filename });
+    // Sprint 23c Phase 2 — also forward the page/clause counts so the
+    // new UploadedLeaseCard can render the meta line.
+    setContextLease({
+      lease_id: result.lease_id,
+      filename,
+      page_count: result.page_count,
+      clause_count: result.clause_count,
+    });
   }
 
   function handleToolEvent(event: ChatToolEvent): void {
@@ -168,23 +178,15 @@ function UploadColumn({
   onUploaded,
 }: {
   conversationId: string | null;
-  onUploaded: (result: UploadResult, file?: File) => void;
+  onUploaded: (result: UploadResult, file: File) => void;
 }): React.JSX.Element {
-  // Wrap LeaseUploadDropzone so we can capture the File object alongside
-  // the server response — the dropzone passes only the parsed UploadResult.
-  // We sniff the most-recently-changed file from the input element.
-  function handleUploaded(result: UploadResult): void {
-    const input = document.querySelector<HTMLInputElement>(
-      '[data-testid="lease-upload-input"]',
-    );
-    const file = input?.files?.[0];
-    onUploaded(result, file ?? undefined);
-  }
-
+  // Sprint 23b Phase 6.2 — straight forward: the dropzone now passes the
+  // File as the second arg to its onUploaded callback (for both click
+  // and drag paths), so we don't need to sniff it from the DOM input.
   return (
     <div className="flex h-full min-h-0 flex-col items-stretch gap-3 p-6">
       <LeaseUploadDropzone
-        onUploaded={handleUploaded}
+        onUploaded={onUploaded}
         conversationId={conversationId}
       />
     </div>

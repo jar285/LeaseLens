@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
 import { ThemeToggle } from '@/components/auth/ThemeToggle';
 import { CockpitDashboard } from '@/components/cockpit/CockpitDashboard';
+import { SampleWorkspaceSwitcher } from '@/components/cockpit/SampleWorkspaceSwitcher';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
@@ -13,9 +14,12 @@ import {
   getLatestLeaseGradingReport,
 } from '@/lib/cockpit/eval-reports';
 import {
+  getLeasePipelineStats,
+  getSeverityDistribution,
   getTodaySpend,
+  listPerToolStats,
   listRecentApprovals,
-  listRecentAuditRows,
+  listRecentToolCalls,
   listScheduledItems,
 } from '@/lib/cockpit/queries';
 import type { CockpitInitialData } from '@/lib/cockpit/types';
@@ -67,8 +71,15 @@ export default async function CockpitPage() {
   const isAdmin = role === 'Admin';
   const actorFilter = isAdmin ? undefined : userId;
 
+  // Sprint 24 — `since` for the 24h-windowed KPIs is computed once at
+  // render so the per-tool stats + lease-pipeline panels share the same
+  // window snapshot (avoids the rare case where the two queries fall
+  // on opposite sides of a second boundary).
+  const TWENTY_FOUR_HOURS_S = 86_400;
+  const since = Math.floor(Date.now() / 1000) - TWENTY_FOUR_HOURS_S;
+
   const initialData: CockpitInitialData = {
-    recentAudit: listRecentAuditRows(db, {
+    recentAudit: listRecentToolCalls(db, {
       workspaceId: workspace.id,
       actorUserId: actorFilter,
       limit: 50,
@@ -88,6 +99,19 @@ export default async function CockpitPage() {
     evalHealth: getLatestEvalReport(),
     leaseGrading: getLatestLeaseGradingReport(),
     spend: getTodaySpend(db),
+    // Sprint 24 — three new agent-observability KPIs.
+    perToolStats: listPerToolStats(db, {
+      workspaceId: workspace.id,
+      since,
+      limit: 20,
+    }),
+    leasePipeline: getLeasePipelineStats(db, {
+      workspaceId: workspace.id,
+      since,
+    }),
+    severityDistribution: getSeverityDistribution(db, {
+      workspaceId: workspace.id,
+    }),
     role,
     userId,
   };
@@ -125,10 +149,20 @@ export default async function CockpitPage() {
         </div>
       </header>
       <div className="mx-auto max-w-6xl px-6 py-8">
-        <p className="mb-6 text-sm text-fg-muted">
-          What your team sees while the AI works on behalf of{' '}
-          <span className="font-medium text-fg-default">{workspace.name}</span>.
-        </p>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-fg-muted">
+            What your team sees while the AI works on behalf of{' '}
+            <span className="font-medium text-fg-default">
+              {workspace.name}
+            </span>
+            .
+          </p>
+          {/* Sprint 24.3 — sample-workspace switcher. Renders only when
+              the cockpit is currently rendering one of the two seeded
+              sample workspaces; absent on uploaded workspaces where the
+              "other sample" comparison isn't the right affordance. */}
+          <SampleWorkspaceSwitcher currentWorkspaceId={workspace.id} />
+        </div>
         <CockpitDashboard initialData={initialData} />
       </div>
     </>

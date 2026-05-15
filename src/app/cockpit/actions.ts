@@ -9,17 +9,23 @@ import {
   getLatestLeaseGradingReport,
 } from '@/lib/cockpit/eval-reports';
 import {
+  getLeasePipelineStats,
+  getSeverityDistribution,
   getTodaySpend,
+  listPerToolStats,
   listRecentApprovals,
-  listRecentAuditRows,
+  listRecentToolCalls,
   listScheduledItems,
 } from '@/lib/cockpit/queries';
 import type {
   ApprovalRecord,
-  CockpitAuditRow,
+  CockpitToolCallRow,
   EvalHealthSnapshot,
   LeaseGradingSnapshot,
+  LeasePipelineStats,
+  PerToolStat,
   ScheduledItem,
+  SeverityDistribution,
   SpendSnapshot,
 } from '@/lib/cockpit/types';
 import { db } from '@/lib/db';
@@ -97,10 +103,14 @@ function requireAdmin(session: SessionResult): SessionResult {
 export async function refreshAuditFeed(opts: {
   since?: number;
   limit?: number;
-}): Promise<{ entries: CockpitAuditRow[]; nextSince: number | null }> {
+}): Promise<{ entries: CockpitToolCallRow[]; nextSince: number | null }> {
+  // Sprint 24.5 — `refreshAuditFeed` now returns the unified tool-call
+  // feed (every invocation, joined to audit_log for the Undo affordance)
+  // so the cockpit panel reflects the agent's real activity, not just
+  // its mutations.
   const session = requireOperator(await resolveSession());
   const limit = opts.limit ?? 50;
-  const entries = listRecentAuditRows(db, {
+  const entries = listRecentToolCalls(db, {
     workspaceId: session.workspaceId,
     actorUserId: session.role === 'Admin' ? undefined : session.userId,
     limit,
@@ -151,5 +161,52 @@ export async function refreshEvalHealth(): Promise<{
   return {
     snapshot: getLatestEvalReport(),
     leaseGrading: getLatestLeaseGradingReport(),
+  };
+}
+
+const TWENTY_FOUR_HOURS_S = 86_400;
+
+/*
+ * Sprint 24 — three new operator-observability actions. All gated by
+ * requireOperator (Reviewer + Admin only). All workspace-scoped via the
+ * cookie. The `since` window is computed at the action boundary so a
+ * single render fixes one timestamp for all queries that share it.
+ */
+
+export async function refreshPerToolStats(): Promise<{
+  stats: PerToolStat[];
+}> {
+  const session = requireOperator(await resolveSession());
+  const since = Math.floor(Date.now() / 1000) - TWENTY_FOUR_HOURS_S;
+  return {
+    stats: listPerToolStats(db, {
+      workspaceId: session.workspaceId,
+      since,
+      limit: 20,
+    }),
+  };
+}
+
+export async function refreshLeasePipeline(): Promise<{
+  stats: LeasePipelineStats;
+}> {
+  const session = requireOperator(await resolveSession());
+  const since = Math.floor(Date.now() / 1000) - TWENTY_FOUR_HOURS_S;
+  return {
+    stats: getLeasePipelineStats(db, {
+      workspaceId: session.workspaceId,
+      since,
+    }),
+  };
+}
+
+export async function refreshSeverityDistribution(): Promise<{
+  distribution: SeverityDistribution;
+}> {
+  const session = requireOperator(await resolveSession());
+  return {
+    distribution: getSeverityDistribution(db, {
+      workspaceId: session.workspaceId,
+    }),
   };
 }

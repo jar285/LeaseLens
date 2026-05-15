@@ -563,8 +563,14 @@ export async function POST(req: NextRequest) {
             );
           }
 
-          // Record spend for ceiling tracking (demo mode only)
-          if (env.LEASELENS_DEMO_MODE && tokensIn > 0) {
+          // Sprint 24 hotfix — always record spend so the cockpit's
+          // SpendPanel reflects reality. Previously gated by
+          // LEASELENS_DEMO_MODE because the writer was conflated with
+          // ceiling-enforcement; the two concerns are now separated:
+          // `recordSpend` always tracks for visibility, and
+          // `isSpendCeilingExceeded` still gates *enforcement* on
+          // DEMO_MODE upstream.
+          if (tokensIn > 0) {
             recordSpend(tokensIn, tokensOut);
           }
         } catch (error) {

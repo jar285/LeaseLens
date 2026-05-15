@@ -35,20 +35,29 @@ export interface PdfViewerHandle {
 /**
  * S19.3 — minimal lease reference threaded through the context so
  * downstream consumers (useScanNarrative, ChatEmptyState) can decide
- * whether to render lease-aware affordances. The full lease object
- * (with pdfUrl etc.) stays local to LeaseLensWorkspaceShell; only the
- * narrative-relevant fields surface here to avoid bloating the context.
+ * whether to render lease-aware affordances.
  *
  * Sprint 23c Phase 2 — `page_count` and `clause_count` added (optional)
  * so the new UploadedLeaseCard can render the "N pages · M clauses"
  * meta line. They're optional to preserve backward compatibility with
  * test fixtures that pre-date the field.
+ *
+ * Sprint 24.7 — `pdfUrl` moved here from a parallel `ActiveLease` shape
+ * that lived in LeaseLensWorkspaceShell-local state. Reasoning: that
+ * dual-state setup was the root cause of the "New conversation leaves
+ * lease attached" bug — `handleNewConversation` could only see the
+ * context shape, so clearing it never released the gating local state.
+ * Collapsing to a single source of truth makes the reset one call.
+ * The original "no bloat" rationale guarded against threading binary
+ * PDF data through the context; a Blob URL string is ~50 bytes, not
+ * the concern that comment was about.
  */
 export interface ActiveLeaseRef {
   lease_id: string;
   filename: string;
   page_count?: number;
   clause_count?: number;
+  pdfUrl?: string;
 }
 
 interface ChatStreamContextValue {
@@ -80,9 +89,31 @@ interface ChatStreamContextValue {
    * (or null when none is active). Drives the synthetic
    * "Lease uploaded" intro message and replaces the generic empty
    * state once a lease is present.
+   *
+   * Sprint 24.7 — also gates the dropzone-vs-PdfViewer swap in
+   * LeaseLensWorkspaceShell (collapsed from a parallel local state).
    */
   activeLease: ActiveLeaseRef | null;
   setActiveLease: (lease: ActiveLeaseRef | null) => void;
+  /**
+   * Sprint 24.7 — full-reset action used by ChatUI.handleNewConversation
+   * to clear lease + tool events + active clause in one shot. Revokes
+   * the previous Blob URL (if present) before clearing so rapid
+   * New → Upload → New cycles don't leak. Intended for runtime user
+   * actions; persistent-lease test setups should construct a fresh
+   * provider tree rather than calling reset.
+   */
+  resetConversation: () => void;
+  /**
+   * Sprint 24.7 — paired with `resetConversation` to power the
+   * "Continue previous" undo affordance. ChatUI stashes the
+   * pre-reset { activeLease, toolEvents } snapshot and replays it
+   * here so undo is a true undo, not a chat-only undo.
+   */
+  restoreConversation: (snapshot: {
+    activeLease: ActiveLeaseRef | null;
+    toolEvents: ToolEvent[];
+  }) => void;
 }
 
 const ChatStreamContext = createContext<ChatStreamContextValue | null>(null);
@@ -117,6 +148,39 @@ export function ChatStreamProvider({
     setToolEvents((prev) => [...prev, event]);
   }, []);
 
+  // Sprint 24.7 — full reset for ChatUI's "New conversation" button.
+  //
+  // Initially this also revoked the active Blob URL, but that broke the
+  // "Continue previous" undo: ChatUI stashes the same `activeLease`
+  // object reference (with pdfUrl) before calling reset, so revoking
+  // here left the stash holding a dead URL — PdfViewer crashed with
+  // "Unexpected server response (0)" when undo restored the lease.
+  //
+  // Revocation now lives at the *commit boundary* in ChatUI: when the
+  // user sends a message in the new thread (or stashes a different
+  // lease over an existing one), the stashed pdfUrl is provably
+  // unreferenced and safe to revoke. See handleSubmit /
+  // handleNewConversation in ChatUI.tsx.
+  const resetConversation = useCallback(() => {
+    setToolEvents([]);
+    setActiveClauseId(null);
+    setActiveLease(null);
+  }, []);
+
+  // Sprint 24.7 — paired with the undo stash in ChatUI. Replays a
+  // pre-reset snapshot atomically so "Continue previous" feels like a
+  // real undo (chat + lease + red-flag cards all return).
+  const restoreConversation = useCallback(
+    (snapshot: {
+      activeLease: ActiveLeaseRef | null;
+      toolEvents: ToolEvent[];
+    }) => {
+      setActiveLease(snapshot.activeLease);
+      setToolEvents(snapshot.toolEvents);
+    },
+    [],
+  );
+
   const value = useMemo(
     () => ({
       toolEvents,
@@ -127,8 +191,18 @@ export function ChatStreamProvider({
       viewerRole,
       activeLease,
       setActiveLease,
+      resetConversation,
+      restoreConversation,
     }),
-    [toolEvents, pushToolEvent, activeClauseId, viewerRole, activeLease],
+    [
+      toolEvents,
+      pushToolEvent,
+      activeClauseId,
+      viewerRole,
+      activeLease,
+      resetConversation,
+      restoreConversation,
+    ],
   );
 
   return (

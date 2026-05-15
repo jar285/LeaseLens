@@ -3,12 +3,28 @@
 import { AlertCircle, RotateCcw, SquarePen } from 'lucide-react';
 import { useState } from 'react';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
+import { getPdfBinaryRepository } from '@/lib/lease/pdf-binary-repository';
 import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps, ToolInvocation } from './ChatMessage';
+import {
+  type ActiveLeaseRef,
+  type ToolEvent,
+  useChatStream,
+} from './ChatStreamContext';
 import { ChatTranscript } from './ChatTranscript';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to generate response';
+}
+
+// Sprint 25 — best-effort cache eviction at the commit boundary. Pairs
+// with the existing `URL.revokeObjectURL` call so the cached PDF bytes
+// don't outlive the Blob URL the app could use to render them. Fire-
+// and-forget; failures are non-actionable for the user.
+function evictCachedPdf(leaseId: string): void {
+  void getPdfBinaryRepository()
+    .delete(leaseId)
+    .catch(() => {});
 }
 
 export interface ChatToolEvent {
@@ -50,30 +66,82 @@ export function ChatUI({
   // One-click undo for "New conversation" misclicks. Stashed when the user
   // clicks New; cleared when they send a message in the new thread or click
   // Continue previous. Empty / null = no undo available.
+  //
+  // Sprint 24.7 — the stash now also captures the active lease and the
+  // tool-event log so undo restores the full pre-reset state, not just
+  // the chat thread. Previously "Continue previous" would re-attach the
+  // chat but leave the dropzone in place and the right pane empty, which
+  // looked like a half-finished undo.
   const [previousConversationId, setPreviousConversationId] = useState<
     string | null
   >(null);
   const [previousMessages, setPreviousMessages] = useState<ChatMessageProps[]>(
     [],
   );
+  const [previousActiveLease, setPreviousActiveLease] =
+    useState<ActiveLeaseRef | null>(null);
+  const [previousToolEvents, setPreviousToolEvents] = useState<ToolEvent[]>([]);
+
+  const { activeLease, toolEvents, resetConversation, restoreConversation } =
+    useChatStream();
 
   const handleNewConversation = () => {
-    if (activeConversationId !== null || messages.length > 0) {
+    if (activeConversationId !== null || messages.length > 0 || activeLease) {
+      // Sprint 24.7 — if the stash is being overwritten by a different
+      // lease, revoke the soon-to-be-orphaned pdfUrl. The OLD stashed
+      // lease is about to become unreachable in app state; without this
+      // revoke, its Blob URL would leak until page unload. Skip the
+      // revoke when the URLs match (defensive — shouldn't happen since
+      // each upload produces a unique blob, but harmless to guard).
+      if (
+        previousActiveLease?.pdfUrl &&
+        previousActiveLease.pdfUrl !== activeLease?.pdfUrl
+      ) {
+        try {
+          URL.revokeObjectURL(previousActiveLease.pdfUrl);
+        } catch {
+          // revokeObjectURL is best-effort and a no-op in jsdom tests.
+        }
+        // Sprint 25 — also evict the IndexedDB-cached bytes for the
+        // about-to-be-orphaned lease. Mirrors the Blob URL revoke: the
+        // OLD stash is being overwritten, so the bytes are no longer
+        // reachable from app state.
+        evictCachedPdf(previousActiveLease.lease_id);
+      }
       setPreviousConversationId(activeConversationId);
       setPreviousMessages(messages);
+      // Sprint 24.7 — snapshot the lease + tool events alongside the
+      // chat thread so "Continue previous" can put everything back.
+      setPreviousActiveLease(activeLease);
+      setPreviousToolEvents(toolEvents);
     }
     setMessages([]);
     setActiveConversationId(null);
     setStatus('idle');
     setErrorMsg('');
     setQuotaRemaining(null);
+    // Sprint 24.7 — clears toolEvents, activeClauseId, and activeLease
+    // on the context. This is what brings the dropzone back and empties
+    // the red-flag pane. The Blob URL is NOT revoked here — the stash
+    // still holds a reference to the same activeLease object, and
+    // revoking too early breaks "Continue previous." Revocation moves
+    // to the commit boundary (above and in handleSubmit).
+    resetConversation();
   };
 
   const handleContinuePrevious = () => {
     setActiveConversationId(previousConversationId);
     setMessages(previousMessages);
+    // Sprint 24.7 — restore lease + tool events atomically so the undo
+    // is a real undo (dropzone → viewer, red-flag cards return).
+    restoreConversation({
+      activeLease: previousActiveLease,
+      toolEvents: previousToolEvents,
+    });
     setPreviousConversationId(null);
     setPreviousMessages([]);
+    setPreviousActiveLease(null);
+    setPreviousToolEvents([]);
     setStatus('idle');
     setErrorMsg('');
   };
@@ -84,9 +152,36 @@ export function ChatUI({
 
     // Sending a message commits to the new thread — drop the undo-stash
     // so "Continue previous" doesn't reappear later.
-    if (previousConversationId !== null) {
+    // Sprint 24.7 — also drop the lease + tool-events snapshot so a
+    // committed new thread can't accidentally resurrect the prior lease.
+    // The stashed pdfUrl is provably unreachable once the stash is
+    // cleared, so this is the right place to revoke the Blob URL.
+    if (
+      previousConversationId !== null ||
+      previousActiveLease !== null ||
+      previousToolEvents.length > 0
+    ) {
+      if (previousActiveLease?.pdfUrl) {
+        try {
+          URL.revokeObjectURL(previousActiveLease.pdfUrl);
+        } catch {
+          // revokeObjectURL is best-effort and a no-op in jsdom tests.
+        }
+      }
+      // Sprint 25 — commit boundary: the stash is provably unreachable
+      // once cleared, so the cached PDF bytes can also be evicted. The
+      // stashed lease_id is what we need; null-checked because the
+      // stash can hold only chat thread (no lease) when the user
+      // misclicked New without ever uploading.
+      if (previousActiveLease?.lease_id) {
+        void getPdfBinaryRepository()
+          .delete(previousActiveLease.lease_id)
+          .catch(() => {});
+      }
       setPreviousConversationId(null);
       setPreviousMessages([]);
+      setPreviousActiveLease(null);
+      setPreviousToolEvents([]);
     }
 
     const userMessage: ChatMessageProps = {
@@ -246,8 +341,16 @@ export function ChatUI({
   };
 
   const hasMessages = messages.length > 0;
-  const hasPreviousStash = previousConversationId !== null;
-  const showContinuePrevious = !hasMessages && hasPreviousStash;
+  // Sprint 24.7 — undo affordance now activates on a stashed lease too
+  // (not just a stashed chat thread). Without this, a user who uploads
+  // a lease, runs a scan, then misclicks "New conversation" before
+  // sending any message would see no Continue-previous button — their
+  // lease + red-flag cards would be unrecoverable without re-uploading.
+  const hasPreviousStash =
+    previousConversationId !== null ||
+    previousActiveLease !== null ||
+    previousToolEvents.length > 0;
+  const showContinuePrevious = !hasMessages && hasPreviousStash && !activeLease;
   const showToolbar = hasMessages || hasPreviousStash;
 
   return (

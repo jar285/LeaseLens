@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { refreshApprovals } from '@/app/cockpit/actions';
 import type { ApprovalRecord } from '@/lib/cockpit/types';
-import { RefreshButton } from './RefreshButton';
+import { CockpitPanel } from './CockpitPanel';
 
 export interface ApprovalsPanelProps {
   initialItems: ApprovalRecord[];
@@ -22,31 +22,20 @@ function formatTime(unixSeconds: number): string {
  */
 export function ApprovalsPanel({ initialItems }: ApprovalsPanelProps) {
   const [items, setItems] = useState<ApprovalRecord[]>(initialItems);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  async function refresh() {
-    setIsRefreshing(true);
-    try {
-      const { items: next } = await refreshApprovals({ limit: 50 });
-      setItems(next);
-    } finally {
-      setIsRefreshing(false);
-    }
+  // Sprint 24 — refresh state moved into CockpitPanel.
+  async function handleRefresh() {
+    const { items: next } = await refreshApprovals({ limit: 50 });
+    setItems(next);
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline dark:border-neutral-800 dark:bg-neutral-900">
-      <header className="flex items-center justify-between border-b border-neutral-100 px-4 py-3 dark:border-neutral-800">
-        <div>
-          <h2 className="text-sm font-semibold text-fg-default">
-            Awaiting sign-off
-          </h2>
-          <p className="mt-0.5 text-[11px] text-fg-muted">
-            Recent approvals · Admin only
-          </p>
-        </div>
-        <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
-      </header>
+    <CockpitPanel
+      testId="approvals-panel"
+      title="Awaiting sign-off"
+      subtitle={<>Recent approvals · Admin only</>}
+      onRefresh={handleRefresh}
+    >
       {items.length === 0 ? (
         <div className="px-4 py-6 text-xs text-fg-muted">
           No approvals recorded yet.
@@ -79,6 +68,6 @@ export function ApprovalsPanel({ initialItems }: ApprovalsPanelProps) {
           </ul>
         </div>
       )}
-    </section>
+    </CockpitPanel>
   );
 }

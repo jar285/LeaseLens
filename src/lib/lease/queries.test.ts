@@ -8,6 +8,7 @@ import { createTestDb } from '@/lib/test/db';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   getActiveLease,
+  getActiveLeaseSnapshot,
   getLease,
   insertClause,
   insertLease,
@@ -198,6 +199,68 @@ describe('lease queries', () => {
       setActiveLease(db, 'conv-1', leaseId);
       setActiveLease(db, 'conv-1', null);
       expect(getActiveLease(db, 'conv-1')).toBeNull();
+    });
+  });
+
+  describe('getActiveLeaseSnapshot', () => {
+    it('returns lease metadata + clause count for a bound conversation', () => {
+      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
+      const leaseId = insertLease(db, {
+        workspaceId: SAMPLE_WORKSPACE.id,
+        filename: 'tenant-lease.pdf',
+        textExtract: 'x',
+        pageCount: 7,
+        uploadedBy: 'u-tenant',
+      });
+      insertClause(db, {
+        leaseId,
+        workspaceId: SAMPLE_WORKSPACE.id,
+        clauseIndex: 0,
+        clauseType: 'security_deposit',
+        text: 'sd',
+        pageNumber: 1,
+      });
+      insertClause(db, {
+        leaseId,
+        workspaceId: SAMPLE_WORKSPACE.id,
+        clauseIndex: 1,
+        clauseType: 'late_fee',
+        text: 'lf',
+        pageNumber: 2,
+      });
+      setActiveLease(db, 'conv-1', leaseId);
+
+      const snapshot = getActiveLeaseSnapshot(db, 'conv-1');
+      expect(snapshot).toEqual({
+        lease_id: leaseId,
+        filename: 'tenant-lease.pdf',
+        page_count: 7,
+        clause_count: 2,
+      });
+    });
+
+    it('returns null when the conversation has no active lease', () => {
+      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
+      expect(getActiveLeaseSnapshot(db, 'conv-1')).toBeNull();
+    });
+
+    it('returns null for an unknown conversation id', () => {
+      expect(getActiveLeaseSnapshot(db, 'no-such-conv')).toBeNull();
+    });
+
+    it('reports clause_count = 0 for a lease with no clauses', () => {
+      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
+      const leaseId = insertLease(db, {
+        workspaceId: SAMPLE_WORKSPACE.id,
+        filename: 'empty.pdf',
+        textExtract: 'x',
+        pageCount: 1,
+        uploadedBy: 'u-tenant',
+      });
+      setActiveLease(db, 'conv-1', leaseId);
+
+      const snapshot = getActiveLeaseSnapshot(db, 'conv-1');
+      expect(snapshot?.clause_count).toBe(0);
     });
   });
 });

@@ -105,6 +105,30 @@ export const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_audit_log_actor   ON audit_log(actor_user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC);
 
+  -- Sprint 24.5 — every tool invocation (read-only AND mutating) writes
+  -- one row here. The existing audit_log table stays mutations-only
+  -- with its Undo affordance; tool_calls is the broader observability
+  -- log that powers the cockpit "What has the AI done?" panel and the
+  -- per-tool stats. Joined to audit_log via tool_use_id when present
+  -- so mutating rows can surface their Undo button by pulling the
+  -- matching audit_id at read time.
+  CREATE TABLE IF NOT EXISTS tool_calls (
+    id              TEXT PRIMARY KEY,
+    tool_name       TEXT NOT NULL,
+    tool_use_id     TEXT,
+    actor_user_id   TEXT NOT NULL,
+    actor_role      TEXT NOT NULL CHECK(actor_role IN ('Creator', 'Editor', 'Admin')),
+    conversation_id TEXT,
+    workspace_id    TEXT NOT NULL,
+    status          TEXT NOT NULL CHECK(status IN ('success', 'error')) DEFAULT 'success',
+    error_message   TEXT,
+    latency_ms      INTEGER,
+    created_at      INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_tool_calls_workspace ON tool_calls(workspace_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_tool_calls_tool      ON tool_calls(tool_name, created_at DESC);
+
   CREATE TABLE IF NOT EXISTS content_calendar (
     id            TEXT PRIMARY KEY,
     document_slug TEXT NOT NULL,
@@ -147,6 +171,10 @@ export const SCHEMA = `
     clause_type   TEXT NOT NULL,
     text          TEXT NOT NULL,
     page_number   INTEGER NOT NULL,
+    -- Sprint 24.1 — severity is written by grade_clause_severity after
+    -- validation succeeds. NULL until the clause has been graded.
+    -- Source of truth for the cockpit SeverityDistribution panel.
+    severity      TEXT CHECK(severity IN ('high', 'medium', 'low', 'ok')),
     created_at    INTEGER NOT NULL
   );
 

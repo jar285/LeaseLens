@@ -93,8 +93,13 @@ describe('Homepage Chat UI', () => {
       withChatStream(<ChatUI workspaceName="LeaseLens — NJ Tenant Law" />),
     );
     expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
+    // Sprint 23g — workspaceName now lives in the editorial eyebrow; the
+    // Hero H2 carries the value-prop headline.
+    expect(screen.getByTestId('chat-empty-eyebrow')).toHaveTextContent(
+      /LeaseLens/i,
+    );
     expect(
-      screen.getByRole('heading', { name: /LeaseLens/i }),
+      screen.getByRole('heading', { name: /find what to negotiate/i }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText('Type a message')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();

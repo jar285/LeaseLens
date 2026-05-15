@@ -12,7 +12,7 @@
  * state without sharing any global zoom.
  */
 
-import { Maximize, Minus, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize, Minus, Plus } from 'lucide-react';
 
 export const PDF_ZOOM_MIN = 0.5;
 export const PDF_ZOOM_MAX = 2;
@@ -26,6 +26,18 @@ export interface PdfReadingControlsProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onToggleFit: () => void;
+  /**
+   * Sprint 23h — page navigation. When provided, render Prev/Next page
+   * buttons flanking the page indicator. Disabled state is driven by
+   * the parent via `canGoPrev` / `canGoNext` so the parent owns the
+   * "are we at an edge" computation (it already knows numPages +
+   * currentPage). Omit these props in tests or read-only contexts to
+   * fall back to indicator-only rendering.
+   */
+  onPrevPage?: () => void;
+  onNextPage?: () => void;
+  canGoPrev?: boolean;
+  canGoNext?: boolean;
   /**
    * Sprint 23b Phase 2 — when true, render in compact form for the
    * inline (non-focus) viewer header where pane width is tight: the
@@ -47,6 +59,10 @@ export function PdfReadingControls({
   onZoomIn,
   onZoomOut,
   onToggleFit,
+  onPrevPage,
+  onNextPage,
+  canGoPrev = false,
+  canGoNext = false,
   compact = false,
 }: PdfReadingControlsProps): React.JSX.Element {
   const atMin = zoom <= PDF_ZOOM_MIN;
@@ -103,6 +119,22 @@ export function PdfReadingControls({
         <Maximize className="h-3 w-3" aria-hidden="true" />
         {!compact ? <span className="hidden sm:inline">Fit width</span> : null}
       </button>
+      {/* Sprint 23h — Prev/Next page buttons flank the page indicator.
+          Only rendered when the parent wires `onPrevPage` / `onNextPage`;
+          falls back to indicator-only when the props are omitted (the
+          shape the older tests + the no-navigation contexts expect). */}
+      {onPrevPage ? (
+        <button
+          type="button"
+          aria-label="Previous page"
+          data-testid="pdf-prev-page"
+          onClick={onPrevPage}
+          disabled={!canGoPrev}
+          className={`${BUTTON_BASE} ml-1`}
+        >
+          <ChevronLeft className="h-3 w-3" aria-hidden="true" />
+        </button>
+      ) : null}
       <span
         data-testid="pdf-page-indicator"
         className="tabular ml-1 text-[11px] text-fg-muted"
@@ -112,6 +144,18 @@ export function PdfReadingControls({
           ? `Page ${currentPage ?? '—'}`
           : `Page ${currentPage ?? '—'} / ${totalPages > 0 ? totalPages : '—'}`}
       </span>
+      {onNextPage ? (
+        <button
+          type="button"
+          aria-label="Next page"
+          data-testid="pdf-next-page"
+          onClick={onNextPage}
+          disabled={!canGoNext}
+          className={BUTTON_BASE}
+        >
+          <ChevronRight className="h-3 w-3" aria-hidden="true" />
+        </button>
+      ) : null}
     </div>
   );
 }

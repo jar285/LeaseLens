@@ -24,6 +24,16 @@ const envSchema = z.object({
     .min(1)
     .max(100)
     .default(30),
+  // Sprint 26c.10 — gate the auto-scan-on-upload behavior. When true
+  // (the default), AutoScanRunner fires the standard scan automatically
+  // after a fresh Mode A upload so the user sees red-flag cards stream
+  // in without having to open the FAB and ask for it. Setting this to
+  // 'false' falls back to the manual flow (user must open the FAB and
+  // run the scan themselves) — useful for cost-sensitive demos.
+  LEASELENS_AUTO_SCAN_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

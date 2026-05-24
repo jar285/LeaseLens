@@ -16,7 +16,13 @@
 
 'use client';
 
-import { ChevronDown, ExternalLink, Paperclip } from 'lucide-react';
+import {
+  ChevronDown,
+  ExternalLink,
+  Mail,
+  MessageSquare,
+  Paperclip,
+} from 'lucide-react';
 import {
   AnimatePresence,
   LayoutGroup,
@@ -24,6 +30,7 @@ import {
   useReducedMotion,
 } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAssistantFab } from '@/components/chat/AssistantFabContext';
 import { useChatStream } from '@/components/chat/ChatStreamContext';
 import { EmptyState } from '@/components/states/EmptyState';
 import { SPRING_GENTLE } from '@/lib/motion/presets';
@@ -33,12 +40,29 @@ import {
   type GradingResult,
   isGradingResult,
   SEVERITY_BAR,
+  SEVERITY_LABEL,
   SEVERITY_ORDER,
   type Severity,
 } from './grading';
 import { RedFlagSkeletonCard } from './RedFlagSkeletonCard';
+import { RedFlagsLoadingState } from './RedFlagsLoadingState';
 import { SeverityBadge } from './SeverityBadge';
-import { useScanProgress } from './use-scan-progress';
+import { useScanLifecycle } from './scan-lifecycle';
+
+// Sprint 26c — prompt templates for the FAB drawer. Centralized so the
+// copy stays consistent and a single test pins the wording.
+export function explainPromptFor(g: GradingResult): string {
+  const label = clauseLabel(g);
+  const severityWord = SEVERITY_LABEL[g.severity].toLowerCase();
+  return `Explain the ${severityWord} concern with ${label}. Reference ${g.statute_citation} verbatim and walk me through what the statute says.`;
+}
+
+export function draftEmailPromptFor(g: GradingResult): string {
+  const label = clauseLabel(g);
+  return `Draft a polite negotiation email to the landlord about ${label}. Cite ${g.statute_citation} and propose a specific edit.`;
+}
+
+import { partitionByLatestExtract, useScanProgress } from './use-scan-progress';
 
 // Phase 10.8 — how long the page-level highlight + active-card ring
 // stay on screen after "View on page N" is clicked. Long enough to
@@ -47,9 +71,20 @@ import { useScanProgress } from './use-scan-progress';
 const HIGHLIGHT_DURATION_MS = 4000;
 
 export function RedFlagReport(): React.JSX.Element {
-  const { toolEvents, pdfViewerRef, activeClauseId, setActiveClauseId } =
-    useChatStream();
+  const {
+    toolEvents,
+    pdfViewerRef,
+    activeClauseId,
+    setActiveClauseId,
+    activeLease,
+  } = useChatStream();
+  // Sprint 26c — FAB context is available wherever the parser shells
+  // mount. RedFlagReport is currently used only inside those shells
+  // (and inside Vitest tests that mount both providers), so this is
+  // always defined in practice.
+  const fab = useAssistantFab();
   const scan = useScanProgress();
+  const lifecycle = useScanLifecycle();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const reduced = useReducedMotion();
   const [mounted, setMounted] = useState(false);
@@ -58,12 +93,30 @@ export function RedFlagReport(): React.JSX.Element {
   }, []);
   const animate = mounted && !reduced;
 
-  // Latest grading per clause wins (re-runs replace prior results).
+  // Sprint 26c.9 — lease-aware grading filter. Only count clause_ids
+  // that belong to the active lease's most recent extract. Without
+  // this filter, rehydrated tool events from a prior conversation's
+  // lease surfaced as stale cards on a freshly uploaded lease.
   const gradings = useMemo(() => {
+    const activeLeaseId = activeLease?.lease_id ?? null;
+    const { extract } = partitionByLatestExtract(toolEvents, activeLeaseId);
+    const allowedClauseIds = extract
+      ? new Set(extract.clauses.map((c) => c.clause_id))
+      : null;
+
     const byClauseId = new Map<string, GradingResult>();
     for (const event of toolEvents) {
       if (event.tool_name !== 'grade_clause_severity') continue;
       if (!isGradingResult(event.result)) continue;
+      // When we have an extract for the active lease, drop any grading
+      // for a clause_id that's not part of that lease's clause set.
+      // When we don't (no extract yet, or no active lease), fall back
+      // to the legacy behavior of accepting any grading — this
+      // preserves the seeded-conversation test fixture flow that
+      // carries gradings without an extract.
+      if (allowedClauseIds && !allowedClauseIds.has(event.result.clause_id)) {
+        continue;
+      }
       byClauseId.set(event.result.clause_id, event.result);
     }
     return Array.from(byClauseId.values()).sort((a, b) => {
@@ -72,7 +125,7 @@ export function RedFlagReport(): React.JSX.Element {
       if (sevDelta !== 0) return sevDelta;
       return (a.clause_index ?? 0) - (b.clause_index ?? 0);
     });
-  }, [toolEvents]);
+  }, [toolEvents, activeLease?.lease_id]);
 
   const counts = useMemo(() => {
     const c: Record<Severity, number> = { high: 0, medium: 0, low: 0, ok: 0 };
@@ -107,20 +160,23 @@ export function RedFlagReport(): React.JSX.Element {
     [],
   );
 
-  // Sprint 18 §2 — when the scan has started but no clauses have been
-  // graded yet, show one skeleton per known clause instead of the static
-  // examples list. The examples are only for the truly-idle state (no
-  // scan ever started in this session).
-  if (gradings.length === 0 && scan.phase === 'extracting' && scan.total > 0) {
+  // Sprint 27 — narrate the parser's work in six stages instead of
+  // showing a row of identical skeleton cards. Replaces the Sprint 18
+  // skeleton block. Reasoning: skeletons told the user "something is
+  // loading" but not what; the lifecycle list answers "what is the
+  // parser doing right now and what's next" (Jakob Nielsen: visibility
+  // of system status; Don Norman: predictable interaction).
+  const inFlight =
+    lifecycle.stage !== 'idle' &&
+    lifecycle.stage !== 'review_ready' &&
+    gradings.length === 0;
+  if (inFlight) {
     return (
       <div
         className="flex flex-col gap-3"
         data-testid="red-flag-report-scanning"
       >
-        {Array.from({ length: scan.total }).map((_, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders are interchangeable until real cards land
-          <RedFlagSkeletonCard key={`skeleton-${i}`} delay={i * 0.08} />
-        ))}
+        <RedFlagsLoadingState snapshot={lifecycle} />
       </div>
     );
   }
@@ -494,23 +550,26 @@ export function RedFlagReport(): React.JSX.Element {
                           <p className="mt-1 text-[12px] leading-relaxed text-fg-default">
                             {g.recommended_action}
                           </p>
-                          {typeof g.page_number === 'number' ? (
-                            <button
-                              type="button"
-                              data-testid="red-flag-jump-to-page"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                jumpToClausePage(g);
-                              }}
-                              className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
-                            >
-                              <ExternalLink
-                                className="h-3 w-3"
-                                aria-hidden="true"
-                              />
-                              View on page {g.page_number}
-                            </button>
-                          ) : null}
+                          <CardActions
+                            grading={g}
+                            onJumpToPage={jumpToClausePage}
+                            onExplain={() =>
+                              fab.openWith({
+                                initialPrompt: explainPromptFor(g),
+                                clauseId: g.clause_id,
+                                severity: g.severity,
+                                statuteCitation: g.statute_citation,
+                              })
+                            }
+                            onDraftEmail={() =>
+                              fab.openWith({
+                                initialPrompt: draftEmailPromptFor(g),
+                                clauseId: g.clause_id,
+                                severity: g.severity,
+                                statuteCitation: g.statute_citation,
+                              })
+                            }
+                          />
                         </div>
                       </motion.div>
                     ) : null}
@@ -527,20 +586,26 @@ export function RedFlagReport(): React.JSX.Element {
                     <p className="mt-1 text-[12px] leading-relaxed text-fg-default">
                       {g.recommended_action}
                     </p>
-                    {typeof g.page_number === 'number' ? (
-                      <button
-                        type="button"
-                        data-testid="red-flag-jump-to-page"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          jumpToClausePage(g);
-                        }}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
-                      >
-                        <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                        View on page {g.page_number}
-                      </button>
-                    ) : null}
+                    <CardActions
+                      grading={g}
+                      onJumpToPage={jumpToClausePage}
+                      onExplain={() =>
+                        fab.openWith({
+                          initialPrompt: explainPromptFor(g),
+                          clauseId: g.clause_id,
+                          severity: g.severity,
+                          statuteCitation: g.statute_citation,
+                        })
+                      }
+                      onDraftEmail={() =>
+                        fab.openWith({
+                          initialPrompt: draftEmailPromptFor(g),
+                          clauseId: g.clause_id,
+                          severity: g.severity,
+                          statuteCitation: g.statute_citation,
+                        })
+                      }
+                    />
                   </div>
                 ) : null}
               </>
@@ -628,6 +693,80 @@ export function RedFlagReport(): React.JSX.Element {
  * The hold + fade-out are gated by the parent's setTimeout that clears
  * activeClauseId; once cleared, AnimatePresence runs the exit transition.
  */
+/*
+ * Sprint 26c — expanded-card action row.
+ *
+ * Renders three buttons under the recommended-action paragraph:
+ *   1. View on page N — preserved from prior sprints, calls scrollToPage
+ *      on the PDF viewer ref.
+ *   2. Explain — opens the FAB drawer with a clause-aware prompt
+ *      explaining the severity + statute citation.
+ *   3. Draft email — opens the FAB drawer with a draft-email prompt.
+ *
+ * All buttons stopPropagation so they don't also collapse the card
+ * (the parent toggle button covers the header + summary row, and the
+ * recommended-action region sits inside the card, beneath the toggle).
+ */
+function CardActions({
+  grading,
+  onJumpToPage,
+  onExplain,
+  onDraftEmail,
+}: {
+  grading: GradingResult;
+  onJumpToPage: (g: GradingResult) => void;
+  onExplain: () => void;
+  onDraftEmail: () => void;
+}): React.JSX.Element {
+  const pillClass =
+    'mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200';
+  return (
+    <div
+      data-testid="red-flag-card-actions"
+      className="mt-1 flex flex-wrap items-center gap-2"
+    >
+      {typeof grading.page_number === 'number' ? (
+        <button
+          type="button"
+          data-testid="red-flag-jump-to-page"
+          onClick={(e) => {
+            e.stopPropagation();
+            onJumpToPage(grading);
+          }}
+          className={pillClass}
+        >
+          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+          View on page {grading.page_number}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        data-testid="red-flag-explain"
+        onClick={(e) => {
+          e.stopPropagation();
+          onExplain();
+        }}
+        className={pillClass}
+      >
+        <MessageSquare className="h-3 w-3" aria-hidden="true" />
+        Explain
+      </button>
+      <button
+        type="button"
+        data-testid="red-flag-draft-email"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDraftEmail();
+        }}
+        className={pillClass}
+      >
+        <Mail className="h-3 w-3" aria-hidden="true" />
+        Draft email
+      </button>
+    </div>
+  );
+}
+
 function ActiveRing({
   isActive,
   reduced,

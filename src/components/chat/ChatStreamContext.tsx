@@ -114,6 +114,18 @@ interface ChatStreamContextValue {
     activeLease: ActiveLeaseRef | null;
     toolEvents: ToolEvent[];
   }) => void;
+  /**
+   * Sprint 26c.11 — conversationId captured from the silent
+   * AutoScanRunner's NDJSON stream. The auto-scan runs before the
+   * user opens the FAB drawer, so its server-issued conversationId
+   * wouldn't otherwise reach ChatUI. We surface it here; ChatUI
+   * adopts it on mount when its own activeConversationId is null,
+   * so subsequent manual messages continue the same thread.
+   * Null when no auto-scan has run (or it ran with a conversationId
+   * already supplied by SSR).
+   */
+  autoScanConversationId: string | null;
+  setAutoScanConversationId: (id: string | null) => void;
 }
 
 const ChatStreamContext = createContext<ChatStreamContextValue | null>(null);
@@ -134,6 +146,12 @@ export function ChatStreamProvider({
   const [activeLease, setActiveLease] = useState<ActiveLeaseRef | null>(
     activeLeaseProp,
   );
+  // Sprint 26c.11 — see context-value docstring. Set by AutoScanRunner
+  // when its NDJSON stream emits a {conversationId} envelope; read by
+  // ChatUI on mount to adopt the same thread.
+  const [autoScanConversationId, setAutoScanConversationId] = useState<
+    string | null
+  >(null);
   const pdfViewerRef = useRef<PdfViewerHandle | null>(null);
 
   // Sync the lease state when the prop changes (e.g. a test that mounts
@@ -193,6 +211,8 @@ export function ChatStreamProvider({
       setActiveLease,
       resetConversation,
       restoreConversation,
+      autoScanConversationId,
+      setAutoScanConversationId,
     }),
     [
       toolEvents,
@@ -202,6 +222,7 @@ export function ChatStreamProvider({
       activeLease,
       resetConversation,
       restoreConversation,
+      autoScanConversationId,
     ],
   );
 

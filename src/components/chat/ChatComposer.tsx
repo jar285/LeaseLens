@@ -14,6 +14,16 @@ import { SPRING_SNAPPY } from '@/lib/motion/presets';
 export interface ChatComposerProps {
   onSubmit: (text: string) => void;
   isLocked: boolean;
+  /**
+   * Sprint 26c — optional seed value for the textarea. Used by the
+   * assistant FAB to pre-fill prompts like "Explain clause §3" when
+   * the user clicks Explain on a red-flag card or clause row. The
+   * composer keeps its own controlled state internally; this only
+   * seeds the initial value on mount (and re-syncs when the prop
+   * value changes between non-empty strings, so back-to-back
+   * Explain clicks pick up the new prefill).
+   */
+  initialText?: string;
 }
 
 // Sprint 23c Phase 3 — bumped from 38 to 44 to clear the touch-target
@@ -22,8 +32,13 @@ export interface ChatComposerProps {
 const MIN_TEXTAREA_HEIGHT = 44;
 const MAX_TEXTAREA_HEIGHT = 192;
 
-export function ChatComposer({ onSubmit, isLocked }: ChatComposerProps) {
-  const [text, setText] = useState('');
+export function ChatComposer({
+  onSubmit,
+  isLocked,
+  initialText,
+}: ChatComposerProps) {
+  const [text, setText] = useState(initialText ?? '');
+  const lastPrefillRef = useRef<string | undefined>(initialText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const reduced = useReducedMotion();
   const [mounted, setMounted] = useState(false);
@@ -31,6 +46,19 @@ export function ChatComposer({ onSubmit, isLocked }: ChatComposerProps) {
     setMounted(true);
   }, []);
   const animate = mounted && !reduced;
+
+  // Sprint 26c — re-seed when the parent passes a NEW non-empty
+  // prefill string. We only react to value changes (not just truthy
+  // values) so a stable parent re-render with the same prefill never
+  // clobbers what the user has typed. Setting the textarea height is
+  // deferred to the existing handleChange resize path: the next user
+  // keystroke or a manual change event will recalculate.
+  useEffect(() => {
+    if (initialText && initialText !== lastPrefillRef.current) {
+      setText(initialText);
+      lastPrefillRef.current = initialText;
+    }
+  }, [initialText]);
 
   const handleSubmit = () => {
     if (isLocked) return;

@@ -369,6 +369,50 @@ describe('ChatMessage — Sprint 18 §5 ScanTimeline role gate', () => {
     expect(card.querySelector('[data-testid="severity-badge"]')).toBeNull();
   });
 
+  // Sprint 27.1 — visual rhythm: user messages now wear a card too
+  // (surface-card background + hairline border) so the transcript
+  // reads as discrete bubbles instead of an unstyled text run
+  // adjoining the assistant's muted card. Asserted by class name
+  // because jsdom doesn't compute box geometry.
+  it("user messages carry a card class so they don't bleed into the assistant bubble below", () => {
+    render(withChatStream(<ChatMessage id="m1" role="user" content="Hello" />));
+    const li = screen.getByText('Hello').closest('li');
+    expect(li).not.toBeNull();
+    // Both roles share the card silhouette (rounded + padded). The
+    // user-vs-assistant distinction is conveyed by background +
+    // optional border, not by presence/absence of the card itself.
+    expect(li?.className).toMatch(/\brounded-xl\b/);
+    expect(li?.className).toMatch(/\bpx-4\b/);
+  });
+
+  // Sprint 27.1 — follow-up chips render AFTER the assistant body,
+  // not before. Reading order is now header → body → suggested next
+  // questions, matching how a user expects to read an answer (Don
+  // Norman: predictable affordance ordering).
+  it('follow-up chips render after the assistant body content', () => {
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content="Here is the answer body."
+          followUpPrompts={[
+            { id: 'p1', label: 'Suggested next', prompt: 'next' },
+          ]}
+        />,
+      ),
+    );
+    const body = screen.getByText('Here is the answer body.');
+    const chip = screen.getByRole('button', { name: 'Suggested next' });
+    // Node.DOCUMENT_POSITION_FOLLOWING (0x04) means `chip` follows
+    // `body` in document order.
+    const followingMask = Node.DOCUMENT_POSITION_FOLLOWING;
+    const chipFollowsBody = Boolean(
+      body.compareDocumentPosition(chip) & followingMask,
+    );
+    expect(chipFollowsBody).toBe(true);
+  });
+
   // S19.9 — touch-target rule: every follow-up chip must be at least
   // 44×44px on mobile. We assert the class string carries `min-h-11`
   // (Tailwind = 2.75rem = 44px) rather than measuring layout, because

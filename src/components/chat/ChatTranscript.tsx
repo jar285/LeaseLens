@@ -192,7 +192,11 @@ export function ChatTranscript({
       className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-5 md:px-8"
     >
       <div className="mx-auto w-full max-w-3xl shrink-0">
-        <ul className="m-0 list-none space-y-1 p-0 pb-4">
+        {/* Sprint 27.1 — inter-message gap bumped from space-y-1 (4px,
+            visually adjacent) to space-y-3 (12px). With user messages
+            now also wearing a card (ChatMessage), the larger gap reads
+            as deliberate rhythm rather than crowded text. */}
+        <ul className="m-0 list-none space-y-3 p-0 pb-4">
           {merged.map((msg, idx) => {
             // Sprint 23c Phase 2 — route the synthetic intro through the
             // UploadedLeaseCard surface; everything else (real messages +

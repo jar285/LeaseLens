@@ -22,6 +22,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { AssistantFabProvider } from '@/components/chat/AssistantFabContext';
 import {
   type ActiveLeaseRef,
   ChatStreamProvider,
@@ -73,14 +74,21 @@ export interface LeaseLensWorkspaceShellProps {
 export function LeaseLensWorkspaceShell(
   props: LeaseLensWorkspaceShellProps,
 ): React.JSX.Element {
+  // Sprint 26c — RedFlagReport now consumes useAssistantFab. The legacy
+  // shell is no longer mounted by the page router (the router uses
+  // ParserResultsShell in 26b+), but we still wrap in
+  // AssistantFabProvider so any direct consumer (tests, snapshot
+  // probes) keeps working until the shell is deleted in Sprint 26d.
   return (
-    <ChatStreamProvider
-      viewerRole={props.viewerRole}
-      initialEvents={props.initialToolEvents}
-      activeLease={props.initialActiveLease ?? null}
-    >
-      <ShellInner {...props} />
-    </ChatStreamProvider>
+    <AssistantFabProvider>
+      <ChatStreamProvider
+        viewerRole={props.viewerRole}
+        initialEvents={props.initialToolEvents}
+        activeLease={props.initialActiveLease ?? null}
+      >
+        <ShellInner {...props} />
+      </ChatStreamProvider>
+    </AssistantFabProvider>
   );
 }
 
@@ -100,14 +108,20 @@ function ShellInner({
   const leftPaneState = useLeftPaneState();
 
   // Sprint 25 — evict stale entries on mount so the cache stays bounded.
-  // The current lease (if any) is retained; everything else is dropped.
-  // Reads activeLease lazily inside the effect so we only see the SSR-
-  // rehydrated value, not subsequent state-machine transitions.
+  // The current lease is retained; everything else is dropped.
+  //
+  // Sprint 25.2 — guard against the "no active lease" case. The earlier
+  // implementation called evictExcept([]) when activeLease was null,
+  // which wiped EVERY entry in the global IDB store — breaking Sprint
+  // 25's transparent restore for OTHER sessions (e.g. switching to a
+  // role with no conversation, then back, lost the prior user's
+  // cached PDF). If we have no lease to keep on this mount, leave the
+  // cache alone; the next mount with an active lease will prune then.
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot mount eviction; intentionally ignores activeLease changes so a mid-session swap doesn't drop bytes the user might undo back to
   useEffect(() => {
-    const keep = activeLease ? [activeLease.lease_id] : [];
+    if (!activeLease) return;
     void getPdfBinaryRepository()
-      .evictExcept(keep)
+      .evictExcept([activeLease.lease_id])
       .catch(() => {});
   }, []);
 

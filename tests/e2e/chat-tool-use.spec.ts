@@ -3,6 +3,8 @@ import { DEMO_USERS } from '@/lib/auth/constants';
 import { encrypt } from '@/lib/auth/session';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { encodeWorkspace } from '@/lib/workspaces/cookie';
+import { openAssistantFab } from './helpers/open-assistant-fab';
+import { uploadSampleLease } from './helpers/upload-sample-lease';
 
 async function startFreshConversation(page: import('@playwright/test').Page) {
   const newConversation = page.getByTestId('new-conversation-btn');
@@ -49,52 +51,38 @@ test.beforeEach(async ({ context }) => {
   ]);
 });
 
-test('mutating tool flow renders ToolCard with working Undo', async ({
+test('chat round-trip renders the extract_clauses ToolCard for Admin viewers', async ({
   page,
 }) => {
   await page.goto('/');
+  // Sprint 26c — homepage opens on Mode A; uploading lifts to Mode B
+  // (ParserResultsShell). Chat now lives inside the FAB drawer, so the
+  // spec opens the FAB before driving the composer.
+  await uploadSampleLease(page);
+  await openAssistantFab(page);
   await startFreshConversation(page);
 
-  // Send any prompt — the dev server runs with LEASELENS_E2E_MOCK=1 so the
-  // mock client at src/lib/anthropic/e2e-mock.ts ignores prompt content
-  // and deterministically returns a schedule_content_item tool_use.
-  // Prompt content is irrelevant — the dev server runs with
-  // LEASELENS_E2E_MOCK=1 so the mock returns a deterministic tool_use
-  // for schedule_content_item against the seeded `brand-identity` slug.
-  await page
-    .getByRole('textbox')
-    .fill('Schedule a brand-identity post for twitter tomorrow.');
+  // The dev server runs with LEASELENS_E2E_MOCK=1; the mock client at
+  // src/lib/anthropic/e2e-mock.ts ignores prompt content and returns a
+  // deterministic extract_clauses tool_use. (Pre-Sprint 14 it returned
+  // schedule_content_item; the rename happened when the project pivoted
+  // from ContentOps to LeaseLens.) extract_clauses is read-only, so
+  // there's no Undo button — Undo coverage requires a mutating-tool
+  // mock that the suite doesn't currently provide.
+  await page.getByRole('textbox').fill('Scan this lease.');
   await page.getByRole('button', { name: 'Send message' }).click();
 
-  // Sprint 9 §12.10 — typing indicator visible between submit and first chunk.
-  // The indicator unmounts when a tool_use arrives or text streams in.
-  // Timing note (sprint-QA M3): if this assertion flakes more than once in
-  // 10 local runs, add a setTimeout(150) delay in
-  // src/lib/anthropic/e2e-mock.ts before the first tool_use chunk.
+  // Typing indicator visible between submit and first chunk.
   const indicator = page.getByRole('status', {
     name: 'Assistant is composing',
   });
   await expect(indicator).toBeVisible({ timeout: 5000 });
 
-  // Wait for the ToolCard to render with the schedule_content_item tool_use.
-  // Use .last() — under shared dev-server state, prior test runs may have
-  // persisted ToolCards in the conversation history. The just-submitted card
-  // is always the most recent.
+  // Wait for the ToolCard. Admin viewers see inline tool cards (Sprint
+  // 18 §5); Tenants would see <ScanTimeline /> instead. .last() picks
+  // the most recently rendered card under shared dev-server state.
   const toolCard = page
-    .locator('button', { hasText: 'schedule_content_item' })
+    .locator('button', { hasText: 'extract_clauses' })
     .last();
   await expect(toolCard).toBeVisible({ timeout: 30_000 });
-
-  // The Undo button appears next to the status pill for mutating-tool results.
-  // exact: true disambiguates from the outer header button whose accessible
-  // name happens to contain the descendant Undo text. .last() picks the
-  // most recently rendered Undo (matching the most recent ToolCard).
-  const undo = page.getByRole('button', { name: 'Undo', exact: true }).last();
-  await expect(undo).toBeVisible();
-
-  // Click Undo and assert the rolled-back state.
-  await undo.click();
-  await expect(
-    page.getByText('Rolled back', { exact: true }).last(),
-  ).toBeVisible({ timeout: 5000 });
 });

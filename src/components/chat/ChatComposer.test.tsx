@@ -154,4 +154,54 @@ describe('ChatComposer', () => {
       }
     });
   });
+
+  // Sprint 26c — `initialText` lets the assistant FAB seed the textarea
+  // when "Explain this clause" / "Draft email" fires from a red-flag
+  // card or clause row.
+  describe('initialText prefill (Sprint 26c)', () => {
+    it('renders the prefill text in the textarea on mount when initialText is provided', () => {
+      render(
+        <ChatComposer
+          isLocked={false}
+          onSubmit={vi.fn()}
+          initialText="Explain clause §3"
+        />,
+      );
+      const textarea = screen.getByLabelText(
+        'Type a message',
+      ) as HTMLTextAreaElement;
+      expect(textarea.value).toBe('Explain clause §3');
+    });
+
+    it('hides the slash hint when prefilled (textarea has content from mount)', () => {
+      render(
+        <ChatComposer
+          isLocked={false}
+          onSubmit={vi.fn()}
+          initialText="Explain clause §3"
+        />,
+      );
+      const hint = screen.queryByTestId('composer-slash-hint');
+      if (hint) {
+        expect(hint.className).toMatch(/\bopacity-0\b/);
+      }
+    });
+
+    it('submitting the prefilled text forwards it to onSubmit and clears the textarea', () => {
+      const onSubmit = vi.fn();
+      render(
+        <ChatComposer
+          isLocked={false}
+          onSubmit={onSubmit}
+          initialText="Prefilled body"
+        />,
+      );
+      const textarea = screen.getByLabelText(
+        'Type a message',
+      ) as HTMLTextAreaElement;
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+      expect(onSubmit).toHaveBeenCalledWith('Prefilled body');
+      expect(textarea.value).toBe('');
+    });
+  });
 });

@@ -34,6 +34,21 @@ export interface ChatToolEvent {
   audit_id: string | undefined;
 }
 
+export interface SuggestedPrompt {
+  /** Stable identity — used as React key and test selector. */
+  id: string;
+  /** Short label rendered on the chip. */
+  label: string;
+  /** The full prompt seeded into the composer when the chip is clicked. */
+  prompt: string;
+  /**
+   * Optional. When true, the chip renders disabled (used by the FAB
+   * for context-dependent suggestions like "Explain this clause"
+   * before the user has selected a red flag).
+   */
+  disabled?: boolean;
+}
+
 export interface ChatUIProps {
   initialMessages?: ChatMessageProps[];
   conversationId?: string | null;
@@ -46,6 +61,29 @@ export interface ChatUIProps {
    * stream into its own message-state only (Sprints 8-12 behavior).
    */
   onToolEvent?: (event: ChatToolEvent) => void;
+  /**
+   * Sprint 26c — optional seed value for the composer textarea, used
+   * by the assistant FAB to pre-fill prompts like "Explain clause §3"
+   * when the user clicks Explain on a red-flag card or clause row.
+   * Forwarded to ChatComposer's `initialText` prop unchanged.
+   */
+  initialComposerText?: string;
+  /**
+   * Sprint 27.1 — quick-action chips rendered above the composer when
+   * the transcript is empty. The FAB used to surface these as a popup
+   * menu the user had to click through before reaching the chat; that
+   * gate is gone. The same chips now sit inside the open drawer as
+   * suggested next prompts (Steve Krug: obvious affordance; Don Norman:
+   * the FAB icon should afford chat, not force a menu choice).
+   */
+  suggestedPrompts?: SuggestedPrompt[];
+  /**
+   * Sprint 27.1 — invoked when the user clicks a suggested-prompts
+   * chip. The FAB wires this to `fab.openWith({ initialPrompt })` so
+   * the existing prefill plumbing in ChatComposer re-seeds the
+   * textarea. Standalone consumers may ignore this prop.
+   */
+  onSelectSuggestion?: (prompt: string) => void;
 }
 
 export function ChatUI({
@@ -53,12 +91,24 @@ export function ChatUI({
   conversationId = null,
   workspaceName,
   onToolEvent,
+  initialComposerText,
+  suggestedPrompts,
+  onSelectSuggestion,
 }: ChatUIProps) {
   const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
 
+  // Sprint 26c.11 — adopt the auto-scan's conversationId when ChatUI's
+  // own prop is null. AutoScanRunner runs silently before the user
+  // opens the FAB drawer, captures the server-issued conversationId
+  // from its NDJSON stream, and broadcasts it via ChatStreamContext.
+  // Without this sync, the user's manual chat would start a brand-
+  // new conversation B instead of continuing conversation A.
+  //
+  // (Single `useChatStream()` call below pulls every field this
+  // component needs — see the consolidated destructure ~30 lines down.)
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
   >(conversationId);
@@ -82,8 +132,25 @@ export function ChatUI({
     useState<ActiveLeaseRef | null>(null);
   const [previousToolEvents, setPreviousToolEvents] = useState<ToolEvent[]>([]);
 
-  const { activeLease, toolEvents, resetConversation, restoreConversation } =
-    useChatStream();
+  const {
+    activeLease,
+    toolEvents,
+    resetConversation,
+    restoreConversation,
+    autoScanConversationId,
+  } = useChatStream();
+
+  // Sprint 26c.11 — promote the auto-scan's captured conversationId
+  // into local state once it's available, so the user's manual chat
+  // continues the same thread instead of starting a fresh one.
+  // Initial useState above seeded from `conversationId` prop only
+  // (auto-scan may not have captured the id yet at first render); this
+  // effect catches the late-arriving case.
+  useEffect(() => {
+    if (activeConversationId === null && autoScanConversationId !== null) {
+      setActiveConversationId(autoScanConversationId);
+    }
+  }, [autoScanConversationId, activeConversationId]);
 
   // Sprint 25.1 (R8) — track the in-flight chat fetch so we can abort
   // on unmount / "New conversation" / rapid re-submit. Without this,
@@ -410,8 +477,13 @@ export function ChatUI({
               type="button"
               data-testid="new-conversation-btn"
               onClick={handleNewConversation}
-              disabled={status === 'streaming'}
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40"
+              // Sprint 25.2 — formerly disabled during streaming, which
+              // gated the user out of R8's escape-hatch flow (clicking
+              // New mid-stream is the documented way to abort an
+              // in-flight reply and start fresh). handleNewConversation
+              // calls abortRef.current?.abort() at the top, so the
+              // in-flight fetch cancels cleanly.
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               <SquarePen className="h-3.5 w-3.5" aria-hidden="true" />
               New conversation
@@ -453,9 +525,42 @@ export function ChatUI({
             </div>
           )}
 
+          {/* Sprint 27.1 — suggested-prompts row.
+              Visible only when the transcript is empty (no committed
+              messages yet) AND the caller supplied at least one chip.
+              Clicking a chip fires `onSelectSuggestion(prompt)` which
+              the FAB routes through `fab.openWith` so ChatComposer's
+              existing prefill effect re-seeds the textarea. Hidden
+              once the user starts a thread so the chips don't compete
+              with the composer once chat has begun. */}
+          {!hasMessages &&
+          suggestedPrompts &&
+          suggestedPrompts.length > 0 &&
+          onSelectSuggestion ? (
+            <div
+              data-testid="chat-suggested-prompts"
+              className="flex shrink-0 flex-wrap gap-1.5 border-t border-neutral-100 px-6 pb-2 pt-3 dark:border-neutral-800"
+            >
+              {suggestedPrompts.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  data-testid="chat-suggested-prompt"
+                  data-suggestion-id={s.id}
+                  disabled={s.disabled}
+                  onClick={() => onSelectSuggestion(s.prompt)}
+                  className="inline-flex items-center rounded-full border border-accent-200 bg-surface-card px-3 py-1.5 text-xs font-medium text-accent-700 transition-colors hover:border-accent-300 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-transparent disabled:text-fg-subtle disabled:hover:bg-transparent dark:border-accent-500/30 dark:bg-neutral-900 dark:text-accent-300 dark:hover:border-accent-400/50 dark:hover:bg-accent-500/10"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           <ChatComposer
             onSubmit={handleSubmit}
             isLocked={status === 'streaming'}
+            initialText={initialComposerText}
           />
         </div>
       </div>

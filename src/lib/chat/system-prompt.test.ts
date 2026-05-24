@@ -128,6 +128,31 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/clause|severity|heatmap|dependency/i);
   });
 
+  // Sprint 25.2 Path B — chart-type discipline for render_workflow_diagram.
+  // First attempt steered the model to block-beta, which the Mermaid
+  // v11.14 lexer rejected (`:::class` shorthand only works in flowchart).
+  // Pivoting to flowchart+subgraph: stable syntax since v10, supports
+  // the inline class shorthand, produces a clean "grouped by severity"
+  // visual that's slightly less heatmap-y than block-beta would have
+  // been if it worked — but actually renders.
+  describe('Sprint 25.2 — chart-type decision guidance for render_workflow_diagram', () => {
+    it('directs severity-distribution intent to flowchart + subgraph (NOT block-beta)', () => {
+      const prompt = buildSystemPrompt('Tenant');
+      expect(prompt).toMatch(/flowchart/i);
+      expect(prompt).toMatch(/subgraph/i);
+      expect(prompt).not.toMatch(/block[- ]beta/i);
+    });
+
+    it('mentions readable-output constraints (short labels, node cap)', () => {
+      const prompt = buildSystemPrompt('Tenant');
+      // Two-pronged: keep labels short AND keep total node count modest.
+      // Either token set is acceptable so the prompt can evolve wording
+      // without breaking the test.
+      expect(prompt).toMatch(/short|brief|≤ ?\d|<= ?\d|under \d+ word/i);
+      expect(prompt).toMatch(/20 node|≤ ?20|<= ?20|fewer than 20|max 20/i);
+    });
+  });
+
   // Sprint 23e — closes the "model forgets prior gradings on follow-up
   // turns" bug. The prompt must explicitly instruct the model to REUSE
   // grade_clause_severity / extract_clauses tool_result blocks already

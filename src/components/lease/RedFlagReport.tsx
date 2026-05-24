@@ -166,9 +166,15 @@ export function RedFlagReport(): React.JSX.Element {
   // loading" but not what; the lifecycle list answers "what is the
   // parser doing right now and what's next" (Jakob Nielsen: visibility
   // of system status; Don Norman: predictable interaction).
+  // Sprint 28 — Bug 2: skip the decorative "preparing red flags" beat
+  // when there are no findings to prepare. Otherwise the user is
+  // parked on a spinning panel for the ~650ms hold even though the
+  // scan is genuinely done — a status that doesn't reflect any real
+  // work in progress (visibility of system status must be honest).
   const inFlight =
     lifecycle.stage !== 'idle' &&
     lifecycle.stage !== 'review_ready' &&
+    lifecycle.stage !== 'preparing_red_flags' &&
     gradings.length === 0;
   if (inFlight) {
     return (

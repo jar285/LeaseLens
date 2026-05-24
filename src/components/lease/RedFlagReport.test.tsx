@@ -479,6 +479,64 @@ describe('RedFlagReport', () => {
       ).not.toBeInTheDocument();
     });
 
+    // Sprint 28 — Bug 2: the spinner must stop once the lifecycle reaches
+    // its terminal `review_ready` state, even when zero high/medium/low
+    // findings ended up being rendered (e.g. every clause graded "ok" or
+    // errored). The previous `inFlight` gate's `gradings.length === 0`
+    // clause kept the loading panel mounted during the preparing-red-flags
+    // beat, leaving the user looking at a spinner that no longer reflected
+    // any actual work (Jakob Nielsen: visibility of system status).
+    // Sprint 28 — Bug 2: when the standard scan ends with zero high/medium/
+    // low findings (all clauses errored or no severity-bearing results), the
+    // user should see the terminal empty-state surface immediately — not a
+    // spinning lifecycle panel parked on "Preparing red flags" for ~650ms
+    // (the decorative beat between `scanProgress.phase === 'complete'` and
+    // `preparingDone === true`). The "preparing" beat is polish; there is
+    // nothing to polish when there are no red flags to prepare.
+    // Reference: Jakob Nielsen — visibility of system status must be honest.
+    it('does not park on a spinning preparing-red-flags panel when scanning terminates with zero findings', () => {
+      const erroredGrade = (clauseId: string): ToolEvent => ({
+        tool_name: 'grade_clause_severity',
+        input: { clause_id: clauseId },
+        result: { error: 'corpus lookup failed' },
+        audit_id: undefined,
+      });
+      render(
+        <ProviderWithEvents
+          events={[
+            extractEvent(['c1', 'c2']),
+            erroredGrade('c1'),
+            erroredGrade('c2'),
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      // Synchronous assertion — the very first render after the events land
+      // must not park the user on a spinning panel. The empty state is the
+      // correct terminal surface.
+      expect(
+        screen.queryByTestId('red-flag-report-scanning'),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId('red-flag-report-empty')).toBeInTheDocument();
+      // Belt-and-suspenders: no spinner class should be present.
+      expect(document.querySelectorAll('.animate-spin').length).toBe(0);
+    });
+
+    it('keeps the scanning loading state during active extraction (before any gradings)', () => {
+      // Counter-test: confirms the fix does not regress the legitimate
+      // mid-scan state. With extract landed but zero attempts yet, the
+      // lifecycle panel should still be mounted as the active surface.
+      render(
+        <ProviderWithEvents events={[extractEvent(['c1', 'c2', 'c3'])]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(
+        screen.getByTestId('red-flag-report-scanning'),
+      ).toBeInTheDocument();
+    });
+
     it('drops skeletons when every clause has a tool_result, even if some errored', () => {
       // Regression: a real scan returning 1 success + 2 errors across
       // 3 clauses used to leave 2 ghost skeletons because the hook only

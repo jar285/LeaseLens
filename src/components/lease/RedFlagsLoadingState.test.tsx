@@ -116,9 +116,7 @@ describe('RedFlagsLoadingState', () => {
       'listitem',
     );
     for (const row of rows) {
-      expect(['complete', 'active']).toContain(
-        row.getAttribute('data-status'),
-      );
+      expect(['complete', 'active']).toContain(row.getAttribute('data-status'));
     }
     expect(rows[5]).toHaveAttribute('data-status', 'active');
   });

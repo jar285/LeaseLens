@@ -164,7 +164,9 @@ describe('render_workflow_diagram tool', () => {
       // in a flat row. The description must instruct the model to keep
       // labels short and the node count manageable.
       expect(tool.description).toMatch(/short|brief|≤|<=|under \d+ word/i);
-      expect(tool.description).toMatch(/20 node|≤ 20|max 20|<= 20|fewer than 20/i);
+      expect(tool.description).toMatch(
+        /20 node|≤ 20|max 20|<= 20|fewer than 20/i,
+      );
     });
   });
 });

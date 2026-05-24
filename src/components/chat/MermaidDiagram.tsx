@@ -185,7 +185,6 @@ export function MermaidDiagram({ code, title, caption }: MermaidDiagramProps) {
         mounted &&
         createPortal(
           <div
-            // biome-ignore lint/a11y/useSemanticElements: dialog-like overlay; modal semantics provided via role + aria-modal
             role="dialog"
             aria-modal="true"
             aria-label={title ?? 'Diagram preview'}
@@ -196,10 +195,10 @@ export function MermaidDiagram({ code, title, caption }: MermaidDiagramProps) {
             }}
             className="fixed inset-0 z-dialog flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
           >
+            {/* Stop click-through so clicking the diagram itself doesn't close
+                the modal — only the backdrop / X / Escape do. */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: container of the SVG; interactivity is on the surrounding backdrop + the close button */}
             <div
-              // Stop click-through so clicking the diagram itself doesn't
-              // close the modal — only the backdrop / X / Escape do.
-              // biome-ignore lint/a11y/noStaticElementInteractions: container of the SVG; interactivity is on the surrounding backdrop + the close button
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => e.stopPropagation()}
               className="relative flex max-h-[90vh] max-w-[95vw] flex-col overflow-hidden rounded-lg bg-white shadow-2xl"

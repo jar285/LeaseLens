@@ -176,7 +176,7 @@ describe('AssistantFabClient', () => {
     expect(drawer).toHaveAttribute('aria-modal', 'true');
     const labelledBy = drawer.getAttribute('aria-labelledby');
     expect(labelledBy).toBeTruthy();
-    const heading = document.getElementById(labelledBy!);
+    const heading = document.getElementById(labelledBy ?? '');
     expect(heading).not.toBeNull();
     expect(heading?.textContent?.toLowerCase()).toContain('assistant');
   });

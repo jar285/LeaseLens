@@ -156,8 +156,8 @@ describe('ParserResultsShell integration', () => {
     const depositRow = screen
       .getAllByTestId('clauses-list-row')
       .find((row) => row.getAttribute('data-clause-id') === 'c-deposit');
-    expect(depositRow).toBeDefined();
-    fireEvent.click(depositRow!);
+    if (!depositRow) throw new Error('expected clauses-list-row for c-deposit');
+    fireEvent.click(depositRow);
     expect(scrollSpy).toHaveBeenCalledWith(2);
 
     // Reset and click the red-flag card's citation chip (the collapsed-card

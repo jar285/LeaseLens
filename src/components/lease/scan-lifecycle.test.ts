@@ -16,10 +16,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
-import {
-  computeScanLifecycleStage,
-  LIFECYCLE_STAGES,
-} from './scan-lifecycle';
+import { computeScanLifecycleStage, LIFECYCLE_STAGES } from './scan-lifecycle';
 import type { ScanProgress } from './use-scan-progress';
 
 function progress(partial: Partial<ScanProgress>): ScanProgress {

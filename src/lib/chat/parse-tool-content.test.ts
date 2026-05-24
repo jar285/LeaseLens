@@ -7,7 +7,11 @@ describe('parseToolContent', () => {
   it('parses a valid tool_use envelope', () => {
     const result = parseToolContent(
       JSON.stringify({
-        tool_use: { id: 't1', name: 'extract_clauses', input: { lease_id: 'L' } },
+        tool_use: {
+          id: 't1',
+          name: 'extract_clauses',
+          input: { lease_id: 'L' },
+        },
       }),
     );
     expect(result).toEqual({

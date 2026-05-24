@@ -103,9 +103,7 @@ describe('ParserResultsShell', () => {
     // lifecycle panel (data-testid="red-flag-report-scanning") mounts
     // instead of the bare empty state. That confirms the component is
     // in the tree.
-    expect(
-      screen.getByTestId('red-flag-report-scanning'),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId('red-flag-report-scanning')).toBeInTheDocument();
     expect(screen.getByTestId('clauses-list')).toBeInTheDocument();
     // Sprint 26c — temporary chat slot is deleted. Chat lives in the FAB.
     expect(screen.queryByTestId('results-chat-slot')).not.toBeInTheDocument();

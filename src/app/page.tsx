@@ -5,7 +5,7 @@ import { ThemeToggle } from '@/components/auth/ThemeToggle';
 import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
-import { LeaseLensWorkspaceShell } from '@/components/lease/LeaseLensWorkspaceShell';
+import { WorkspaceRouterShell } from '@/components/lease/WorkspaceRouterShell';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { ensureDemoUsersExist } from '@/lib/auth/ensure-demo-users';
 import { decrypt } from '@/lib/auth/session';
@@ -15,10 +15,12 @@ import {
   rehydrateToolEvents,
 } from '@/lib/chat/rehydrate-history';
 import { db } from '@/lib/db';
+import { env } from '@/lib/env';
 import {
   type ActiveLeaseSnapshot,
   getActiveLeaseSnapshot,
 } from '@/lib/lease/queries';
+import { LEASELENS_STATUS, LEASELENS_VERSION } from '@/lib/version';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   decodeWorkspace,
@@ -117,27 +119,49 @@ export default async function Home() {
   }
 
   return (
-    // Phase 10.5 — outermost shell uses h-dvh + flex-col so the header
-    // takes its natural height and the rest of the viewport is exactly
-    // one min-h-0 region. Every child below this point owns its own
-    // overflow chain; the page itself never scrolls.
-    <main className="flex h-dvh flex-col overflow-hidden bg-surface-base font-sans text-fg-default">
-      <header className="z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
+    // Phase 10.5 / Sprint 26c.10 — outermost shell switched from
+    // `flex h-dvh flex-col` to CSS grid with explicit rows. Both
+    // layouts pin the page to 100dvh and clip overflow, but
+    // `grid-rows-[auto_minmax(0,1fr)]` is more constraint-rigid: the
+    // body row can never grow past `1fr` of remaining viewport,
+    // regardless of what its descendants demand intrinsically
+    // (motion.div skeleton stacks, react-pdf canvases, dynamic-import
+    // loading placeholders). Plain `flex-1 min-h-0` could leak in
+    // certain hydration / animation timings, producing window-level
+    // scroll past 100dvh. The pattern mirrors Linear / Vercel docs
+    // for "header + viewport-bound body" shells.
+    <main className="grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-surface-base font-sans text-fg-default">
+      {/* Sprint 26c.2 — header proportions bumped to feel like a real
+          masthead, not a thin app chrome. py-3 → py-4 (denser by ~25%);
+          the brand box steps up from h-7 to h-10 with rounded-lg, the
+          inner mark from h-3.5 to h-5; the wordmark from 15px to 16px
+          with tighter tracking. NJSA anchor + LIVE stamp get a slight
+          size bump to keep visual balance with the larger lockup. */}
+      <header className="z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-4 dark:border-neutral-800">
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-3.5">
+            {/* Sprint 26c.4 — navbar brand text quieted (16px semibold →
+                14px medium) so the hero headline carries more visual
+                weight than the masthead lockup. The icon stays h-10
+                (per design direction) — a slightly heavier icon next
+                to lighter text reads as a glyph + label, which is the
+                desired navigation-branding pattern. */}
             <Link
               href="/"
-              className="flex items-center gap-2.5 rounded-md text-[15px] font-semibold tracking-tight text-neutral-800 transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-100"
+              className="flex items-center gap-3 rounded-md font-medium text-[14px] text-neutral-800 tracking-tight transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-100"
             >
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent-600 text-white">
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-600 text-white shadow-hairline">
                 {/*
                   Sprint 17.2 — bespoke LeaseLensMark replaces the generic
                   lucide FileSearch. Same metaphor (document + magnifying
                   glass), but custom geometry plus a one-shot scan sweep on
                   mount give the brand a real visual signature. See
                   design-system/MASTER.md → Brand mark for the rules.
+                  Sprint 26c.2 — mark stepped up from h-3.5 to h-5 (≈20px)
+                  inside the larger h-10 surface so the magnifier glyph is
+                  legible at a glance.
                 */}
-                <LeaseLensMark className="h-3.5 w-3.5" />
+                <LeaseLensMark className="h-5 w-5" />
               </span>
               LeaseLens
             </Link>
@@ -150,12 +174,16 @@ export default async function Home() {
             <span
               aria-hidden="true"
               data-testid="brand-system-anchor"
-              className="hidden font-mono text-[10px] tracking-[0.2em] text-fg-subtle uppercase md:inline"
+              className="hidden font-mono text-[11px] tracking-[0.2em] text-fg-subtle uppercase md:inline"
             >
               NJSA · 46:8 · Tenant Law
             </span>
           </div>
-          {currentRole !== 'Tenant' && (
+          {/* Sprint 27 — Cockpit link only renders when demo mode is on
+              AND the viewer is non-Tenant. Tenant-only public deploys
+              (LEASELENS_DEMO_MODE=false) never see this affordance,
+              keeping the product surface focused on parsing leases. */}
+          {env.LEASELENS_DEMO_MODE && currentRole !== 'Tenant' && (
             <Link
               href="/cockpit"
               className="rounded-md px-1 text-sm font-medium text-neutral-500 transition-colors hover:text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-400 dark:hover:text-neutral-200"
@@ -179,7 +207,7 @@ export default async function Home() {
           <span
             data-testid="brand-live-stamp"
             aria-hidden="true"
-            className="hidden font-mono text-[10px] tracking-[0.18em] text-fg-subtle uppercase md:inline-flex md:items-center md:gap-1.5"
+            className="hidden font-mono text-[11px] tracking-[0.18em] text-fg-subtle uppercase md:inline-flex md:items-center md:gap-1.5"
           >
             {/* Sprint 23k — radar-ping ripple on the LIVE indicator.
                 Canonical Tailwind two-layer ping: a static dot with an
@@ -192,13 +220,25 @@ export default async function Home() {
               <span className="absolute inline-flex h-full w-full rounded-full bg-success-600 opacity-75 motion-safe:animate-ping" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-success-600" />
             </span>
-            Live · v23.i
+            {LEASELENS_STATUS} · {LEASELENS_VERSION}
           </span>
           <ThemeToggle />
-          <RoleSwitcher currentRole={currentRole} />
+          {/* Sprint 27 — RoleSwitcher hidden in production (Tenant-only
+              public UI). Demo mode (LEASELENS_DEMO_MODE=true) keeps the
+              persona toggle available for internal review and stakeholder
+              walkthroughs without rewiring auth. */}
+          {env.LEASELENS_DEMO_MODE && (
+            <RoleSwitcher currentRole={currentRole} />
+          )}
         </div>
       </header>
-      <LeaseLensWorkspaceShell
+      {/* Sprint 26a — workspace router shell. Routes to ParserLandingShell
+          (Mode A, hero dropzone) when no active lease is rehydrated;
+          falls through to the legacy three-pane LeaseLensWorkspaceShell
+          otherwise. Sprint 26b replaces the post-upload branch with the
+          new ParserResultsShell; Sprint 26c replaces the FAB stub with
+          the real assistant. */}
+      <WorkspaceRouterShell
         key={workspace.id}
         initialMessages={initialMessages}
         conversationId={conversationId}
@@ -206,6 +246,7 @@ export default async function Home() {
         viewerRole={currentRole}
         initialToolEvents={initialToolEvents}
         initialActiveLease={initialActiveLease}
+        autoScanEnabled={env.LEASELENS_AUTO_SCAN_ENABLED}
       />
     </main>
   );

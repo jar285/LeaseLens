@@ -3,9 +3,19 @@
 // action when expanded. The summary row above the cards aggregates
 // counts per severity for at-a-glance scanability.
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  AssistantFabProvider,
+  useAssistantFab,
+} from '@/components/chat/AssistantFabContext';
 import {
   ChatStreamProvider,
   type ToolEvent,
@@ -15,6 +25,10 @@ import { RedFlagReport } from './RedFlagReport';
 
 afterEach(cleanup);
 
+// Sprint 26c — RedFlagReport now consumes `useAssistantFab()` for its
+// new Explain / Draft email actions. Every render must mount the
+// AssistantFabProvider; the wrapper handles it once so existing tests
+// stay readable.
 function ProviderWithEvents({
   events,
   children,
@@ -23,7 +37,9 @@ function ProviderWithEvents({
   children: ReactNode;
 }) {
   return (
-    <ChatStreamProvider initialEvents={events}>{children}</ChatStreamProvider>
+    <AssistantFabProvider>
+      <ChatStreamProvider initialEvents={events}>{children}</ChatStreamProvider>
+    </AssistantFabProvider>
   );
 }
 
@@ -381,7 +397,12 @@ describe('RedFlagReport', () => {
       audit_id: undefined,
     });
 
-    it('renders one skeleton per extracted clause when no gradings yet', () => {
+    it('renders the 6-stage lifecycle panel when extract has landed but no gradings yet', () => {
+      // Sprint 27 — the bare skeleton stack is replaced with the
+      // RedFlagsLoadingState panel so the user sees what the parser
+      // is doing (Jakob Nielsen: visibility of system status). The
+      // active stage in this state is "extracting clauses" with
+      // a live count of 3 found.
       render(
         <ProviderWithEvents events={[extractEvent(['c1', 'c2', 'c3'])]}>
           <RedFlagReport />
@@ -391,7 +412,17 @@ describe('RedFlagReport', () => {
       expect(
         screen.queryByTestId('red-flag-report-empty-examples'),
       ).not.toBeInTheDocument();
-      expect(screen.getAllByTestId('red-flag-skeleton-card')).toHaveLength(3);
+      const list = screen.getByTestId('red-flag-lifecycle');
+      const rows = within(list).getAllByRole('listitem');
+      expect(rows).toHaveLength(6);
+      // The "extracting_clauses" row should be active.
+      const extractingRow = rows.find(
+        (r) => r.getAttribute('data-stage') === 'extracting_clauses',
+      );
+      expect(extractingRow).toBeDefined();
+      expect(extractingRow).toHaveAttribute('data-status', 'active');
+      // Live count surfaces as detail subtext.
+      expect(extractingRow?.textContent).toMatch(/3/);
     });
 
     it('renders real cards plus trailing skeletons for ungraded clauses', () => {
@@ -572,5 +603,73 @@ describe('RedFlagReport', () => {
       // "Example" eyebrow sits inside the preview container.
       expect(preview.textContent ?? '').toMatch(/example/i);
     });
+  });
+
+  // Sprint 26c — Explain + Draft email actions open the FAB drawer
+  // with a prefilled, clause-aware prompt. Defined at the bottom so
+  // the vi.mock + AssistantFabProvider stays out of the older tests'
+  // way.
+});
+
+// ===========================================================================
+// Sprint 26c — RedFlagReport + AssistantFabContext integration
+// ===========================================================================
+//
+// We import AssistantFabProvider/useAssistantFab from the real module and
+// wrap the rendered tree in BOTH providers (ChatStream + Fab). A small
+// Probe captures the FAB context handle so the test can read state and
+// assert that openWith was called with the right payload. The imports
+// already exist at the top of the file.
+
+describe('Sprint 26c — RedFlagReport card actions wire into AssistantFabContext', () => {
+  afterEach(cleanup);
+
+  function renderWithFab(events: ToolEvent[]): {
+    fab: ReturnType<typeof useAssistantFab> | null;
+  } {
+    const ref: { fab: ReturnType<typeof useAssistantFab> | null } = {
+      fab: null,
+    };
+    function Probe(): null {
+      ref.fab = useAssistantFab();
+      return null;
+    }
+    render(
+      <AssistantFabProvider>
+        <ChatStreamProvider initialEvents={events}>
+          <Probe />
+          <RedFlagReport />
+        </ChatStreamProvider>
+      </AssistantFabProvider>,
+    );
+    return ref;
+  }
+
+  it('renders an Explain button inside the expanded card that opens the FAB drawer with clause context', () => {
+    const ctx = renderWithFab([grade()]);
+    fireEvent.click(screen.getByTestId('red-flag-card-toggle'));
+    const explain = screen.getByTestId('red-flag-explain');
+    expect(explain.tagName).toBe('BUTTON');
+    expect(explain).toHaveAttribute('type', 'button');
+    fireEvent.click(explain);
+
+    expect(ctx.fab?.state).toBe('drawer');
+    expect(ctx.fab?.selection.clauseId).toBe('c1');
+    expect(ctx.fab?.selection.severity).toBe('high');
+    expect(ctx.fab?.selection.statuteCitation).toBe('NJ Stat 46:8-21.2');
+    expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('explain');
+  });
+
+  it('renders a Draft email button inside the expanded card that opens the FAB drawer with a draft prompt', () => {
+    const ctx = renderWithFab([grade()]);
+    fireEvent.click(screen.getByTestId('red-flag-card-toggle'));
+    const draft = screen.getByTestId('red-flag-draft-email');
+    expect(draft.tagName).toBe('BUTTON');
+    fireEvent.click(draft);
+
+    expect(ctx.fab?.state).toBe('drawer');
+    expect(ctx.fab?.selection.clauseId).toBe('c1');
+    expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('draft');
+    expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('email');
   });
 });

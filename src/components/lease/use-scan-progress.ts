@@ -73,11 +73,19 @@ function readInputClauseId(input: unknown): string | null {
  * it. Anything before is from a prior scan and should not count toward the
  * current progress.
  *
+ * Sprint 26c.9 — optional `leaseId` filter. When provided, only consider
+ * extract events whose `result.lease_id` matches; this stops stale
+ * rehydrated tool events (from a prior conversation's lease) from
+ * surfacing as an in-flight scan on a freshly uploaded lease.
+ *
  * Exported for `scan-stages.ts` (Sprint 18 §5) so the thematic-stage
  * derivation can share the same "what counts as the current scan" anchor
  * — there should never be two answers to that question.
  */
-export function partitionByLatestExtract(events: ToolEvent[]): {
+export function partitionByLatestExtract(
+  events: ToolEvent[],
+  leaseId?: string | null,
+): {
   extract: ExtractClausesResult | null;
   extractIndex: number;
 } {
@@ -85,6 +93,12 @@ export function partitionByLatestExtract(events: ToolEvent[]): {
     const event = events[i];
     if (event.tool_name !== 'extract_clauses') continue;
     if (!isExtractClausesResult(event.result)) continue;
+    if (leaseId !== undefined && leaseId !== null) {
+      const eventLeaseId = (event.result as { lease_id?: unknown }).lease_id;
+      if (typeof eventLeaseId !== 'string' || eventLeaseId !== leaseId) {
+        continue;
+      }
+    }
     return { extract: event.result, extractIndex: i };
   }
   return { extract: null, extractIndex: -1 };
@@ -112,8 +126,11 @@ function countAttemptsSince(
   return seen;
 }
 
-export function computeScanProgress(events: ToolEvent[]): ScanProgress {
-  const { extract, extractIndex } = partitionByLatestExtract(events);
+export function computeScanProgress(
+  events: ToolEvent[],
+  leaseId?: string | null,
+): ScanProgress {
+  const { extract, extractIndex } = partitionByLatestExtract(events, leaseId);
 
   if (!extract) {
     return { phase: 'idle', total: 0, attempted: 0, label: '' };
@@ -152,6 +169,10 @@ export function computeScanProgress(events: ToolEvent[]): ScanProgress {
 }
 
 export function useScanProgress(): ScanProgress {
-  const { toolEvents } = useChatStream();
-  return useMemo(() => computeScanProgress(toolEvents), [toolEvents]);
+  const { toolEvents, activeLease } = useChatStream();
+  const leaseId = activeLease?.lease_id ?? null;
+  return useMemo(
+    () => computeScanProgress(toolEvents, leaseId),
+    [toolEvents, leaseId],
+  );
 }

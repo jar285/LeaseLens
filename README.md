@@ -320,6 +320,10 @@ Add to your MCP client config:
 
 MCP-originated mutations produce audit rows attributed to actor `mcp-server` inside the sample workspace.
 
+#### Browser-control MCP (Playwright)
+
+The repo also ships a project-level [`.mcp.json`](.mcp.json) that registers Microsoft's [`@playwright/mcp`](https://github.com/microsoft/playwright-mcp) server (headless Chromium, isolated profile, pinned to `0.0.75`). With `npm run dev` running, an MCP-aware client (Claude Code, etc.) can navigate `http://localhost:3000`, take accessibility snapshots, click, type, and screenshot the live UI — useful for interactive verification during sprint work. `npm run test:e2e` remains the source of truth for regression coverage.
+
 ### Diagrams (Mermaid)
 
 `render_workflow_diagram` accepts raw Mermaid source for any of eight diagram families (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`, `mindmap`, `journey`, `classDiagram`, `erDiagram`). Server-side validation only (prefix regex, length cap, init-directive + line-comment skip); rendering happens client-side via `mermaid@^11` with `securityLevel: 'strict'` and `htmlLabels: false`. Parse errors fall back to a `<pre>` block of the raw code with the error inline.

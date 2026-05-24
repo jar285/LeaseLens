@@ -24,6 +24,13 @@ export default defineConfig({
       // Engages src/lib/anthropic/e2e-mock.ts so the smoke test runs against
       // a deterministic mock instead of the real Anthropic API.
       LEASELENS_E2E_MOCK: '1',
+      // Sprint 27 — e2e specs exercise role-switching + the cockpit link,
+      // which are only rendered when demo mode is on. Production deploys
+      // run with LEASELENS_DEMO_MODE=false so the public UI stays
+      // Tenant-only; the e2e suite overrides to 'true' so existing
+      // role-driven flows (cockpit, reviewer/admin panels) remain
+      // reachable.
+      LEASELENS_DEMO_MODE: 'true',
       // Forward the session secret so .env.local-driven encrypt() works in
       // the dev server process the same way it does in tests.
       ...(process.env.LEASELENS_SESSION_SECRET

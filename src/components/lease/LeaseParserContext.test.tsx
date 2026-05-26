@@ -183,8 +183,12 @@ describe('LeaseParserContext', () => {
       const { resetConversation } = useChatStream();
       const lp = useLeaseParser();
       return (
-        <button type="button" onClick={resetConversation} data-testid="probe-reset">
-          reset-chat // lease={lp.activeLease?.lease_id ?? 'none'}
+        <button
+          type="button"
+          onClick={resetConversation}
+          data-testid="probe-reset"
+        >
+          reset-chat — lease={lp.activeLease?.lease_id ?? 'none'}
         </button>
       );
     }
@@ -197,9 +201,11 @@ describe('LeaseParserContext', () => {
     const { result } = renderHook(() => useLeaseParser(), { wrapper });
 
     // Trigger the chat-side reset through a real render.
-    const { render: rtlRender, fireEvent, screen } = await import(
-      '@testing-library/react'
-    );
+    const {
+      render: rtlRender,
+      fireEvent,
+      screen,
+    } = await import('@testing-library/react');
     rtlRender(
       <LeaseParserProvider activeLease={startLease}>
         <ChatStreamProvider>

@@ -104,6 +104,16 @@ export function AutoScanRunner({
     // same paint can't sneak through.
     STARTED_AUTO_SCAN_LEASE_IDS.add(leaseId);
 
+    // Sprint 28.5 (Bug 2 follow-up) — track tool_use envelopes so we
+    // can preserve their `input` args when the matching tool_result
+    // lands. Earlier revisions discarded tool_use entirely and pushed
+    // `input: {}` on every tool_event, which left `useScanProgress`
+    // counting zero attempts (it reads input.clause_id) and the header
+    // parked on a spinner indefinitely. Map is scoped per fetch so
+    // concurrent scans (shouldn't happen given the guard above, but
+    // defensive) don't cross-pollute.
+    const pendingToolUseInputs = new Map<string, Record<string, unknown>>();
+
     void (async () => {
       try {
         const response = await fetch('/api/chat', {
@@ -140,17 +150,25 @@ export function AutoScanRunner({
               // opens it later. Safe to call even if nobody's
               // listening; the setter is a no-op write to React state.
               setAutoScanConversationId(data.conversationId);
+            } else if ('tool_use' in data) {
+              // Sprint 28.5 — stash the tool_use input so the matching
+              // tool_result can carry it through. Without this, every
+              // pushed event had input: {} and useScanProgress could
+              // not count grading attempts (Bug 2 header-spinner).
+              pendingToolUseInputs.set(data.tool_use.id, data.tool_use.input);
             } else if ('tool_result' in data) {
+              const input = pendingToolUseInputs.get(data.tool_result.id) ?? {};
+              pendingToolUseInputs.delete(data.tool_result.id);
               pushToolEvent({
                 tool_name: data.tool_result.name,
-                input: {},
+                input,
                 result: data.tool_result.result,
                 audit_id: data.tool_result.audit_id,
               });
             }
-            // chunk / tool_use / truncated / error / quota envelopes
-            // are intentionally ignored — the auto-scan doesn't
-            // render a chat transcript.
+            // chunk / truncated / error / quota envelopes are
+            // intentionally ignored — the auto-scan doesn't render a
+            // chat transcript.
           }
         }
       } catch {

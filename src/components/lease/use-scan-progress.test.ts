@@ -124,4 +124,54 @@ describe('computeScanProgress', () => {
     expect(progress.attempted).toBe(1);
     expect(progress.phase).toBe('grading');
   });
+
+  // Sprint 28.5 — Bug 2 follow-up. AutoScanRunner pushes tool events with
+  // `input: {}` (empty) because it only processes `tool_result` envelopes
+  // and discards the `tool_use` envelopes that carry the input args. The
+  // grade events arrive with empty input but a populated `result.clause_id`.
+  // The original counter only read `input.clause_id`, so every auto-scan
+  // grading was invisible — `attempted` stayed at 0 and the header parked
+  // on "Scanning lease — N clauses found" with a spinner even after every
+  // clause had finished grading. This pins the regression.
+  describe('Sprint 28.5 — auto-scan input-less grade events (Bug 2 follow-up)', () => {
+    function gradeSuccessNoInput(clauseId: string): ToolEvent {
+      return {
+        tool_name: 'grade_clause_severity',
+        input: {}, // mirrors AutoScanRunner's empty-input shape
+        result: {
+          clause_id: clauseId,
+          severity: 'med',
+          statute_citation: 'NJSA 1',
+        },
+        audit_id: undefined,
+      };
+    }
+
+    it('counts auto-scan grade events that carry only result.clause_id', () => {
+      const events: ToolEvent[] = [
+        extractEvent(['c1', 'c2', 'c3']),
+        gradeSuccessNoInput('c1'),
+        gradeSuccessNoInput('c2'),
+      ];
+      const progress = computeScanProgress(events);
+      expect(progress.attempted).toBe(2);
+      expect(progress.phase).toBe('grading');
+      expect(progress.label).toBe('Grading 2 of 3…');
+    });
+
+    it('marks the scan complete when every clause has an input-less grade event', () => {
+      // Reproduces the user's screenshot: 15 clauses found, every clause
+      // graded via auto-scan (empty input, result.clause_id populated).
+      // Today the header was still showing "Scanning lease — 15 clauses
+      // found" with a spinner because attempted stayed at 0.
+      const clauseIds = Array.from({ length: 15 }, (_, i) => `c${i + 1}`);
+      const events: ToolEvent[] = [
+        extractEvent(clauseIds),
+        ...clauseIds.map(gradeSuccessNoInput),
+      ];
+      const progress = computeScanProgress(events);
+      expect(progress.attempted).toBe(15);
+      expect(progress.phase).toBe('complete');
+    });
+  });
 });

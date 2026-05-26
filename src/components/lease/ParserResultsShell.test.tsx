@@ -151,6 +151,79 @@ describe('ParserResultsShell', () => {
     expect(idxClauses).toBeGreaterThan(idxRedFlags);
   });
 
+  // Sprint 28.10 — layout invariants for Bug 1 (giant blank scroll
+  // area). The workspace must clip to its row in the page-level grid,
+  // scroll only inside the right results-stack pane, and reserve
+  // FAB clearance via a sentinel inside the last child of that pane
+  // (not as padding on the scroll container itself — that's what
+  // produced the leaked empty scroll space when content was short).
+  describe('Sprint 28.10 — layout invariants (Bug 1)', () => {
+    it('outer shell has overflow-hidden so the workspace cannot leak scroll height into the page', () => {
+      render(<ParserResultsShell {...baseProps} />);
+      const shell = screen.getByTestId('parser-results-shell');
+      expect(shell.className).toMatch(/overflow-hidden/);
+      expect(shell.className).toMatch(/min-h-0/);
+    });
+
+    it('left pane (PDF) clips its own content with overflow-hidden + min-h-0', () => {
+      render(<ParserResultsShell {...baseProps} />);
+      const pdfPane = screen.getByTestId('results-pdf-pane');
+      expect(pdfPane.className).toMatch(/overflow-hidden/);
+      expect(pdfPane.className).toMatch(/min-h-0/);
+    });
+
+    it('right pane (results-stack) is the only scroll container — overflow-y-auto + overscroll-contain + min-h-0', () => {
+      render(<ParserResultsShell {...baseProps} />);
+      const stack = screen.getByTestId('results-stack');
+      expect(stack.className).toMatch(/overflow-y-auto/);
+      expect(stack.className).toMatch(/overscroll-contain/);
+      expect(stack.className).toMatch(/min-h-0/);
+    });
+
+    it('right pane scroll container does NOT carry pb-28 (FAB clearance moved to an inner sentinel)', () => {
+      // Pre-Sprint-28.10 the scroll container itself had `pb-28`,
+      // which added 112px to its scrollHeight even when content was
+      // short — the user saw an empty scroll area below the last
+      // card. Sprint 28.10 moves the clearance to a sentinel inside
+      // the last child so it tracks with content height instead of
+      // permanently inflating the scroll viewport.
+      render(<ParserResultsShell {...baseProps} />);
+      const stack = screen.getByTestId('results-stack');
+      expect(stack.className).not.toMatch(/\bpb-2[4-9]\b/);
+      // The sentinel is rendered as the last child of the scroll
+      // stack so the FAB clearance moves with the content (no
+      // permanent empty space when content is short, but still
+      // present for tall content so the last card is reachable
+      // above the floating button).
+      const sentinel = screen.getByTestId('results-stack-fab-safe-area');
+      expect(sentinel).toBeInTheDocument();
+      expect(sentinel).toHaveAttribute('aria-hidden', 'true');
+      // The sentinel is the LAST scrollable child of the stack.
+      const stackChildren = Array.from(stack.children);
+      expect(stackChildren[stackChildren.length - 1]).toBe(sentinel);
+    });
+
+    it('main body row pattern is grid-cols-2 on lg and stacked on small screens', () => {
+      // Sprint 28.10 — explicit grid model (per the audit's
+      // recommendation): predictable 2-column at lg, single column
+      // below. Replaces the previous flex-col / lg:flex-row pattern
+      // which had height-constraint propagation gaps.
+      render(<ParserResultsShell {...baseProps} />);
+      const stack = screen.getByTestId('results-stack');
+      // The grid container is the direct parent of the two panes.
+      const gridContainer = stack.parentElement;
+      expect(gridContainer).not.toBeNull();
+      expect(gridContainer?.className).toMatch(/grid/);
+      // Two equal-width columns at lg; single column below.
+      expect(gridContainer?.className).toMatch(/grid-cols-1/);
+      expect(gridContainer?.className).toMatch(/lg:grid-cols-2/);
+      // Grid must still own height containment so flex children
+      // (PdfViewer, RedFlagReport) can size to its row height.
+      expect(gridContainer?.className).toMatch(/overflow-hidden/);
+      expect(gridContainer?.className).toMatch(/min-h-0/);
+    });
+  });
+
   it('mounts the real AssistantFab (no stub) in Mode B', () => {
     render(<ParserResultsShell {...baseProps} />);
     expect(screen.getByTestId('assistant-fab')).toBeInTheDocument();

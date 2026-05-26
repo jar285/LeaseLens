@@ -159,26 +159,47 @@ function ResultsShellInner({
           leftPaneState={leftPaneState}
           onReplace={handleReplace}
         />
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 lg:flex-row">
+        {/* Sprint 28.10 — explicit grid model. Replaces the previous
+            flex-col / lg:flex-row layout which leaked scroll height
+            into the right pane on short content (Bug 1). The grid
+            owns height containment via `min-h-0 overflow-hidden` and
+            each cell is `flex-col h-full` so its child decides how
+            to scroll. Single column below lg, two equal columns at
+            lg+ — `grid-cols-1 lg:grid-cols-2` is more predictable
+            than the flex-direction swap. */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-2">
           <section
             data-testid="results-pdf-pane"
             data-state={leftPaneState.kind}
-            className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-neutral-200 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900"
+            className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-neutral-200 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900"
             aria-label="Lease PDF"
           >
             <PdfPaneContent state={leftPaneState} />
           </section>
           <section
             data-testid="results-stack"
-            // Sprint 26c.10 — pb-24 → pb-28 to clear the bumped FAB
-            // pill (now 64px tall at bottom-6, so its top edge sits
-            // 88px from viewport bottom; pb-28 reserves 112px which
-            // keeps the last clause row visible above the FAB).
-            className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-28"
+            // Sprint 28.10 — the only scroll container in the body.
+            // `pb-28` previously lived here as FAB clearance, but
+            // that permanently inflated scrollHeight by 112px even
+            // when content was short, leaving a blank scroll area
+            // below the last card (Bug 1). The clearance now lives
+            // as a sentinel inside this scroll stack, so it moves
+            // with content height instead of being permanent.
+            className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain"
             aria-label="Parser results"
           >
             <ResultsRedFlagsSection />
             <ClausesList />
+            {/* Sprint 28.10 — FAB safe area sentinel. Lives inside
+                the scroll stack as its last child so the user can
+                scroll the last clause above the floating button
+                when content overflows, but no permanent empty
+                space appears when content is short. */}
+            <div
+              data-testid="results-stack-fab-safe-area"
+              aria-hidden="true"
+              className="h-28 shrink-0"
+            />
           </section>
         </div>
       </div>

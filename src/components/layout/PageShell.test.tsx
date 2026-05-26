@@ -18,7 +18,12 @@ describe('PageShell', () => {
     expect(screen.getByTestId('content')).toBeInTheDocument();
   });
 
-  it('defaults to fixed layout (h-dvh + overflow-hidden)', () => {
+  it('defaults to fixed layout (h-screen + overflow-hidden)', () => {
+    // Sprint 28.12 — switched from `h-dvh` to `h-screen`. Tailwind v4
+    // emits `.h-dvh { }` with an empty body in this project's build, so
+    // the viewport clamp silently did nothing and the page scrolled
+    // (Bug 1, deeper root cause than the Sprint 28.10/28.11 sentinel
+    // patches). `h-screen` emits `height: 100vh` reliably.
     render(
       <PageShell>
         <div />
@@ -26,7 +31,8 @@ describe('PageShell', () => {
     );
     const main = screen.getByRole('main');
     expect(main.dataset.layout).toBe('fixed');
-    expect(main.className).toContain('h-dvh');
+    expect(main.className).toContain('h-screen');
+    expect(main.className).not.toContain('h-dvh');
     expect(main.className).toContain('overflow-hidden');
   });
 

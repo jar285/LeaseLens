@@ -101,26 +101,22 @@ test('uploading after Replace restores the results shell', async ({ page }) => {
   );
 });
 
-// Sprint 26c.10 — regression guard for "window scrolls past viewport".
-// The post-upload Mode B layout was leaking past 100dvh because the
-// `<main className="flex h-dvh flex-col overflow-hidden">` chain wasn't
-// constraint-rigid enough for children with intrinsic-height demands
-// (RedFlagSkeletonCard stacks, react-pdf, motion.div). Switching <main>
-// to CSS grid (`grid-rows-[auto_minmax(0,1fr)]`) enforces the body row
-// can never grow past `1fr` of remaining viewport space. This test
-// pins that invariant: after upload, the document body equals viewport
-// height — no window-level scroll.
-test('Mode B does not introduce window scroll past viewport with seeded red-flag cards (no extra empty space)', async ({
+// Sprint 28.13 — inverted from Sprint 26c.10's "no window scroll"
+// regression guard. The spec §1.6 invariant "the page itself must not
+// scroll" was dropped on user request after Sprints 28.10–28.12; the
+// workspace is now a window-scrolled document. This test pins the new
+// shape: the document scrolls past the viewport when seeded gradings
+// are present, and the sticky header stays at the top of the viewport
+// throughout. Catches accidental re-introduction of an outer
+// `overflow-hidden` clamp that would silently swallow window scroll
+// again.
+test('Mode B is window-scrolled — document height grows past viewport and the header stays sticky', async ({
   page,
 }) => {
-  // Seed a graded conversation so the post-upload page rehydrates with
-  // a populated RedFlagReport + ClausesList — that's the state that
-  // exposed the scroll bug in live testing. A bare-upload page may
-  // not stress the layout enough to reveal the overflow.
   const leaseId = seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,
     uploadedBy: TENANT_ID,
-    filename: 'scroll-regression-lease.pdf',
+    filename: 'window-scroll-lease.pdf',
   });
   seedGradedConversation({
     userId: TENANT_ID,
@@ -128,26 +124,36 @@ test('Mode B does not introduce window scroll past viewport with seeded red-flag
     leaseId,
     userMessageText: 'Scan this lease.',
     gradings: [
-      { clauseId: 'sr-1', severity: 'high', pageNumber: 1, clauseIndex: 0 },
-      { clauseId: 'sr-2', severity: 'medium', pageNumber: 1, clauseIndex: 1 },
-      { clauseId: 'sr-3', severity: 'low', pageNumber: 2, clauseIndex: 2 },
-      { clauseId: 'sr-4', severity: 'ok', pageNumber: 2, clauseIndex: 3 },
+      { clauseId: 'ws-1', severity: 'high', pageNumber: 1, clauseIndex: 0 },
+      { clauseId: 'ws-2', severity: 'medium', pageNumber: 1, clauseIndex: 1 },
+      { clauseId: 'ws-3', severity: 'low', pageNumber: 2, clauseIndex: 2 },
+      { clauseId: 'ws-4', severity: 'ok', pageNumber: 2, clauseIndex: 3 },
     ],
   });
 
   await page.goto('/');
   await expect(page.getByTestId('parser-results-shell')).toBeVisible();
-  // Wait for at least one red-flag card to render so the layout is
-  // populated with real content (not just skeleton placeholders).
   await expect(page.getByTestId('red-flag-card').first()).toBeVisible();
-
-  // Let the layout settle after PdfViewer hydration + motion entrance.
   await page.waitForTimeout(250);
 
+  // The document must exceed the viewport so window scroll is meaningful.
   const { scrollHeight, innerHeight } = await page.evaluate(() => ({
     scrollHeight: document.documentElement.scrollHeight,
     innerHeight: window.innerHeight,
   }));
-  // Allow 1px of slack for sub-pixel rounding.
-  expect(Math.abs(scrollHeight - innerHeight)).toBeLessThanOrEqual(1);
+  expect(scrollHeight).toBeGreaterThan(innerHeight + 200);
+
+  // Scroll halfway down and confirm the page actually moves (not just
+  // an inner pane).
+  await page.evaluate(() => window.scrollTo(0, 500));
+  const scrolledY = await page.evaluate(() => window.scrollY);
+  expect(scrolledY).toBeGreaterThan(0);
+
+  // While the window is scrolled, the sticky header must still be at
+  // y=0 in the viewport (its getBoundingClientRect().top stays 0).
+  const headerTop = await page.evaluate(() => {
+    const h = document.querySelector('header');
+    return h ? Math.round(h.getBoundingClientRect().top) : null;
+  });
+  expect(headerTop).toBe(0);
 });

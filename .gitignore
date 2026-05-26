@@ -60,3 +60,4 @@ tmp/
 
 # Claude Code workspace-local state (per-user; shared settings.json may be tracked)
 .claude/settings.local.json
+.mcp.json

@@ -106,7 +106,7 @@ function renderWithEvents(events: ToolEvent[]): {
   render(
     <AssistantFabProvider>
       <LeaseParserProvider initialEvents={events}>
-        <ChatStreamProvider initialEvents={events} viewerRole="Tenant">
+        <ChatStreamProvider viewerRole="Tenant">
           <Probe />
           <ClausesList />
         </ChatStreamProvider>
@@ -333,7 +333,7 @@ describe('Sprint 26c — ClausesList Explain action', () => {
     render(
       <AssistantFabProvider>
         <LeaseParserProvider initialEvents={events}>
-          <ChatStreamProvider initialEvents={events}>
+          <ChatStreamProvider>
             <Probe />
             <ClausesList />
           </ChatStreamProvider>
@@ -397,7 +397,7 @@ describe('Sprint 26c — ClausesList Explain action', () => {
       return (
         <AssistantFabProvider>
           <LeaseParserProvider initialEvents={probeEvents}>
-            <ChatStreamProvider initialEvents={probeEvents}>
+            <ChatStreamProvider>
               <ClausesListProbe />
               <ClausesList />
             </ChatStreamProvider>

@@ -69,6 +69,15 @@ export interface AssistantFabContextValue {
    * Use when the user genuinely wants to start fresh.
    */
   clearContext: () => void;
+  /**
+   * Sprint 28.8 — focused variant for ChatUI's "New conversation"
+   * handler. Drops pendingPrompt + selection (so the FAB no longer
+   * carries the old clause context into the new chat thread) but
+   * leaves drawer state alone — the user is mid-interaction and
+   * expects to keep typing their next question immediately, not
+   * re-open the drawer.
+   */
+  clearPendingContext: () => void;
 }
 
 const AssistantFabContext = createContext<AssistantFabContextValue | null>(
@@ -119,6 +128,11 @@ export function AssistantFabProvider({
     setSelection(EMPTY_SELECTION);
   }, []);
 
+  const clearPendingContext = useCallback(() => {
+    setPendingPrompt(null);
+    setSelection(EMPTY_SELECTION);
+  }, []);
+
   const value = useMemo<AssistantFabContextValue>(
     () => ({
       state,
@@ -129,6 +143,7 @@ export function AssistantFabProvider({
       openWith,
       close,
       clearContext,
+      clearPendingContext,
     }),
     [
       state,
@@ -139,6 +154,7 @@ export function AssistantFabProvider({
       openWith,
       close,
       clearContext,
+      clearPendingContext,
     ],
   );
 

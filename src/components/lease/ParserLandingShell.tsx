@@ -69,7 +69,7 @@ export function ParserLandingShell({
   return (
     <AssistantFabProvider>
       <LeaseParserProvider activeLease={null}>
-        <ChatStreamProvider viewerRole={viewerRole} activeLease={null}>
+        <ChatStreamProvider viewerRole={viewerRole}>
           <section
             data-testid="parser-landing-shell"
             // Sprint 26c.3 — `justify-center-safe` falls back to flex-start

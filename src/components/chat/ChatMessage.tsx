@@ -11,6 +11,7 @@ import {
   isGradingResult,
   type Severity,
 } from '@/components/lease/grading';
+import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { NegotiationEmailCard } from '@/components/lease/NegotiationEmailCard';
 import { ScanTimeline } from '@/components/lease/ScanTimeline';
 import type { Role } from '@/lib/auth/types';
@@ -290,7 +291,7 @@ function ToolInvocationsBlock({
   viewerRole: Role;
   invocations: ToolInvocation[];
 }): React.JSX.Element {
-  const { toolEvents } = useChatStream();
+  const { toolEvents } = useLeaseParser();
   const scanInvocations = invocations.filter((inv) =>
     SCAN_TOOL_NAMES.has(inv.name),
   );

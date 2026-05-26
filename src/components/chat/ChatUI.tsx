@@ -4,28 +4,22 @@ import { AlertCircle, RotateCcw, SquarePen } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
-import { getPdfBinaryRepository } from '@/lib/lease/pdf-binary-repository';
+import { useAssistantFab } from './AssistantFabContext';
 import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps, ToolInvocation } from './ChatMessage';
-import {
-  type ActiveLeaseRef,
-  type ToolEvent,
-  useChatStream,
-} from './ChatStreamContext';
+import { useChatStream } from './ChatStreamContext';
 import { ChatTranscript } from './ChatTranscript';
+
+// Sprint 28.8 — announcement copy for the aria-live region. Screen
+// readers fire on textContent change, so we set this string into the
+// announcer right after the reset. The wording is deliberate: it
+// names the user's concern ("lease preserved") so the SR user knows
+// the destructive-feeling action did NOT delete their workspace.
+const NEW_CONVERSATION_ANNOUNCEMENT =
+  'New conversation started. Your lease and results are preserved.';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to generate response';
-}
-
-// Sprint 25 — best-effort cache eviction at the commit boundary. Pairs
-// with the existing `URL.revokeObjectURL` call so the cached PDF bytes
-// don't outlive the Blob URL the app could use to render them. Fire-
-// and-forget; failures are non-actionable for the user.
-function evictCachedPdf(leaseId: string): void {
-  void getPdfBinaryRepository()
-    .delete(leaseId)
-    .catch(() => {});
 }
 
 export interface ChatToolEvent {
@@ -129,19 +123,31 @@ export function ChatUI({
   const [previousMessages, setPreviousMessages] = useState<ChatMessageProps[]>(
     [],
   );
-  const [previousActiveLease, setPreviousActiveLease] =
-    useState<ActiveLeaseRef | null>(null);
-  const [previousToolEvents, setPreviousToolEvents] = useState<ToolEvent[]>([]);
+  // Sprint 28.7 — chat-thread snapshots for "Continue previous" undo.
+  // Parser state (activeLease, toolEvents) is intentionally NOT stashed
+  // here: after the Sprint 3+4 state split, parser state lives on
+  // LeaseParserContext and is never reset by a chat-thread action, so
+  // there is nothing to restore on the parser side.
+  const { activeLease } = useLeaseParser();
+  const { autoScanConversationId } = useChatStream();
+  // Sprint 28.8 — FAB context drop on "New conversation". ChatUI may
+  // be mounted standalone (not inside the FAB), so we guard against a
+  // missing provider by accessing via a wrapped hook; useAssistantFab
+  // throws if no provider is mounted, so a try/catch in the handler
+  // would be premature — every production mount goes through the
+  // workspace shells where the provider exists. Tests that mount
+  // ChatUI without the FAB provider stub this hook explicitly.
+  const fab = useAssistantFab();
 
-  // Sprint 28.6 — parser state (activeLease, toolEvents) lives on
-  // LeaseParserContext now. Chat-thread state (resetConversation,
-  // restoreConversation, autoScanConversationId) stays on
-  // ChatStreamContext. The two reset functions intentionally only
-  // touch their own slice — that's the Bug 3 fix in action: clicking
-  // "New conversation" no longer drops the lease or the red flags.
-  const { activeLease, toolEvents } = useLeaseParser();
-  const { resetConversation, restoreConversation, autoScanConversationId } =
-    useChatStream();
+  // Sprint 28.8 — aria-live announcer text for screen readers. Set
+  // by handleNewConversation; cleared by an effect after a beat so
+  // repeat clicks re-announce.
+  const [announcement, setAnnouncement] = useState<string>('');
+  useEffect(() => {
+    if (!announcement) return;
+    const timer = window.setTimeout(() => setAnnouncement(''), 4000);
+    return () => window.clearTimeout(timer);
+  }, [announcement]);
 
   // Sprint 26c.11 — promote the auto-scan's captured conversationId
   // into local state once it's available, so the user's manual chat
@@ -171,62 +177,38 @@ export function ChatUI({
     // Cancel any in-flight stream before clearing state so the reader
     // loop sees AbortError before it can race against the reset.
     abortRef.current?.abort();
-    if (activeConversationId !== null || messages.length > 0 || activeLease) {
-      // Sprint 24.7 — if the stash is being overwritten by a different
-      // lease, revoke the soon-to-be-orphaned pdfUrl. The OLD stashed
-      // lease is about to become unreachable in app state; without this
-      // revoke, its Blob URL would leak until page unload. Skip the
-      // revoke when the URLs match (defensive — shouldn't happen since
-      // each upload produces a unique blob, but harmless to guard).
-      if (
-        previousActiveLease?.pdfUrl &&
-        previousActiveLease.pdfUrl !== activeLease?.pdfUrl
-      ) {
-        try {
-          URL.revokeObjectURL(previousActiveLease.pdfUrl);
-        } catch {
-          // revokeObjectURL is best-effort and a no-op in jsdom tests.
-        }
-        // Sprint 25 — also evict the IndexedDB-cached bytes for the
-        // about-to-be-orphaned lease. Mirrors the Blob URL revoke: the
-        // OLD stash is being overwritten, so the bytes are no longer
-        // reachable from app state.
-        evictCachedPdf(previousActiveLease.lease_id);
-      }
+    if (activeConversationId !== null || messages.length > 0) {
+      // Sprint 28.7 — only the chat thread is stashed for the
+      // "Continue previous" undo. The lease lives on
+      // LeaseParserContext and was never touched, so there is nothing
+      // parser-side to restore. Sprint 28.9+ may introduce an
+      // explicit "Reset workspace" affordance that clears both
+      // contexts on confirmation.
       setPreviousConversationId(activeConversationId);
       setPreviousMessages(messages);
-      // Sprint 24.7 — snapshot the lease + tool events alongside the
-      // chat thread so "Continue previous" can put everything back.
-      setPreviousActiveLease(activeLease);
-      setPreviousToolEvents(toolEvents);
     }
     setMessages([]);
     setActiveConversationId(null);
     setStatus('idle');
     setErrorMsg('');
     setQuotaRemaining(null);
-    // Sprint 24.7 — clears toolEvents, activeClauseId, and activeLease
-    // on the context. This is what brings the dropzone back and empties
-    // the red-flag pane. The Blob URL is NOT revoked here — the stash
-    // still holds a reference to the same activeLease object, and
-    // revoking too early breaks "Continue previous." Revocation moves
-    // to the commit boundary (above and in handleSubmit).
-    resetConversation();
+    // Sprint 28.8 — drop the FAB's pendingPrompt + selection so the
+    // next user question isn't biased toward the prior clause
+    // context. The drawer stays open (clearPendingContext doesn't
+    // touch state) — the user is mid-interaction.
+    fab.clearPendingContext();
+    // Sprint 28.8 — announce to screen readers that the lease is
+    // preserved. The destructive-sounding label "New conversation"
+    // would otherwise leave SR users wondering whether their lease
+    // and red flags are still there.
+    setAnnouncement(NEW_CONVERSATION_ANNOUNCEMENT);
   };
 
   const handleContinuePrevious = () => {
     setActiveConversationId(previousConversationId);
     setMessages(previousMessages);
-    // Sprint 24.7 — restore lease + tool events atomically so the undo
-    // is a real undo (dropzone → viewer, red-flag cards return).
-    restoreConversation({
-      activeLease: previousActiveLease,
-      toolEvents: previousToolEvents,
-    });
     setPreviousConversationId(null);
     setPreviousMessages([]);
-    setPreviousActiveLease(null);
-    setPreviousToolEvents([]);
     setStatus('idle');
     setErrorMsg('');
   };
@@ -236,37 +218,13 @@ export function ChatUI({
     if (!trimmed || status === 'streaming') return;
 
     // Sending a message commits to the new thread — drop the undo-stash
-    // so "Continue previous" doesn't reappear later.
-    // Sprint 24.7 — also drop the lease + tool-events snapshot so a
-    // committed new thread can't accidentally resurrect the prior lease.
-    // The stashed pdfUrl is provably unreachable once the stash is
-    // cleared, so this is the right place to revoke the Blob URL.
-    if (
-      previousConversationId !== null ||
-      previousActiveLease !== null ||
-      previousToolEvents.length > 0
-    ) {
-      if (previousActiveLease?.pdfUrl) {
-        try {
-          URL.revokeObjectURL(previousActiveLease.pdfUrl);
-        } catch {
-          // revokeObjectURL is best-effort and a no-op in jsdom tests.
-        }
-      }
-      // Sprint 25 — commit boundary: the stash is provably unreachable
-      // once cleared, so the cached PDF bytes can also be evicted. The
-      // stashed lease_id is what we need; null-checked because the
-      // stash can hold only chat thread (no lease) when the user
-      // misclicked New without ever uploading.
-      if (previousActiveLease?.lease_id) {
-        void getPdfBinaryRepository()
-          .delete(previousActiveLease.lease_id)
-          .catch(() => {});
-      }
+    // so "Continue previous" doesn't reappear later. Sprint 28.7 — the
+    // stash is now chat-only; parser state lives on LeaseParserContext
+    // and is never touched by chat-thread actions, so there is no
+    // pdfUrl/lease binary to revoke here.
+    if (previousConversationId !== null || previousMessages.length > 0) {
       setPreviousConversationId(null);
       setPreviousMessages([]);
-      setPreviousActiveLease(null);
-      setPreviousToolEvents([]);
     }
 
     const userMessage: ChatMessageProps = {
@@ -448,14 +406,26 @@ export function ChatUI({
   // sending any message would see no Continue-previous button — their
   // lease + red-flag cards would be unrecoverable without re-uploading.
   const hasPreviousStash =
-    previousConversationId !== null ||
-    previousActiveLease !== null ||
-    previousToolEvents.length > 0;
+    previousConversationId !== null || previousMessages.length > 0;
   const showContinuePrevious = !hasMessages && hasPreviousStash && !activeLease;
   const showToolbar = hasMessages || hasPreviousStash;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
+      {/* Sprint 28.8 — aria-live announcer for chat-thread resets so
+          screen-reader users hear that the lease is preserved. Empty
+          most of the time; populated for ~4s after a New conversation
+          click. role="status" → polite by default, but we set the
+          attribute explicitly for any AT that ignores the role default. */}
+      <div
+        data-testid="new-conversation-announcer"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {announcement}
+      </div>
       <div className="grid min-h-0 w-full flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
         {/* Conversation toolbar — visible when there's an active thread or
             a stashed previous one (one-click undo for misclicked New). */}

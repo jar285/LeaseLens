@@ -7,7 +7,7 @@
 
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
+import { useLeaseParser } from './LeaseParserContext';
 import { ParserLandingShell } from './ParserLandingShell';
 
 // Sprint 26c — the real FAB is dynamically imported; mock it to a
@@ -103,11 +103,11 @@ describe('ParserLandingShell', () => {
     expect(screen.queryByTestId('chat-empty-state')).not.toBeInTheDocument();
   });
 
-  it('wraps its subtree in a ChatStreamProvider so descendants can use useChatStream()', () => {
+  it('wraps its subtree in a LeaseParserProvider so descendants can use useLeaseParser()', () => {
     // A probe component that consumes the context. If the provider is
-    // missing, useChatStream throws synchronously and render() fails.
+    // missing, useLeaseParser throws synchronously and render() fails.
     function Probe(): React.JSX.Element {
-      const { activeLease } = useChatStream();
+      const { activeLease } = useLeaseParser();
       return (
         <span data-testid="ctx-probe">
           {activeLease ? 'has-lease' : 'no-lease'}

@@ -49,7 +49,7 @@ const wrap =
   ) =>
   ({ children }: { children: ReactNode }) => (
     <LeaseParserProvider activeLease={initial}>
-      <ChatStreamProvider activeLease={initial}>{children}</ChatStreamProvider>
+      <ChatStreamProvider>{children}</ChatStreamProvider>
     </LeaseParserProvider>
   );
 

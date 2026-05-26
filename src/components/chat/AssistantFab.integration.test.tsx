@@ -53,6 +53,79 @@ afterEach(() => {
 });
 
 describe('AssistantFab integration', () => {
+  // Sprint 28.8 — fixes the orphan-FAB-state corner of Bug 3. After
+  // Sprint 3 the lease is preserved across "New conversation"; this
+  // sprint clears the FAB's pendingPrompt + selection too so the
+  // next user question isn't biased toward the prior clause context.
+  // Also asserts the screen-reader announcement that confirms the
+  // lease is preserved (WCAG / Nielsen visibility-of-system-status).
+  it('Sprint 28.8 — clicking "New conversation" clears FAB pendingPrompt + selection AND fires an aria-live announcement', async () => {
+    const holder: { fab: ReturnType<typeof useAssistantFab> | null } = {
+      fab: null,
+    };
+    function Probe(): null {
+      holder.fab = useAssistantFab();
+      return null;
+    }
+
+    render(
+      <AssistantFabProvider>
+        <LeaseParserProvider>
+          <ChatStreamProvider viewerRole="Tenant">
+            <Probe />
+            <AssistantFabClient
+              workspaceName="Demo workspace"
+              conversationId="conv-existing"
+              initialMessages={[
+                { id: 'msg-1', role: 'user', content: 'Hi there' },
+              ]}
+            />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
+      </AssistantFabProvider>,
+    );
+
+    // Open the drawer with a prefilled prompt + clause selection,
+    // mirroring what RedFlagReport's Explain button does in
+    // production.
+    act(() => {
+      holder.fab?.openWith({
+        initialPrompt: 'Explain the security deposit clause.',
+        clauseId: 'c-deposit',
+        severity: 'high',
+        statuteCitation: 'NJ Stat 46:8-19',
+      });
+    });
+
+    // Wait for the drawer + composer to mount.
+    await screen.findByTestId('assistant-fab-drawer');
+    expect(holder.fab?.pendingPrompt).toBe(
+      'Explain the security deposit clause.',
+    );
+    expect(holder.fab?.selection.clauseId).toBe('c-deposit');
+
+    // Click the "New conversation" button rendered inside ChatUI.
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+
+    // Drawer stays open — user expects to keep typing.
+    expect(holder.fab?.state).toBe('drawer');
+    // FAB-side context is gone — no leftover clause selection to
+    // bias the next question.
+    expect(holder.fab?.pendingPrompt).toBeNull();
+    expect(holder.fab?.selection.clauseId).toBeNull();
+    expect(holder.fab?.selection.severity).toBeUndefined();
+    expect(holder.fab?.selection.statuteCitation).toBeUndefined();
+
+    // The aria-live announcer carries the preservation message so a
+    // screen-reader user knows their lease is intact (this would have
+    // been the entire bug experience for SR users pre-Sprint-3).
+    const announcer = await screen.findByTestId('new-conversation-announcer');
+    expect(announcer).toHaveAttribute('aria-live', 'polite');
+    expect(announcer.textContent ?? '').toMatch(
+      /new conversation.*lease.*preserved/i,
+    );
+  });
+
   it('openWith seeds the composer + submitting posts the prompt to /api/chat', async () => {
     // Capture the FAB context handle via a mutable ref-style holder.
     // A `let` binding gets narrowed to `null` by TS because it can't

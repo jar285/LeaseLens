@@ -21,6 +21,39 @@
  * cycles system → light → dark and persists to localStorage.
  */
 @custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Sprint 28.15 — z-index utilities tied to the design-system tokens.
+ *
+ * Tailwind v4 auto-generates utilities for color/font/radius/shadow/ease
+ * tokens but NOT for `--z-*` (no built-in `--z-*` token namespace).
+ * Sprint 23a defined `--z-raised: 10`, `--z-overlay: 20`, etc. in the
+ * @theme block and the codebase started using `z-raised`/`z-overlay`/
+ * `z-toast`/`z-dialog` on the page header, FAB, dialogs, etc. — but
+ * those classes never emitted any CSS rule, so they were silently
+ * no-ops. The page header still painted "above" the workspace because
+ * document order + sticky positioning happened to align; the moment a
+ * sibling stacking context (e.g. the sticky PDF pane introduced in
+ * Sprint 28.14) shifted the default behavior, the sticky page header
+ * lost the stack to red-flag cards passing through it.
+ *
+ * Tailwind v4's `@utility` directive is the canonical way to expose
+ * a custom utility class. Defining them here makes the existing
+ * call-sites (`z-raised` etc.) actually apply the token values.
+ */
+@utility z-raised {
+  z-index: var(--z-raised);
+}
+@utility z-overlay {
+  z-index: var(--z-overlay);
+}
+@utility z-toast {
+  z-index: var(--z-toast);
+}
+@utility z-dialog {
+  z-index: var(--z-dialog);
+}
+
 @theme {
   /*
    * Sprint 23i — Open-Design-inspired "cream paper + terracotta" palette.
@@ -220,6 +253,15 @@
 @layer base {
   html {
     color-scheme: light dark;
+    /*
+     * Sprint 28.13 — workspace is window-scrolled with a sticky header.
+     * scroll-padding-top reserves space for the sticky brand bar so
+     * scrollIntoView() landings (citation chips → PDF pages, clause
+     * jumps, anchored navigation) don't tuck the target under the
+     * header. 5rem ≈ 80px, slightly more than the actual header
+     * height (~73px), for visual breathing room.
+     */
+    scroll-padding-top: 5rem;
   }
 
   html,

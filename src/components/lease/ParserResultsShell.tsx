@@ -143,63 +143,60 @@ function ResultsShellInner({
     <>
       <div
         data-testid="parser-results-shell"
-        // Sprint 26c.9 — dropped `h-full` from this className. The
-        // canonical chain in a flex-col parent (h-dvh main) is
-        // `flex-1 min-h-0`; pairing it with `h-full` (height: 100%)
-        // double-counts the header, causing the rendered DOM to be
-        // 100dvh + headerH px tall and the window to scroll despite
-        // `overflow-hidden` on main.
-        //
-        // Sprint 26c.10 — `<main>` switched to CSS grid; `max-h-full`
-        // here is a belt-and-suspenders guard so even if a child
-        // misbehaves it can't visually escape the grid row.
-        className="flex max-h-full min-h-0 flex-1 flex-col overflow-hidden bg-surface-base"
+        // Sprint 28.13 — window-scrolled workspace. The viewport-
+        // clamp from Sprint 26c.10 (`flex max-h-full min-h-0 flex-1
+        // flex-col overflow-hidden`) was correct under the old
+        // "page must not scroll" spec but was reversed by user
+        // request: the workspace now flows naturally as part of
+        // window scroll. No height clamp, no overflow clipping.
+        className="bg-surface-base"
       >
         <ResultsHeader
           leftPaneState={leftPaneState}
           onReplace={handleReplace}
         />
-        {/* Sprint 28.10 — explicit grid model. Replaces the previous
-            flex-col / lg:flex-row layout which leaked scroll height
-            into the right pane on short content (Bug 1). The grid
-            owns height containment via `min-h-0 overflow-hidden` and
-            each cell is `flex-col h-full` so its child decides how
-            to scroll. Single column below lg, two equal columns at
-            lg+ — `grid-cols-1 lg:grid-cols-2` is more predictable
-            than the flex-direction swap. */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden p-4 lg:grid-cols-2">
+        {/* Sprint 28.13 — the responsive grid pattern from 28.10
+            stays (PDF + cards side-by-side on lg+, stacked below)
+            but it no longer owns height containment. Rows size to
+            their content; the window handles scroll. */}
+        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
           <section
             data-testid="results-pdf-pane"
             data-state={leftPaneState.kind}
-            className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-neutral-200 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900"
+            // Sprint 28.14 — sticky-on-desktop PDF pane.
+            //
+            // After Sprint 28.13 switched the workspace to window
+            // scroll, the grid row stretched to whichever pane was
+            // taller. For a typical 15-section lease, the right
+            // column (red flags + clauses list ≈ 2600px) dwarfs the
+            // PDF (~1500px). The left cell stretched to the row
+            // height and showed empty `bg-surface-card` below the
+            // PDF — the "out of bounds" the user reported.
+            //
+            // Fix: `self-start` so the PDF cell doesn't stretch, and
+            // at lg+ pin the pane sticky below the sticky header
+            // with a viewport-bounded height. The bounded height
+            // also restores PdfViewer's internal scroll chain
+            // (`h-full + min-h-0 + flex-1 + overflow-auto`) so the
+            // user pages through the PDF inside the sticky pane
+            // while the right column scrolls past with the window.
+            // Mobile (below lg) drops sticky entirely — the panes
+            // stack and flow naturally for a single-column reader.
+            className="self-start rounded-lg border border-neutral-200 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:overflow-hidden"
             aria-label="Lease PDF"
           >
             <PdfPaneContent state={leftPaneState} />
           </section>
           <section
             data-testid="results-stack"
-            // Sprint 28.10 — the only scroll container in the body.
-            // `pb-28` previously lived here as FAB clearance, but
-            // that permanently inflated scrollHeight by 112px even
-            // when content was short, leaving a blank scroll area
-            // below the last card (Bug 1). The clearance now lives
-            // as a sentinel inside this scroll stack, so it moves
-            // with content height instead of being permanent.
-            className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain"
+            // Sprint 28.13 — flow-positioned, no inner scroll. The
+            // FAB-clearance scroll-padding-bottom from 28.11 is gone
+            // because there is no inner scroll viewport anymore.
+            className="flex flex-col gap-4"
             aria-label="Parser results"
           >
             <ResultsRedFlagsSection />
             <ClausesList />
-            {/* Sprint 28.10 — FAB safe area sentinel. Lives inside
-                the scroll stack as its last child so the user can
-                scroll the last clause above the floating button
-                when content overflows, but no permanent empty
-                space appears when content is short. */}
-            <div
-              data-testid="results-stack-fab-safe-area"
-              aria-hidden="true"
-              className="h-28 shrink-0"
-            />
           </section>
         </div>
       </div>

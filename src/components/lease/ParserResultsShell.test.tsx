@@ -151,63 +151,62 @@ describe('ParserResultsShell', () => {
     expect(idxClauses).toBeGreaterThan(idxRedFlags);
   });
 
-  // Sprint 28.10 — layout invariants for Bug 1 (giant blank scroll
-  // area). The workspace must clip to its row in the page-level grid,
-  // scroll only inside the right results-stack pane, and reserve
-  // FAB clearance via a sentinel inside the last child of that pane
-  // (not as padding on the scroll container itself — that's what
-  // produced the leaked empty scroll space when content was short).
-  describe('Sprint 28.10 — layout invariants (Bug 1)', () => {
-    it('outer shell has overflow-hidden so the workspace cannot leak scroll height into the page', () => {
+  // Sprint 28.13 — workspace is a window-scrolled document (no internal
+  // pane scroll). The spec §1.6 invariant "the page itself must not
+  // scroll" was dropped on user request after Sprint 28.10–28.12 made
+  // the viewport-clamp work correctly but the user wanted one-long-page
+  // behavior instead. These invariants pin the new shape: no overflow
+  // clipping on the outer shell, no h-full/min-h-0 chain, no inner
+  // scroll container on the right pane.
+  describe('Sprint 28.13 — layout invariants (window-scroll model)', () => {
+    it('outer shell does NOT clip overflow — workspace flows with window scroll', () => {
       render(<ParserResultsShell {...baseProps} />);
       const shell = screen.getByTestId('parser-results-shell');
-      expect(shell.className).toMatch(/overflow-hidden/);
-      expect(shell.className).toMatch(/min-h-0/);
+      expect(shell.className).not.toMatch(/\boverflow-hidden\b/);
+      expect(shell.className).not.toMatch(/\bmax-h-full\b/);
     });
 
-    it('left pane (PDF) clips its own content with overflow-hidden + min-h-0', () => {
+    it('left pane (PDF) is sticky and viewport-bounded at lg+, normal flow on mobile', () => {
+      // Sprint 28.14 — when cards/clauses are much taller than the
+      // PDF (a 15-section lease produces ~2600px of right-pane
+      // content vs ~1500px of PDF), the grid row stretches to the
+      // taller column and the PDF cell extends into empty cream.
+      // Fix: pdf-pane sticks at lg+ below the sticky header with a
+      // bounded height, restoring PdfViewer's own internal scroll
+      // so the user always sees the PDF while scrolling the right
+      // column.
       render(<ParserResultsShell {...baseProps} />);
       const pdfPane = screen.getByTestId('results-pdf-pane');
-      expect(pdfPane.className).toMatch(/overflow-hidden/);
-      expect(pdfPane.className).toMatch(/min-h-0/);
+      // Never stretches with the grid row.
+      expect(pdfPane.className).toMatch(/\bself-start\b/);
+      // Sticky + viewport-bounded only at lg+ (mobile stacks normally).
+      expect(pdfPane.className).toMatch(/\blg:sticky\b/);
+      expect(pdfPane.className).toMatch(/\blg:top-20\b/);
+      expect(pdfPane.className).toMatch(/\blg:h-\[calc\(100vh-6rem\)\]/);
+      expect(pdfPane.className).toMatch(/\blg:overflow-hidden\b/);
     });
 
-    it('right pane (results-stack) is the only scroll container — overflow-y-auto + overscroll-contain + min-h-0', () => {
+    it('right pane (results-stack) is NOT a scroll container — content flows with the window', () => {
       render(<ParserResultsShell {...baseProps} />);
       const stack = screen.getByTestId('results-stack');
-      expect(stack.className).toMatch(/overflow-y-auto/);
-      expect(stack.className).toMatch(/overscroll-contain/);
-      expect(stack.className).toMatch(/min-h-0/);
-    });
-
-    it('right pane scroll container does NOT carry pb-28 (FAB clearance moved to an inner sentinel)', () => {
-      // Pre-Sprint-28.10 the scroll container itself had `pb-28`,
-      // which added 112px to its scrollHeight even when content was
-      // short — the user saw an empty scroll area below the last
-      // card. Sprint 28.10 moves the clearance to a sentinel inside
-      // the last child so it tracks with content height instead of
-      // permanently inflating the scroll viewport.
-      render(<ParserResultsShell {...baseProps} />);
-      const stack = screen.getByTestId('results-stack');
-      expect(stack.className).not.toMatch(/\bpb-2[4-9]\b/);
-      // The sentinel is rendered as the last child of the scroll
-      // stack so the FAB clearance moves with the content (no
-      // permanent empty space when content is short, but still
-      // present for tall content so the last card is reachable
-      // above the floating button).
-      const sentinel = screen.getByTestId('results-stack-fab-safe-area');
-      expect(sentinel).toBeInTheDocument();
-      expect(sentinel).toHaveAttribute('aria-hidden', 'true');
-      // The sentinel is the LAST scrollable child of the stack.
-      const stackChildren = Array.from(stack.children);
-      expect(stackChildren[stackChildren.length - 1]).toBe(sentinel);
+      expect(stack.className).not.toMatch(/\boverflow-y-auto\b/);
+      expect(stack.className).not.toMatch(/\boverscroll-contain\b/);
+      expect(stack.className).not.toMatch(/\bh-full\b/);
+      // The scroll-pb-28 sibling of overflow-y-auto is also gone —
+      // there is no inner scroll viewport that needs FAB clearance.
+      expect(stack.className).not.toMatch(/\bscroll-pb-28\b/);
+      // The Sprint 28.10 sentinel is still removed (Sprint 28.11
+      // closed that line item; do not let it come back).
+      expect(
+        screen.queryByTestId('results-stack-fab-safe-area'),
+      ).not.toBeInTheDocument();
     });
 
     it('main body row pattern is grid-cols-2 on lg and stacked on small screens', () => {
-      // Sprint 28.10 — explicit grid model (per the audit's
-      // recommendation): predictable 2-column at lg, single column
-      // below. Replaces the previous flex-col / lg:flex-row pattern
-      // which had height-constraint propagation gaps.
+      // Sprint 28.13 — keep the responsive grid pattern so PDF + cards
+      // sit side-by-side on lg+ and stack below. Grid no longer owns
+      // height containment (we want window scroll), so the overflow-
+      // hidden + min-h-0 constraints from 28.10 are dropped.
       render(<ParserResultsShell {...baseProps} />);
       const stack = screen.getByTestId('results-stack');
       // The grid container is the direct parent of the two panes.
@@ -217,10 +216,9 @@ describe('ParserResultsShell', () => {
       // Two equal-width columns at lg; single column below.
       expect(gridContainer?.className).toMatch(/grid-cols-1/);
       expect(gridContainer?.className).toMatch(/lg:grid-cols-2/);
-      // Grid must still own height containment so flex children
-      // (PdfViewer, RedFlagReport) can size to its row height.
-      expect(gridContainer?.className).toMatch(/overflow-hidden/);
-      expect(gridContainer?.className).toMatch(/min-h-0/);
+      // The body grid must NOT clip overflow anymore (window owns scroll).
+      expect(gridContainer?.className).not.toMatch(/\boverflow-hidden\b/);
+      expect(gridContainer?.className).not.toMatch(/\bmin-h-0\b/);
     });
   });
 

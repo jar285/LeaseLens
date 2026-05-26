@@ -1,10 +1,14 @@
 // Sprint 16B — shared page-shell primitive.
 //
 // One outer container with the two layout variants the codebase uses:
-//   - layout="fixed":  h-dvh flex-col overflow-hidden. The page itself
+//   - layout="fixed":  h-screen flex-col overflow-hidden. The page itself
 //                       never scrolls; child panes own their scroll. Used
-//                       by /, where the three-pane workspace fills the
-//                       viewport exactly.
+//                       by /, where the workspace fills the viewport
+//                       exactly. (Sprint 28.12 — was `h-dvh`; Tailwind v4
+//                       in this project emits `.h-dvh { }` with an empty
+//                       body, so the clamp silently did nothing and the
+//                       page scrolled. `h-screen` (= 100vh) emits
+//                       reliably.)
 //   - layout="page":   min-h-screen with normal page scroll. Used by
 //                       /cockpit, where the dashboard panels stack and
 //                       the page scrolls naturally.
@@ -22,7 +26,7 @@ import type { ReactNode } from 'react';
 
 export interface PageShellProps {
   /**
-   * 'fixed' — `h-dvh flex flex-col overflow-hidden`. The page never
+   * 'fixed' — `h-screen flex flex-col overflow-hidden`. The page never
    * scrolls; children manage their own scroll regions.
    * 'page' — `min-h-screen`. Standard document flow with natural scroll.
    */
@@ -36,7 +40,7 @@ export interface PageShellProps {
 
 const LAYOUT_CLASS: Record<NonNullable<PageShellProps['layout']>, string> = {
   fixed:
-    'flex h-dvh flex-col overflow-hidden bg-surface-base font-sans text-fg-default',
+    'flex h-screen flex-col overflow-hidden bg-surface-base font-sans text-fg-default',
   page: 'min-h-screen bg-surface-base font-sans text-fg-default',
 };
 

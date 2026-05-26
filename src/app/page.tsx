@@ -119,25 +119,29 @@ export default async function Home() {
   }
 
   return (
-    // Phase 10.5 / Sprint 26c.10 — outermost shell switched from
-    // `flex h-dvh flex-col` to CSS grid with explicit rows. Both
-    // layouts pin the page to 100dvh and clip overflow, but
-    // `grid-rows-[auto_minmax(0,1fr)]` is more constraint-rigid: the
-    // body row can never grow past `1fr` of remaining viewport,
-    // regardless of what its descendants demand intrinsically
-    // (motion.div skeleton stacks, react-pdf canvases, dynamic-import
-    // loading placeholders). Plain `flex-1 min-h-0` could leak in
-    // certain hydration / animation timings, producing window-level
-    // scroll past 100dvh. The pattern mirrors Linear / Vercel docs
-    // for "header + viewport-bound body" shells.
-    <main className="grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-surface-base font-sans text-fg-default">
+    // Sprint 28.13 — workspace is a window-scrolled document. The
+    // viewport-clamp from Sprint 26c.10 (h-screen grid + overflow-
+    // hidden) was the right call under spec §1.6's "page must not
+    // scroll" invariant, but user feedback after Sprint 28.12 was to
+    // drop that invariant and let the whole page scroll naturally
+    // instead. `min-h-screen` keeps the workspace at least viewport-
+    // tall (so an empty Mode A landing doesn't collapse), but the
+    // page grows freely with content from Mode B downward.
+    //
+    // `relative` is kept (was Sprint 28.12) so Tailwind's `.sr-only`
+    // spans (which use `position: absolute`) still find `<main>` as
+    // their containing block instead of escaping to the viewport.
+    // It is positionally inert otherwise.
+    <main className="relative min-h-screen bg-surface-base font-sans text-fg-default">
       {/* Sprint 26c.2 — header proportions bumped to feel like a real
           masthead, not a thin app chrome. py-3 → py-4 (denser by ~25%);
           the brand box steps up from h-7 to h-10 with rounded-lg, the
           inner mark from h-3.5 to h-5; the wordmark from 15px to 16px
           with tighter tracking. NJSA anchor + LIVE stamp get a slight
           size bump to keep visual balance with the larger lockup. */}
-      <header className="z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-4 dark:border-neutral-800">
+      {/* Sprint 28.13 — sticky brand/role/theme header so it stays
+          accessible during deep window scroll. */}
+      <header className="sticky top-0 z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-4 dark:border-neutral-800">
         <div className="flex items-center gap-5">
           <div className="flex items-center gap-3.5">
             {/* Sprint 26c.4 — navbar brand text quieted (16px semibold →

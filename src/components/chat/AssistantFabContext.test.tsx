@@ -139,6 +139,36 @@ describe('AssistantFabContext', () => {
     expect(ctx.current?.selection.statuteCitation).toBeUndefined();
   });
 
+  // Sprint 28.8 — focused variant of clearContext used by ChatUI's
+  // "New conversation" handler. Drops pendingPrompt + selection so the
+  // FAB no longer carries the old clause context into the new chat
+  // thread, but does NOT close the drawer — the user is mid-interaction
+  // and expects to type their next question immediately.
+  it('Sprint 28.8 — clearPendingContext drops pendingPrompt + selection WITHOUT closing the drawer', () => {
+    const ctx = spyContext();
+    act(() => {
+      ctx.current?.openWith({
+        initialPrompt: 'Explain this clause',
+        clauseId: 'c-deposit',
+        severity: 'high',
+        statuteCitation: 'NJ Stat 46:8-19',
+      });
+    });
+    expect(ctx.current?.state).toBe<AssistantFabState>('drawer');
+
+    act(() => {
+      ctx.current?.clearPendingContext();
+    });
+    // Drawer stays open so the user can type a fresh question.
+    expect(ctx.current?.state).toBe<AssistantFabState>('drawer');
+    // Pending prompt + selection are gone — no contamination from
+    // the prior clause context.
+    expect(ctx.current?.pendingPrompt).toBeNull();
+    expect(ctx.current?.selection.clauseId).toBeNull();
+    expect(ctx.current?.selection.severity).toBeUndefined();
+    expect(ctx.current?.selection.statuteCitation).toBeUndefined();
+  });
+
   it('throws when useAssistantFab is consumed outside the provider', () => {
     // Swallow the React error logs that come along for the ride.
     const originalError = console.error;

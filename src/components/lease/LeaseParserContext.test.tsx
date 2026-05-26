@@ -171,51 +171,21 @@ describe('LeaseParserContext', () => {
     );
   });
 
-  it('LeaseParserContext is independent of ChatStreamContext.resetConversation()', async () => {
-    // Sprint 28.3 — load-bearing invariant. Resetting the chat thread must
-    // not touch parser state. Because the two contexts are now physically
-    // separate, this is true by construction; the test pins it so a future
-    // refactor that re-couples them fails fast.
-    const { ChatStreamProvider, useChatStream } = await import(
-      '@/components/chat/ChatStreamContext'
-    );
-    function HarnessProbe() {
-      const { resetConversation } = useChatStream();
-      const lp = useLeaseParser();
-      return (
-        <button
-          type="button"
-          onClick={resetConversation}
-          data-testid="probe-reset"
-        >
-          reset-chat — lease={lp.activeLease?.lease_id ?? 'none'}
-        </button>
-      );
-    }
+  it('Sprint 28.7 — LeaseParserContext is independent of ChatStreamContext by construction', () => {
+    // After Sprint 4, ChatStreamContext exposes no callbacks that could
+    // reach parser state (resetConversation / restoreConversation /
+    // setActiveLease are all gone). The shape-test in
+    // ChatStreamContext.test.tsx enforces this at the read site; this
+    // companion test confirms LeaseParserContext continues to hold its
+    // seed when ChatStreamContext is also mounted alongside.
     const startLease = lease();
     const wrapper = ({ children }: { children: ReactNode }) => (
       <LeaseParserProvider activeLease={startLease}>
-        <ChatStreamProvider>{children}</ChatStreamProvider>
+        {children}
       </LeaseParserProvider>
     );
     const { result } = renderHook(() => useLeaseParser(), { wrapper });
 
-    // Trigger the chat-side reset through a real render.
-    const {
-      render: rtlRender,
-      fireEvent,
-      screen,
-    } = await import('@testing-library/react');
-    rtlRender(
-      <LeaseParserProvider activeLease={startLease}>
-        <ChatStreamProvider>
-          <HarnessProbe />
-        </ChatStreamProvider>
-      </LeaseParserProvider>,
-    );
-    fireEvent.click(screen.getByTestId('probe-reset'));
-
-    // Parser context value is unchanged: still holding the lease we seeded.
     expect(result.current.activeLease).toEqual(startLease);
   });
 
@@ -255,7 +225,7 @@ describe('LeaseParserContext', () => {
 
     rtlRender(
       <LeaseParserProvider initialEvents={[gradingEvent]}>
-        <ChatStreamProvider initialEvents={[]}>
+        <ChatStreamProvider>
           <AssistantFabProvider>
             <RedFlagReport />
           </AssistantFabProvider>

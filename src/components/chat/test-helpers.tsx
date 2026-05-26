@@ -29,6 +29,7 @@ import {
 } from '@/components/chat/ChatStreamContext';
 import { LeaseParserProvider } from '@/components/lease/LeaseParserContext';
 import type { Role } from '@/lib/auth/types';
+import { AssistantFabProvider } from './AssistantFabContext';
 
 export interface ChatStreamHarnessOptions {
   viewerRole?: Role;
@@ -45,17 +46,13 @@ export function withChatStream(
   }: ChatStreamHarnessOptions = {},
 ): ReactElement {
   return (
-    <LeaseParserProvider
-      initialEvents={initialEvents}
-      activeLease={activeLease}
-    >
-      <ChatStreamProvider
-        viewerRole={viewerRole}
+    <AssistantFabProvider>
+      <LeaseParserProvider
         initialEvents={initialEvents}
         activeLease={activeLease}
       >
-        {ui}
-      </ChatStreamProvider>
-    </LeaseParserProvider>
+        <ChatStreamProvider viewerRole={viewerRole}>{ui}</ChatStreamProvider>
+      </LeaseParserProvider>
+    </AssistantFabProvider>
   );
 }

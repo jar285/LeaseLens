@@ -39,9 +39,7 @@ function ProviderWithEvents({
   return (
     <AssistantFabProvider>
       <LeaseParserProvider initialEvents={events}>
-        <ChatStreamProvider initialEvents={events}>
-          {children}
-        </ChatStreamProvider>
+        <ChatStreamProvider>{children}</ChatStreamProvider>
       </LeaseParserProvider>
     </AssistantFabProvider>
   );
@@ -699,7 +697,7 @@ describe('Sprint 26c — RedFlagReport card actions wire into AssistantFabContex
     render(
       <AssistantFabProvider>
         <LeaseParserProvider initialEvents={events}>
-          <ChatStreamProvider initialEvents={events}>
+          <ChatStreamProvider>
             <Probe />
             <RedFlagReport />
           </ChatStreamProvider>

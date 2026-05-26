@@ -263,7 +263,13 @@ describe('Homepage Chat UI', () => {
       ).toBeInTheDocument();
     });
 
-    const statusRegion = screen.getByRole('status');
+    // Sprint 28.8 — multiple role="status" regions exist now (the
+    // chat error announcer + the New conversation aria-live announcer).
+    // Disambiguate by textContent to land on the error announcer.
+    const statusRegion = screen
+      .getAllByRole('status')
+      .find((el) => el.textContent?.includes('Error:'));
+    expect(statusRegion).toBeDefined();
     expect(statusRegion).toHaveTextContent(
       'Error: Failed to generate response',
     );
@@ -438,12 +444,14 @@ describe('Homepage Chat UI', () => {
     expect(revoke).not.toHaveBeenCalled();
   });
 
-  // Sprint 24.7 — revocation happens at the commit boundary: when the
-  // user sends a message in the new thread, the stashed lease is
-  // provably unreachable and its Blob URL is freed. This prevents the
-  // leak the old reset-time revoke was meant to address, without
-  // breaking undo.
-  it('Sprint 24.7 — sending a message after New revokes the stashed blob URL', async () => {
+  // Sprint 28.7 — supersedes Sprint 24.7's "sending after New revokes
+  // the stashed Blob URL". After the state split, ChatUI no longer
+  // owns parser snapshots — the lease lives on LeaseParserContext
+  // and is never reset by a chat-thread action. Send-after-new must
+  // therefore NOT revoke the active Blob URL; the lease is still
+  // mounted, the URL is still in use. Blob URL revocation will move
+  // to Sprint 5's explicit "Reset workspace" affordance.
+  it('Sprint 28.7 — sending a message after New does NOT revoke the active Blob URL', async () => {
     const revoke = vi.fn();
     global.URL.revokeObjectURL = revoke;
 
@@ -471,9 +479,10 @@ describe('Homepage Chat UI', () => {
     fireEvent.change(input, { target: { value: 'commit to new thread' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
 
-    await waitFor(() => {
-      expect(revoke).toHaveBeenCalledWith('blob:commit-target');
-    });
+    // Sprint 28.7: lease persists across the chat thread cycle. No
+    // revoke fires because the URL is still in use.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(revoke).not.toHaveBeenCalled();
   });
 
   // Sprint 28.6 — supersedes Sprint 24.7's "Continue previous restores

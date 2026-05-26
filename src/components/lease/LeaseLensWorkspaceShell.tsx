@@ -85,11 +85,7 @@ export function LeaseLensWorkspaceShell(
         initialEvents={props.initialToolEvents}
         activeLease={props.initialActiveLease ?? null}
       >
-        <ChatStreamProvider
-          viewerRole={props.viewerRole}
-          initialEvents={props.initialToolEvents}
-          activeLease={props.initialActiveLease ?? null}
-        >
+        <ChatStreamProvider viewerRole={props.viewerRole}>
           <ShellInner {...props} />
         </ChatStreamProvider>
       </LeaseParserProvider>

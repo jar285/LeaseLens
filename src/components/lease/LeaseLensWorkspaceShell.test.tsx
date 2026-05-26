@@ -38,7 +38,6 @@ vi.mock('@/components/lease/PdfViewer', () => ({
 // SHELL's behavior (dropzone returns, red-flag pane empties, etc.)
 // when the context is reset.
 vi.mock('@/components/chat/ChatUI', async () => {
-  const { useChatStream } = await import('@/components/chat/ChatStreamContext');
   const { useLeaseParser } = await import(
     '@/components/lease/LeaseParserContext'
   );
@@ -52,13 +51,13 @@ vi.mock('@/components/chat/ChatUI', async () => {
         audit_id: string | undefined;
       }) => void;
     }) => {
-      // Sprint 28.6 — parser state now lives on LeaseParserContext.
-      // The legacy "reset wipes everything" behavior is preserved
-      // here by calling BOTH resetConversation (chat) and resetParser
-      // (parser) from the stub button. Sprint 5 will split these on
-      // the real ChatUI side so the user-facing "New conversation"
-      // only resets the chat thread.
-      const { resetConversation, restoreConversation } = useChatStream();
+      // Sprint 28.7 — after the state split, parser state lives only
+      // on LeaseParserContext. The legacy "reset wipes everything"
+      // behavior these tests pin is now driven entirely by resetParser /
+      // restoreParserSnapshot — there is no chat-side reset to call.
+      // The real ChatUI's "New conversation" no longer triggers a
+      // parser reset; that's Bug 3 fixed. This stub keeps the old
+      // assertions green for the legacy workspace shell tests.
       const { toolEvents, activeLease, resetParser, restoreParserSnapshot } =
         useLeaseParser();
       const stashRef = useRef<{
@@ -94,7 +93,6 @@ vi.mock('@/components/chat/ChatUI', async () => {
             data-testid="stub-reset-conversation"
             onClick={() => {
               stashRef.current = { activeLease, toolEvents };
-              resetConversation();
               resetParser();
             }}
           >
@@ -105,7 +103,6 @@ vi.mock('@/components/chat/ChatUI', async () => {
             data-testid="stub-restore-conversation"
             onClick={() => {
               if (stashRef.current) {
-                restoreConversation(stashRef.current);
                 restoreParserSnapshot(stashRef.current);
                 stashRef.current = null;
               }

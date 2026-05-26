@@ -70,20 +70,55 @@ describe('ParserResultsShell', () => {
     expect(header.textContent).toMatch(/13\s*clauses?/i);
   });
 
-  it('renders a Replace button that fires onReplace + resets the conversation', () => {
+  it('Replace button asks for confirmation before resetting the workspace', () => {
+    // Sprint 28.9 — Replace is the destructive path. Per Don Norman's
+    // "prevent accidental destructive action", we require an explicit
+    // confirm before tearing down the workspace.
+    const confirmSpy = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirmSpy);
     const onReplace = vi.fn();
     render(<ParserResultsShell {...baseProps} onReplace={onReplace} />);
     expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('results-replace-button'));
 
-    // onReplace is the upward channel — router shell will use it to
-    // unmount Mode B and return to Mode A.
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    // The confirmation copy must name what's about to be lost so a
+    // first-time user understands the click is destructive.
+    expect(confirmSpy.mock.calls[0][0]).toMatch(/lease/i);
     expect(onReplace).toHaveBeenCalledTimes(1);
-
-    // Local context is also cleared so an isolated mount (no router)
-    // visibly drops the PDF pane.
     expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
+  });
+
+  it('Replace button is a no-op when the confirm prompt is cancelled', () => {
+    // Sprint 28.9 — cancelling the confirm leaves the workspace intact.
+    const confirmSpy = vi.fn().mockReturnValue(false);
+    vi.stubGlobal('confirm', confirmSpy);
+    const onReplace = vi.fn();
+    render(<ParserResultsShell {...baseProps} onReplace={onReplace} />);
+    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('results-replace-button'));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(onReplace).not.toHaveBeenCalled();
+    // PDF still visible — workspace preserved.
+    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+  });
+
+  it('Replace revokes the active Blob URL after the user confirms', () => {
+    // Sprint 28.9 — the Blob URL lifecycle moved from chat-thread
+    // resets (Sprint 4 removed that path) onto the explicit Reset
+    // workspace flow. Revoking here prevents the leak that the old
+    // ChatUI commit-boundary revoke used to handle.
+    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true));
+    const revokeSpy = vi.fn();
+    global.URL.revokeObjectURL = revokeSpy;
+    render(<ParserResultsShell {...baseProps} />);
+
+    fireEvent.click(screen.getByTestId('results-replace-button'));
+
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock-pdf');
   });
 
   it('mounts PdfViewer in the left pane when activeLease has a pdfUrl', () => {

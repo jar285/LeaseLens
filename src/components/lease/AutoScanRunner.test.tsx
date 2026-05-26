@@ -102,11 +102,7 @@ function renderRunner({
       initialEvents={initialEvents}
       activeLease={activeLease}
     >
-      <ChatStreamProvider
-        viewerRole="Tenant"
-        initialEvents={initialEvents}
-        activeLease={activeLease}
-      >
+      <ChatStreamProvider viewerRole="Tenant">
         <AutoScanRunner enabled={enabled} conversationId={null} />
       </ChatStreamProvider>
     </LeaseParserProvider>,
@@ -167,11 +163,7 @@ describe('AutoScanRunner', () => {
   it('only fires once even if the component re-renders', async () => {
     const { rerender } = render(
       <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
-        <ChatStreamProvider
-          viewerRole="Tenant"
-          initialEvents={[]}
-          activeLease={ACTIVE_LEASE}
-        >
+        <ChatStreamProvider viewerRole="Tenant">
           <AutoScanRunner enabled={true} conversationId={null} />
         </ChatStreamProvider>
       </LeaseParserProvider>,
@@ -182,11 +174,7 @@ describe('AutoScanRunner', () => {
     // Re-render with the same lease — should not re-fire.
     rerender(
       <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
-        <ChatStreamProvider
-          viewerRole="Tenant"
-          initialEvents={[]}
-          activeLease={ACTIVE_LEASE}
-        >
+        <ChatStreamProvider viewerRole="Tenant">
           <AutoScanRunner enabled={true} conversationId={null} />
         </ChatStreamProvider>
       </LeaseParserProvider>,
@@ -198,11 +186,7 @@ describe('AutoScanRunner', () => {
   it('renders nothing in the DOM', () => {
     const { container } = render(
       <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
-        <ChatStreamProvider
-          viewerRole="Tenant"
-          initialEvents={[]}
-          activeLease={ACTIVE_LEASE}
-        >
+        <ChatStreamProvider viewerRole="Tenant">
           <AutoScanRunner enabled={false} conversationId={null} />
         </ChatStreamProvider>
       </LeaseParserProvider>,
@@ -232,11 +216,7 @@ describe('AutoScanRunner', () => {
     render(
       <StrictMode>
         <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
-          <ChatStreamProvider
-            viewerRole="Tenant"
-            initialEvents={[]}
-            activeLease={ACTIVE_LEASE}
-          >
+          <ChatStreamProvider viewerRole="Tenant">
             <Probe />
             <AutoScanRunner enabled={true} conversationId={null} />
           </ChatStreamProvider>
@@ -332,11 +312,7 @@ describe('AutoScanRunner', () => {
 
     render(
       <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
-        <ChatStreamProvider
-          viewerRole="Tenant"
-          initialEvents={[]}
-          activeLease={ACTIVE_LEASE}
-        >
+        <ChatStreamProvider viewerRole="Tenant">
           <Probe />
           <AutoScanRunner enabled={true} conversationId={null} />
         </ChatStreamProvider>
@@ -365,11 +341,7 @@ describe('AutoScanRunner', () => {
 
     render(
       <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
-        <ChatStreamProvider
-          viewerRole="Tenant"
-          initialEvents={[]}
-          activeLease={ACTIVE_LEASE}
-        >
+        <ChatStreamProvider viewerRole="Tenant">
           <Probe />
           <AutoScanRunner enabled={true} conversationId={null} />
         </ChatStreamProvider>

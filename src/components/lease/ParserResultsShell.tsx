@@ -69,11 +69,7 @@ export function ParserResultsShell(
         initialEvents={props.initialToolEvents}
         activeLease={props.initialActiveLease}
       >
-        <ChatStreamProvider
-          viewerRole={props.viewerRole}
-          initialEvents={props.initialToolEvents}
-          activeLease={props.initialActiveLease}
-        >
+        <ChatStreamProvider viewerRole={props.viewerRole}>
           <ResultsShellInner {...props} />
         </ChatStreamProvider>
       </LeaseParserProvider>
@@ -112,6 +108,33 @@ function ResultsShellInner({
   }
 
   function handleReplace(): void {
+    // Sprint 28.9 — Replace is the destructive path that resets the
+    // entire workspace (lease, extracted clauses, red flags). Don
+    // Norman: prevent accidental destructive action by requiring an
+    // explicit confirm. The copy names the lease so a first-time user
+    // understands what's about to be lost.
+    const confirmed = window.confirm(
+      'Reset workspace? This removes the uploaded lease, extracted clauses, and red flags. This cannot be undone.',
+    );
+    if (!confirmed) return;
+
+    // Sprint 28.9 — Blob URL lifecycle moved here from ChatUI's
+    // chat-thread reset (Sprint 4 removed that path). Revoke the
+    // current lease's pdfUrl and evict its cached PDF bytes so the
+    // resources are freed when the user explicitly opts in. Best-
+    // effort; failures are non-actionable and silently ignored.
+    if (activeLease?.pdfUrl) {
+      try {
+        URL.revokeObjectURL(activeLease.pdfUrl);
+      } catch {
+        // revokeObjectURL is best-effort and a no-op in jsdom tests.
+      }
+    }
+    if (activeLease?.lease_id) {
+      void getPdfBinaryRepository()
+        .delete(activeLease.lease_id)
+        .catch(() => {});
+    }
     resetParser();
     onReplace?.();
   }

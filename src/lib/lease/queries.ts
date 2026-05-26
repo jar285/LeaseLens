@@ -129,3 +129,50 @@ export function setActiveLease(
     conversationId,
   );
 }
+
+/**
+ * Sprint 25 — server-side snapshot of the conversation's active lease for
+ * use during SSR rehydration. Joins conversations → leases and counts
+ * clauses so the home page can seed ChatStreamProvider with enough
+ * metadata to render the PDF panel header and reattach affordance
+ * without waiting on the client.
+ *
+ * Returns null when:
+ *  - the conversation doesn't exist
+ *  - no active lease has been bound (active_lease_id is NULL)
+ *  - the referenced lease row has been deleted (workspace TTL purge)
+ *
+ * The shape matches `ActiveLeaseRef` minus `pdfUrl` — that's a client-only
+ * Blob URL produced from either a fresh upload or the IndexedDB cache.
+ */
+export interface ActiveLeaseSnapshot {
+  lease_id: string;
+  filename: string;
+  page_count: number;
+  clause_count: number;
+}
+
+export function getActiveLeaseSnapshot(
+  db: Database.Database,
+  conversationId: string,
+): ActiveLeaseSnapshot | null {
+  const row = db
+    .prepare(
+      `SELECT l.id           AS lease_id,
+              l.filename     AS filename,
+              l.page_count   AS page_count,
+              (SELECT COUNT(*) FROM clauses WHERE lease_id = l.id) AS clause_count
+       FROM conversations c
+       JOIN leases l ON l.id = c.active_lease_id
+       WHERE c.id = ?`,
+    )
+    .get(conversationId) as
+    | {
+        lease_id: string;
+        filename: string;
+        page_count: number;
+        clause_count: number;
+      }
+    | undefined;
+  return row ?? null;
+}

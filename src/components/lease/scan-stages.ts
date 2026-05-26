@@ -28,8 +28,8 @@
 
 import { useMemo } from 'react';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
 import { isGradingResult, STAGE_LABEL, STAGE_LABEL_FALLBACK } from './grading';
+import { useLeaseParser } from './LeaseParserContext';
 import { partitionByLatestExtract } from './use-scan-progress';
 
 export type StageStatus = 'pending' | 'active' | 'complete' | 'error';
@@ -222,6 +222,6 @@ export function computeScanStages(events: ToolEvent[]): ScanStage[] {
 }
 
 export function useScanStages(): ScanStage[] {
-  const { toolEvents } = useChatStream();
+  const { toolEvents } = useLeaseParser();
   return useMemo(() => computeScanStages(toolEvents), [toolEvents]);
 }

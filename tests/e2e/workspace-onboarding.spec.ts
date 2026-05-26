@@ -30,17 +30,22 @@ test.beforeEach(async ({ context }) => {
   ]);
 });
 
-test('home renders chat with sample workspace when no workspace cookie is present', async ({
+test('home renders the parser-first landing with sample workspace when no workspace cookie is present', async ({
   page,
 }) => {
   await page.goto('/');
   // Sprint 11 (revised): no redirect — middleware sets sample cookie and the
-  // chat UI renders directly. URL stays at /.
+  // parser-first landing (Sprint 26a Mode A) renders directly. URL stays at /.
   await expect(page).toHaveURL(/^http:\/\/localhost:3000\/?$/);
 
   // The header carries the active (sample) workspace name.
-  await expect(page.getByText(/Side Quest Syndicate/)).toBeVisible();
+  // Sprint 25.2: renamed from "Side Quest Syndicate" → SAMPLE_WORKSPACE.name.
+  await expect(page.getByText(/LeaseLens — NJ Tenant Law/)).toBeVisible();
 
-  // The chat input is reachable (empty state).
-  await expect(page.getByLabel('Type a message')).toBeVisible();
+  // Sprint 26a — the homepage now opens on the parser-first landing. The
+  // chat composer is no longer in the main flow; the assistant lives in
+  // a FAB (stubbed in 26a, real in 26c).
+  await expect(page.getByTestId('parser-landing-shell')).toBeVisible();
+  await expect(page.getByTestId('lease-hero-headline')).toBeVisible();
+  await expect(page.getByTestId('lease-upload-dropzone')).toBeVisible();
 });

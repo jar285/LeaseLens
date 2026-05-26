@@ -35,17 +35,23 @@ A portfolio piece targeting Forward Deployed, AI Product, and Applied AI enginee
 ┌──────────────────────────────────────────────────────────┐
 │  Next.js 16 App Router                                    │
 │  ┌─────────────────────────────────────────────────────┐  │
-│  │  Three-pane workspace shell (/) — client component  │  │
-│  │  ┌───────────┐ ┌────────────┐ ┌──────────────────┐  │  │
-│  │  │ PdfViewer │ │  ChatUI    │ │  RedFlagReport   │  │  │
-│  │  │ react-pdf │ │ streaming  │ │ severity + cite  │  │  │
-│  │  └─────┬─────┘ └─────┬──────┘ └────────┬─────────┘  │  │
-│  └────────┼─────────────┼──────────────────┼───────────┘  │
-│           │             │                  │              │
-│   POST /api/leases  POST /api/chat    GET /api/leases/[id]│
-│   (multipart PDF →  (NDJSON stream    (clauses + draft    │
-│   parse + segment   + tool-use loop,  emails for the      │
-│   + classify)       max 3 iters)      report panel)       │
+│  │  Parser-first workspace (/) — Mode A → Mode B router│  │
+│  │  Mode A (no lease) : LeaseHeroDropzone — upload     │  │
+│  │  Mode B (lease set): two-column grid                │  │
+│  │  ┌────────────────┐ ┌──────────────────────────┐    │  │
+│  │  │   PdfViewer    │ │ RedFlagReport+ClausesList│    │  │
+│  │  │   react-pdf    │ │ severity + cite + jump   │    │  │
+│  │  └────────┬───────┘ └──────────────┬───────────┘    │  │
+│  │  Chat lives in a floating AssistantFab drawer       │  │
+│  │  (anchored bottom-right; preserves draft + thread   │  │
+│  │  across close→open; "New conversation" only resets  │  │
+│  │  the chat thread, never the lease/results).         │  │
+│  └────────┼─────────────────────────────┼──────────────┘  │
+│           │                             │                  │
+│   POST /api/leases             POST /api/chat              │
+│   (multipart PDF →             (NDJSON stream + tool-use   │
+│   parse + segment              loop, max 3 iters — drives  │
+│   + classify)                  scan + assistant follow-ups)│
 └──────────────────────┬───────────────────────────────────┘
                        │
         ┌──────────────▼───────────────────────────────┐
@@ -175,7 +181,9 @@ The seed script is idempotent — it skips work if `chunks` is already populated
 
 ## Trying It Out
 
-The home page opens with a three-pane workspace: PDF viewer on the left, chat in the middle, red-flag report on the right. The default workspace is the seeded sample, so you have a lease to inspect immediately.
+The home page opens in **Mode A** — a parser-first landing screen with a hero dropzone, the five-step flow (Upload → Parse → Extract clauses → Flag risks → Review), and trust metrics. Drop a PDF and the page transitions to **Mode B**: a two-column workspace with the PDF viewer on the left and a results stack (red flags + full clause list) on the right. Chat lives in a floating AssistantFab drawer anchored bottom-right — open it to ask follow-up questions, draft a negotiation email, or run the standard scan again. The drawer preserves typed drafts and the FAB-side clause selection across close→open cycles; "New conversation" only resets the chat thread, leaving the lease and results intact. The destructive "Replace" button in the workspace header is the only path that retires the active lease, and it requires confirmation.
+
+The default workspace is the seeded sample, so you have a lease to inspect immediately.
 
 ### As Tenant (default role)
 
@@ -320,6 +328,10 @@ Add to your MCP client config:
 
 MCP-originated mutations produce audit rows attributed to actor `mcp-server` inside the sample workspace.
 
+#### Browser-control MCP (Playwright)
+
+The repo also ships a project-level [`.mcp.json`](.mcp.json) that registers Microsoft's [`@playwright/mcp`](https://github.com/microsoft/playwright-mcp) server (headless Chromium, isolated profile, pinned to `0.0.75`). With `npm run dev` running, an MCP-aware client (Claude Code, etc.) can navigate `http://localhost:3000`, take accessibility snapshots, click, type, and screenshot the live UI — useful for interactive verification during sprint work. `npm run test:e2e` remains the source of truth for regression coverage.
+
 ### Diagrams (Mermaid)
 
 `render_workflow_diagram` accepts raw Mermaid source for any of eight diagram families (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`, `mindmap`, `journey`, `classDiagram`, `erDiagram`). Server-side validation only (prefix regex, length cap, init-directive + line-comment skip); rendering happens client-side via `mermaid@^11` with `securityLevel: 'strict'` and `htmlLabels: false`. Parse errors fall back to a `<pre>` block of the raw code with the error inline.
@@ -379,7 +391,7 @@ ContentOps/
 │   │   │   ├── audit/                    # GET role-filtered list, POST [id]/rollback
 │   │   │   └── workspaces/               # multipart upload + select-sample
 │   │   ├── cockpit/                      # /cockpit dashboard (Reviewer + Admin)
-│   │   └── page.tsx                      # Home — three-pane workspace shell
+│   │   └── page.tsx                      # Home — parser-first workspace shell (Mode A→B router)
 │   ├── components/
 │   │   ├── chat/                         # ChatUI, ChatMessage, ToolCard, MermaidDiagram
 │   │   ├── cockpit/                      # AuditFeed, Schedule, Spend, EvalHealth panels
@@ -451,6 +463,11 @@ Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG 
 | 23f | `NegotiationEmailCard` — clipboard + fade-in, Tenant-mode `draft_negotiation_email` routing, system-prompt refinements | Complete |
 | 23g–j | Open Design editorial brand refresh — cream-paper + terracotta palette (light + dark), Source Serif 4 weight 700 + italic, NJSA system anchor + Live · v23.x version stamp + Nº plate-numbers on red-flag cards, motion-preset module (`src/lib/motion/presets.ts`), `LayoutGroup` + `popLayout` on the rail, ink-blue `--color-citation` token, vellum-inset surface hierarchy; PDF page nav (Prev/Next buttons in `PdfReadingControls` + ArrowLeft/Right on the focusable scroll `<section>`); width-calc fix so the page canvas no longer right-clips at fit-width | Complete |
 | 23k | `animate-ping` radar ripple on the LIVE status indicator (Tailwind two-layer pattern, `motion-safe:` gated) | Complete |
+| 26a | Parser landing (Mode A) — LeaseHeroDropzone + ParserLandingShell + WorkspaceRouterShell | Complete |
+| 26b | Parser results (Mode B) — ParserResultsShell, ClausesList, AutoScanRunner | Complete |
+| 26c | Floating AssistantFab — FAB context + card/row action prompts (Explain, Draft email) | Complete |
+| 27 | FAB persistence (draft + conversation survive close→open), tenant-only header, six-stage scan loading | Complete |
+| 28 | Bug triage — scan animation lifecycle (Bug 2), parser/assistant state split into `LeaseParserContext` (Bug 3), `ParserResultsShell` layout restructure (Bug 1), aria-live announcement on "New conversation", confirmation gate on Replace | Complete |
 
 ---
 

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { refreshSchedule } from '@/app/cockpit/actions';
 import type { ScheduledItem } from '@/lib/cockpit/types';
-import { RefreshButton } from './RefreshButton';
+import { CockpitPanel } from './CockpitPanel';
 
 export interface SchedulePanelProps {
   initialItems: ScheduledItem[];
@@ -15,31 +15,20 @@ function formatScheduledFor(unixSeconds: number): string {
 
 export function SchedulePanel({ initialItems }: SchedulePanelProps) {
   const [items, setItems] = useState<ScheduledItem[]>(initialItems);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  async function refresh() {
-    setIsRefreshing(true);
-    try {
-      const { items: next } = await refreshSchedule({ limit: 50 });
-      setItems(next);
-    } finally {
-      setIsRefreshing(false);
-    }
+  // Sprint 24 — refresh state moved into CockpitPanel.
+  async function handleRefresh() {
+    const { items: next } = await refreshSchedule({ limit: 50 });
+    setItems(next);
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline dark:border-neutral-800 dark:bg-neutral-900">
-      <header className="flex items-center justify-between border-b border-neutral-100 px-4 py-3 dark:border-neutral-800">
-        <div>
-          <h2 className="text-sm font-semibold text-fg-default">
-            What&rsquo;s queued to publish?
-          </h2>
-          <p className="mt-0.5 text-[11px] text-fg-muted">
-            Posts the AI has scheduled across channels
-          </p>
-        </div>
-        <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
-      </header>
+    <CockpitPanel
+      testId="schedule-panel"
+      title={'What’s queued to publish?'}
+      subtitle={<>Posts the AI has scheduled across channels</>}
+      onRefresh={handleRefresh}
+    >
       {items.length === 0 ? (
         <div className="px-4 py-6 text-xs text-fg-muted">
           Nothing scheduled.
@@ -67,6 +56,6 @@ export function SchedulePanel({ initialItems }: SchedulePanelProps) {
           </ul>
         </div>
       )}
-    </section>
+    </CockpitPanel>
   );
 }

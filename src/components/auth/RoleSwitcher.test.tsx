@@ -7,16 +7,27 @@
 // the label-bridge has been removed, and the title-attribute that
 // exposed the DB literal is gone with it.
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const switchRoleMock = vi.fn().mockResolvedValue(undefined);
+const refreshMock = vi.fn();
+
 vi.mock('@/lib/auth/actions', () => ({
-  switchRole: vi.fn(),
+  switchRole: (...args: unknown[]) => switchRoleMock(...args),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: refreshMock }),
 }));
 
 import { RoleSwitcher } from './RoleSwitcher';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  switchRoleMock.mockClear();
+  refreshMock.mockClear();
+});
 
 describe('RoleSwitcher', () => {
   it('renders one button per role, labeled with the LeaseLens role name', () => {
@@ -59,5 +70,21 @@ describe('RoleSwitcher', () => {
     expect(root.className).not.toMatch(/bottom-4/);
     expect(root.getAttribute('role')).toBe('group');
     expect(root.getAttribute('aria-label')).toBe('Switch role');
+  });
+
+  // Sprint 25.1 (R1) — soft re-render via router.refresh() replaces
+  // the prior revalidatePath path. Pin the new contract: clicking a
+  // role calls switchRole AND then router.refresh().
+  it('calls switchRole then router.refresh() when a role is clicked', async () => {
+    render(<RoleSwitcher currentRole="Tenant" />);
+    fireEvent.click(screen.getByTestId('role-switcher-reviewer'));
+
+    // The switchRole call is awaited inside startTransition; flush
+    // microtasks so the chained refresh() can resolve.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(switchRoleMock).toHaveBeenCalledWith('Reviewer');
+    expect(refreshMock).toHaveBeenCalledTimes(1);
   });
 });

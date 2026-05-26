@@ -11,6 +11,7 @@ import {
   isGradingResult,
   type Severity,
 } from '@/components/lease/grading';
+import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { NegotiationEmailCard } from '@/components/lease/NegotiationEmailCard';
 import { ScanTimeline } from '@/components/lease/ScanTimeline';
 import type { Role } from '@/lib/auth/types';
@@ -88,9 +89,19 @@ export function ChatMessage({
   const reduced = useReducedMotion();
   const animate = mounted && !reduced && role === 'assistant';
 
-  // Sprint 15 Phase 5 — assistant bubble uses the muted surface token so it
-  // reads as a quiet card on both light and dark schemes.
-  const className = `flex gap-3.5 py-4 ${isUser ? '' : 'rounded-xl bg-surface-muted px-4 dark:bg-neutral-800/50'}`;
+  // Sprint 27.1 — both user and assistant messages wear a card so the
+  // transcript reads as discrete bubbles (Wathan/Schoger: visual
+  // hierarchy via consistent component shape). User bubble carries
+  // a hairline border + surface-card background; assistant bubble
+  // keeps the muted-surface fill. The shape (rounded + padded) is
+  // shared so the inter-message gap reads as deliberate spacing
+  // rather than the bottom edge of an unstyled paragraph touching
+  // the top of an assistant card.
+  const className = `flex gap-3.5 rounded-xl px-4 py-4 ${
+    isUser
+      ? 'border border-neutral-100 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900'
+      : 'bg-surface-muted dark:bg-neutral-800/50'
+  }`;
 
   // The brief asks for a per-token fade on streamed assistant tokens. A
   // robust implementation conflicts with the markdown renderer (every
@@ -131,6 +142,24 @@ export function ChatMessage({
             invocations={toolInvocations}
           />
         )}
+        {/* Message content — or TypingIndicator under the four-clause
+            condition (Spec §4.9). The indicator shows only for an empty
+            assistant bubble that is actively streaming AND has no tool
+            invocations underway (a ToolCard is the activity signal during
+            tool use; we don't want both). */}
+        {showTypingIndicator ? (
+          <TypingIndicator />
+        ) : (
+          content && (
+            <div className="wrap-break-word text-[14.5px] leading-[1.7] text-fg-default/85">
+              {isUser ? content : renderMarkdown(content)}
+            </div>
+          )
+        )}
+        {/* Sprint 27.1 — follow-up chips moved here (was above the
+            body). Chips suggest the *next* question, so the user
+            should read the answer first and then see the chips.
+            Don Norman: matches the expected read order. */}
         {followUpPrompts && followUpPrompts.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
             {followUpPrompts.map((prompt) => (
@@ -148,20 +177,6 @@ export function ChatMessage({
               </button>
             ))}
           </div>
-        )}
-        {/* Message content — or TypingIndicator under the four-clause
-            condition (Spec §4.9). The indicator shows only for an empty
-            assistant bubble that is actively streaming AND has no tool
-            invocations underway (a ToolCard is the activity signal during
-            tool use; we don't want both). */}
-        {showTypingIndicator ? (
-          <TypingIndicator />
-        ) : (
-          content && (
-            <div className="wrap-break-word text-[14.5px] leading-[1.7] text-fg-default/85">
-              {isUser ? content : renderMarkdown(content)}
-            </div>
-          )
         )}
         {/* Sprint 18 — truncation notice. Renders only when the server
             saw `stop_reason: "max_tokens"` on this assistant message.
@@ -276,7 +291,7 @@ function ToolInvocationsBlock({
   viewerRole: Role;
   invocations: ToolInvocation[];
 }): React.JSX.Element {
-  const { toolEvents } = useChatStream();
+  const { toolEvents } = useLeaseParser();
   const scanInvocations = invocations.filter((inv) =>
     SCAN_TOOL_NAMES.has(inv.name),
   );

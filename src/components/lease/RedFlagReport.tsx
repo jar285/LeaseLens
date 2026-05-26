@@ -16,7 +16,13 @@
 
 'use client';
 
-import { ChevronDown, ExternalLink, Paperclip } from 'lucide-react';
+import {
+  ChevronDown,
+  ExternalLink,
+  Mail,
+  MessageSquare,
+  Paperclip,
+} from 'lucide-react';
 import {
   AnimatePresence,
   LayoutGroup,
@@ -24,7 +30,7 @@ import {
   useReducedMotion,
 } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
+import { useAssistantFab } from '@/components/chat/AssistantFabContext';
 import { EmptyState } from '@/components/states/EmptyState';
 import { SPRING_GENTLE } from '@/lib/motion/presets';
 import { CitationChip } from './CitationChip';
@@ -33,12 +39,30 @@ import {
   type GradingResult,
   isGradingResult,
   SEVERITY_BAR,
+  SEVERITY_LABEL,
   SEVERITY_ORDER,
   type Severity,
 } from './grading';
+import { useLeaseParser } from './LeaseParserContext';
 import { RedFlagSkeletonCard } from './RedFlagSkeletonCard';
+import { RedFlagsLoadingState } from './RedFlagsLoadingState';
 import { SeverityBadge } from './SeverityBadge';
-import { useScanProgress } from './use-scan-progress';
+import { useScanLifecycle } from './scan-lifecycle';
+
+// Sprint 26c — prompt templates for the FAB drawer. Centralized so the
+// copy stays consistent and a single test pins the wording.
+export function explainPromptFor(g: GradingResult): string {
+  const label = clauseLabel(g);
+  const severityWord = SEVERITY_LABEL[g.severity].toLowerCase();
+  return `Explain the ${severityWord} concern with ${label}. Reference ${g.statute_citation} verbatim and walk me through what the statute says.`;
+}
+
+export function draftEmailPromptFor(g: GradingResult): string {
+  const label = clauseLabel(g);
+  return `Draft a polite negotiation email to the landlord about ${label}. Cite ${g.statute_citation} and propose a specific edit.`;
+}
+
+import { partitionByLatestExtract, useScanProgress } from './use-scan-progress';
 
 // Phase 10.8 — how long the page-level highlight + active-card ring
 // stay on screen after "View on page N" is clicked. Long enough to
@@ -47,9 +71,20 @@ import { useScanProgress } from './use-scan-progress';
 const HIGHLIGHT_DURATION_MS = 4000;
 
 export function RedFlagReport(): React.JSX.Element {
-  const { toolEvents, pdfViewerRef, activeClauseId, setActiveClauseId } =
-    useChatStream();
+  const {
+    toolEvents,
+    pdfViewerRef,
+    activeClauseId,
+    setActiveClauseId,
+    activeLease,
+  } = useLeaseParser();
+  // Sprint 26c — FAB context is available wherever the parser shells
+  // mount. RedFlagReport is currently used only inside those shells
+  // (and inside Vitest tests that mount both providers), so this is
+  // always defined in practice.
+  const fab = useAssistantFab();
   const scan = useScanProgress();
+  const lifecycle = useScanLifecycle();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const reduced = useReducedMotion();
   const [mounted, setMounted] = useState(false);
@@ -58,12 +93,30 @@ export function RedFlagReport(): React.JSX.Element {
   }, []);
   const animate = mounted && !reduced;
 
-  // Latest grading per clause wins (re-runs replace prior results).
+  // Sprint 26c.9 — lease-aware grading filter. Only count clause_ids
+  // that belong to the active lease's most recent extract. Without
+  // this filter, rehydrated tool events from a prior conversation's
+  // lease surfaced as stale cards on a freshly uploaded lease.
   const gradings = useMemo(() => {
+    const activeLeaseId = activeLease?.lease_id ?? null;
+    const { extract } = partitionByLatestExtract(toolEvents, activeLeaseId);
+    const allowedClauseIds = extract
+      ? new Set(extract.clauses.map((c) => c.clause_id))
+      : null;
+
     const byClauseId = new Map<string, GradingResult>();
     for (const event of toolEvents) {
       if (event.tool_name !== 'grade_clause_severity') continue;
       if (!isGradingResult(event.result)) continue;
+      // When we have an extract for the active lease, drop any grading
+      // for a clause_id that's not part of that lease's clause set.
+      // When we don't (no extract yet, or no active lease), fall back
+      // to the legacy behavior of accepting any grading — this
+      // preserves the seeded-conversation test fixture flow that
+      // carries gradings without an extract.
+      if (allowedClauseIds && !allowedClauseIds.has(event.result.clause_id)) {
+        continue;
+      }
       byClauseId.set(event.result.clause_id, event.result);
     }
     return Array.from(byClauseId.values()).sort((a, b) => {
@@ -72,7 +125,7 @@ export function RedFlagReport(): React.JSX.Element {
       if (sevDelta !== 0) return sevDelta;
       return (a.clause_index ?? 0) - (b.clause_index ?? 0);
     });
-  }, [toolEvents]);
+  }, [toolEvents, activeLease?.lease_id]);
 
   const counts = useMemo(() => {
     const c: Record<Severity, number> = { high: 0, medium: 0, low: 0, ok: 0 };
@@ -92,20 +145,44 @@ export function RedFlagReport(): React.JSX.Element {
     previousCountRef.current = gradings.length;
   }, [gradings.length]);
 
-  // Sprint 18 §2 — when the scan has started but no clauses have been
-  // graded yet, show one skeleton per known clause instead of the static
-  // examples list. The examples are only for the truly-idle state (no
-  // scan ever started in this session).
-  if (gradings.length === 0 && scan.phase === 'extracting' && scan.total > 0) {
+  // Sprint 25.1 (R7) — single timer for the highlight-ring lifecycle.
+  // Rapid citation clicks used to schedule overlapping timeouts; the
+  // earliest would fire and clear the ring while the user was still
+  // looking at the most recent jump. Holding one ref + clear-on-replace
+  // ensures the most recent click owns the full HIGHLIGHT_DURATION_MS.
+  const highlightTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  // Sprint 27 — narrate the parser's work in six stages instead of
+  // showing a row of identical skeleton cards. Replaces the Sprint 18
+  // skeleton block. Reasoning: skeletons told the user "something is
+  // loading" but not what; the lifecycle list answers "what is the
+  // parser doing right now and what's next" (Jakob Nielsen: visibility
+  // of system status; Don Norman: predictable interaction).
+  // Sprint 28 — Bug 2: skip the decorative "preparing red flags" beat
+  // when there are no findings to prepare. Otherwise the user is
+  // parked on a spinning panel for the ~650ms hold even though the
+  // scan is genuinely done — a status that doesn't reflect any real
+  // work in progress (visibility of system status must be honest).
+  const inFlight =
+    lifecycle.stage !== 'idle' &&
+    lifecycle.stage !== 'review_ready' &&
+    lifecycle.stage !== 'preparing_red_flags' &&
+    gradings.length === 0;
+  if (inFlight) {
     return (
       <div
         className="flex flex-col gap-3"
         data-testid="red-flag-report-scanning"
       >
-        {Array.from({ length: scan.total }).map((_, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders are interchangeable until real cards land
-          <RedFlagSkeletonCard key={`skeleton-${i}`} delay={i * 0.08} />
-        ))}
+        <RedFlagsLoadingState snapshot={lifecycle} />
       </div>
     );
   }
@@ -297,13 +374,19 @@ export function RedFlagReport(): React.JSX.Element {
             // "View on page N" button (expanded view). Both surfaces drive
             // the same activeClauseId broadcast + PDF scroll so the ring
             // animation kicks off identically regardless of entry point.
+            //
+            // Sprint 25.1 (R7) — clear any in-flight clear-timer before
+            // scheduling a new one so rapid clicks don't clip each other.
             const jumpToClausePage = (clause: GradingResult) => {
               if (typeof clause.page_number !== 'number') return;
               setActiveClauseId(clause.clause_id);
-              window.setTimeout(
-                () => setActiveClauseId(null),
-                HIGHLIGHT_DURATION_MS,
-              );
+              if (highlightTimerRef.current !== null) {
+                window.clearTimeout(highlightTimerRef.current);
+              }
+              highlightTimerRef.current = window.setTimeout(() => {
+                setActiveClauseId(null);
+                highlightTimerRef.current = null;
+              }, HIGHLIGHT_DURATION_MS);
               pdfViewerRef.current?.scrollToPage(clause.page_number);
             };
 
@@ -360,17 +443,30 @@ export function RedFlagReport(): React.JSX.Element {
                         {clauseLabel(g)}
                       </span>
                     </div>
+                    {/* Sprint 24.6 — added `mb-2` so the overview paragraph
+                        breathes before the citation row below. Paired with
+                        `pt-2` on the citation row sibling so the citation
+                        reads as its own evidence row, not a continuation of
+                        the paragraph. Net gap (mb-2 + toggle pb-3 + citation
+                        pt-2 = 28px) sits in the "calm and premium" range,
+                        well above the prior 12px which felt glued. */}
                     <p
-                      className={`mt-1.5 text-[12px] leading-snug text-fg-muted ${
+                      className={`mt-1.5 mb-2 text-[12px] leading-snug text-fg-muted ${
                         isExpanded ? '' : 'line-clamp-2'
                       }`}
                     >
                       {g.reasoning}
                     </p>
                   </div>
+                  {/* Sprint 24.2 — chevron rotation duration bumped from
+                      Tailwind's 150ms default to 220ms `ease-out-soft` so
+                      the icon rotation lands in sync with the body height
+                      animation (~500ms spring). Without this the chevron
+                      finished its rotation before the body even started
+                      revealing, which was part of the "snappy" feel. */}
                   <ChevronDown
                     aria-hidden="true"
-                    className={`h-4 w-4 shrink-0 text-fg-subtle transition-transform ${
+                    className={`h-4 w-4 shrink-0 text-fg-subtle transition-transform duration-220 ease-out-soft ${
                       isExpanded ? 'rotate-180' : ''
                     }`}
                   />
@@ -378,8 +474,17 @@ export function RedFlagReport(): React.JSX.Element {
                 {/* Citation row — sibling of the toggle, click-isolated.
                   When page_number is set the chip becomes clickable and
                   drives the same activeClauseId + scrollToPage flow as
-                  the in-body "View on page N" button below. */}
-                <div data-testid="red-flag-citation-row" className="px-4 pb-3">
+                  the in-body "View on page N" button below.
+                  Sprint 24.6 — `pt-2` paired with `mb-2` on the overview
+                  paragraph above creates a deliberate gap so the citation
+                  reads as its own evidence row supporting the paragraph,
+                  not a trailing line of it. The subtle border-t on the
+                  Recommended-action section below remains the divider
+                  between citation (evidence) and action (next step). */}
+                <div
+                  data-testid="red-flag-citation-row"
+                  className="px-4 pt-2 pb-3"
+                >
                   <CitationChip
                     statuteCitation={g.statute_citation}
                     pageNumber={g.page_number}
@@ -391,10 +496,94 @@ export function RedFlagReport(): React.JSX.Element {
                   />
                 </div>
 
-                {/* Expanded body — recommended action + jump-to-page. */}
-                {isExpanded ? (
+                {/*
+                  Sprint 24.4 — Expanded body, animation v2.
+
+                  v1 (Sprint 24.2) ran opacity 0→1 in parallel with
+                  height 0→auto. Two problems:
+                    (a) opacity reached 1 at ~220ms while the height
+                        spring was still settling at ~500ms — content
+                        was painted at full strength inside a
+                        still-growing card, so users saw the body
+                        "drop in" via overflow cropping rather than a
+                        smooth reveal. The opacity tween made the
+                        content feel "dropped in" because it landed
+                        before the box was ready.
+                    (b) the outer motion.article had `layout` (animates
+                        both position AND size) which double-animated
+                        the size axis against this inner height tween,
+                        amplifying the mismatch.
+
+                  v2 (this sprint) fixes both:
+                    - `layout="position"` on the article (one line up)
+                      removes the size double-tween. Article only
+                      animates its position; the body owns its size.
+                    - Drop the opacity tween entirely. `overflow:
+                      hidden` on the motion.div already clips content
+                      during the height grow — that IS the reveal, and
+                      it's cleaner because the content appears
+                      gradually from the top edge as the box reveals
+                      it, exactly like a real accordion drawer.
+                    - Slow the height spring (170 / 32 / 1.0 — settles
+                      ~620ms, no overshoot) so the reveal reads as
+                      deliberate, not snappy.
+
+                  Reduced-motion users still fall back to the instant
+                  conditional render.
+                */}
+                {animate ? (
+                  <AnimatePresence initial={false}>
+                    {isExpanded ? (
+                      <motion.div
+                        key="body"
+                        data-testid="red-flag-card-body"
+                        data-motion="on"
+                        initial={{ height: 0 }}
+                        animate={{ height: 'auto' }}
+                        exit={{ height: 0 }}
+                        transition={{
+                          type: 'spring',
+                          stiffness: 170,
+                          damping: 32,
+                          mass: 1.0,
+                        }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        <div className="border-t border-neutral-100 bg-surface-muted/40 px-4 py-3 pl-5 dark:border-neutral-800 dark:bg-neutral-800/30">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+                            Recommended action
+                          </p>
+                          <p className="mt-1 text-[12px] leading-relaxed text-fg-default">
+                            {g.recommended_action}
+                          </p>
+                          <CardActions
+                            grading={g}
+                            onJumpToPage={jumpToClausePage}
+                            onExplain={() =>
+                              fab.openWith({
+                                initialPrompt: explainPromptFor(g),
+                                clauseId: g.clause_id,
+                                severity: g.severity,
+                                statuteCitation: g.statute_citation,
+                              })
+                            }
+                            onDraftEmail={() =>
+                              fab.openWith({
+                                initialPrompt: draftEmailPromptFor(g),
+                                clauseId: g.clause_id,
+                                severity: g.severity,
+                                statuteCitation: g.statute_citation,
+                              })
+                            }
+                          />
+                        </div>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                ) : isExpanded ? (
                   <div
                     data-testid="red-flag-card-body"
+                    data-motion="off"
                     className="border-t border-neutral-100 bg-surface-muted/40 px-4 py-3 pl-5 dark:border-neutral-800 dark:bg-neutral-800/30"
                   >
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
@@ -403,20 +592,26 @@ export function RedFlagReport(): React.JSX.Element {
                     <p className="mt-1 text-[12px] leading-relaxed text-fg-default">
                       {g.recommended_action}
                     </p>
-                    {typeof g.page_number === 'number' ? (
-                      <button
-                        type="button"
-                        data-testid="red-flag-jump-to-page"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          jumpToClausePage(g);
-                        }}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
-                      >
-                        <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                        View on page {g.page_number}
-                      </button>
-                    ) : null}
+                    <CardActions
+                      grading={g}
+                      onJumpToPage={jumpToClausePage}
+                      onExplain={() =>
+                        fab.openWith({
+                          initialPrompt: explainPromptFor(g),
+                          clauseId: g.clause_id,
+                          severity: g.severity,
+                          statuteCitation: g.statute_citation,
+                        })
+                      }
+                      onDraftEmail={() =>
+                        fab.openWith({
+                          initialPrompt: draftEmailPromptFor(g),
+                          clauseId: g.clause_id,
+                          severity: g.severity,
+                          statuteCitation: g.statute_citation,
+                        })
+                      }
+                    />
                   </div>
                 ) : null}
               </>
@@ -435,7 +630,18 @@ export function RedFlagReport(): React.JSX.Element {
                 // Combined with the parent LayoutGroup + popLayout mode,
                 // grading streams in (and re-grades reorder) smoothly
                 // instead of snapping.
-                layout
+                //
+                // Sprint 24.4 — switched from `layout` (animates BOTH
+                // position AND size) to `layout="position"` so the inner
+                // accordion-body motion.div owns the size tween. With
+                // plain `layout`, the article's own bounding-box snapshot
+                // ran a linear tween on size while the inner div ran a
+                // spring on height — two competing animations on the same
+                // axis, which is what caused the "drops information"
+                // mismatch the user reported. `layout="position"` keeps
+                // sibling reordering smooth via LayoutGroup while letting
+                // the body own its height.
+                layout="position"
                 initial={{ opacity: 0, x: 8 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -8 }}
@@ -493,6 +699,80 @@ export function RedFlagReport(): React.JSX.Element {
  * The hold + fade-out are gated by the parent's setTimeout that clears
  * activeClauseId; once cleared, AnimatePresence runs the exit transition.
  */
+/*
+ * Sprint 26c — expanded-card action row.
+ *
+ * Renders three buttons under the recommended-action paragraph:
+ *   1. View on page N — preserved from prior sprints, calls scrollToPage
+ *      on the PDF viewer ref.
+ *   2. Explain — opens the FAB drawer with a clause-aware prompt
+ *      explaining the severity + statute citation.
+ *   3. Draft email — opens the FAB drawer with a draft-email prompt.
+ *
+ * All buttons stopPropagation so they don't also collapse the card
+ * (the parent toggle button covers the header + summary row, and the
+ * recommended-action region sits inside the card, beneath the toggle).
+ */
+function CardActions({
+  grading,
+  onJumpToPage,
+  onExplain,
+  onDraftEmail,
+}: {
+  grading: GradingResult;
+  onJumpToPage: (g: GradingResult) => void;
+  onExplain: () => void;
+  onDraftEmail: () => void;
+}): React.JSX.Element {
+  const pillClass =
+    'mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200';
+  return (
+    <div
+      data-testid="red-flag-card-actions"
+      className="mt-1 flex flex-wrap items-center gap-2"
+    >
+      {typeof grading.page_number === 'number' ? (
+        <button
+          type="button"
+          data-testid="red-flag-jump-to-page"
+          onClick={(e) => {
+            e.stopPropagation();
+            onJumpToPage(grading);
+          }}
+          className={pillClass}
+        >
+          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+          View on page {grading.page_number}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        data-testid="red-flag-explain"
+        onClick={(e) => {
+          e.stopPropagation();
+          onExplain();
+        }}
+        className={pillClass}
+      >
+        <MessageSquare className="h-3 w-3" aria-hidden="true" />
+        Explain
+      </button>
+      <button
+        type="button"
+        data-testid="red-flag-draft-email"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDraftEmail();
+        }}
+        className={pillClass}
+      >
+        <Mail className="h-3 w-3" aria-hidden="true" />
+        Draft email
+      </button>
+    </div>
+  );
+}
+
 function ActiveRing({
   isActive,
   reduced,

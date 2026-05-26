@@ -8,14 +8,14 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
+import { useLeaseParser } from './LeaseParserContext';
 import {
   computeScanNarrative,
   type ScanNarrativeOutput,
 } from './scan-narrative';
 
 export function useScanNarrative(): ScanNarrativeOutput {
-  const { toolEvents, activeLease } = useChatStream();
+  const { toolEvents, activeLease } = useLeaseParser();
   return useMemo(
     () => computeScanNarrative({ events: toolEvents, lease: activeLease }),
     [toolEvents, activeLease],

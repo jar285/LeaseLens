@@ -3,18 +3,32 @@
 // action when expanded. The summary row above the cards aggregates
 // counts per severity for at-a-glance scanability.
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  AssistantFabProvider,
+  useAssistantFab,
+} from '@/components/chat/AssistantFabContext';
+import {
   ChatStreamProvider,
   type ToolEvent,
-  useChatStream,
 } from '@/components/chat/ChatStreamContext';
+import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 import { RedFlagReport } from './RedFlagReport';
 
 afterEach(cleanup);
 
+// Sprint 26c — RedFlagReport now consumes `useAssistantFab()` for its
+// new Explain / Draft email actions. Every render must mount the
+// AssistantFabProvider; the wrapper handles it once so existing tests
+// stay readable.
 function ProviderWithEvents({
   events,
   children,
@@ -23,7 +37,11 @@ function ProviderWithEvents({
   children: ReactNode;
 }) {
   return (
-    <ChatStreamProvider initialEvents={events}>{children}</ChatStreamProvider>
+    <AssistantFabProvider>
+      <LeaseParserProvider initialEvents={events}>
+        <ChatStreamProvider>{children}</ChatStreamProvider>
+      </LeaseParserProvider>
+    </AssistantFabProvider>
   );
 }
 
@@ -241,7 +259,7 @@ describe('RedFlagReport', () => {
   it('"View on page N" sets activeClauseId and applies an active ring to the matching card', () => {
     const scrollToPage = vi.fn();
     function Wired() {
-      const { pdfViewerRef } = useChatStream();
+      const { pdfViewerRef } = useLeaseParser();
       pdfViewerRef.current = { scrollToPage };
       return <RedFlagReport />;
     }
@@ -274,7 +292,7 @@ describe('RedFlagReport', () => {
   it('"View on page N" inside the expanded body calls scrollToPage', () => {
     const scrollToPage = vi.fn();
     function Wired() {
-      const { pdfViewerRef } = useChatStream();
+      const { pdfViewerRef } = useLeaseParser();
       pdfViewerRef.current = { scrollToPage };
       return <RedFlagReport />;
     }
@@ -299,7 +317,7 @@ describe('RedFlagReport', () => {
   it('clicking the citation chip jumps to page and pulses the active ring without expanding the card', () => {
     const scrollToPage = vi.fn();
     function Wired() {
-      const { pdfViewerRef } = useChatStream();
+      const { pdfViewerRef } = useLeaseParser();
       pdfViewerRef.current = { scrollToPage };
       return <RedFlagReport />;
     }
@@ -381,7 +399,12 @@ describe('RedFlagReport', () => {
       audit_id: undefined,
     });
 
-    it('renders one skeleton per extracted clause when no gradings yet', () => {
+    it('renders the 6-stage lifecycle panel when extract has landed but no gradings yet', () => {
+      // Sprint 27 — the bare skeleton stack is replaced with the
+      // RedFlagsLoadingState panel so the user sees what the parser
+      // is doing (Jakob Nielsen: visibility of system status). The
+      // active stage in this state is "extracting clauses" with
+      // a live count of 3 found.
       render(
         <ProviderWithEvents events={[extractEvent(['c1', 'c2', 'c3'])]}>
           <RedFlagReport />
@@ -391,7 +414,17 @@ describe('RedFlagReport', () => {
       expect(
         screen.queryByTestId('red-flag-report-empty-examples'),
       ).not.toBeInTheDocument();
-      expect(screen.getAllByTestId('red-flag-skeleton-card')).toHaveLength(3);
+      const list = screen.getByTestId('red-flag-lifecycle');
+      const rows = within(list).getAllByRole('listitem');
+      expect(rows).toHaveLength(6);
+      // The "extracting_clauses" row should be active.
+      const extractingRow = rows.find(
+        (r) => r.getAttribute('data-stage') === 'extracting_clauses',
+      );
+      expect(extractingRow).toBeDefined();
+      expect(extractingRow).toHaveAttribute('data-status', 'active');
+      // Live count surfaces as detail subtext.
+      expect(extractingRow?.textContent).toMatch(/3/);
     });
 
     it('renders real cards plus trailing skeletons for ungraded clauses', () => {
@@ -446,6 +479,64 @@ describe('RedFlagReport', () => {
       expect(
         screen.queryByTestId('red-flag-skeleton-card'),
       ).not.toBeInTheDocument();
+    });
+
+    // Sprint 28 — Bug 2: the spinner must stop once the lifecycle reaches
+    // its terminal `review_ready` state, even when zero high/medium/low
+    // findings ended up being rendered (e.g. every clause graded "ok" or
+    // errored). The previous `inFlight` gate's `gradings.length === 0`
+    // clause kept the loading panel mounted during the preparing-red-flags
+    // beat, leaving the user looking at a spinner that no longer reflected
+    // any actual work (Jakob Nielsen: visibility of system status).
+    // Sprint 28 — Bug 2: when the standard scan ends with zero high/medium/
+    // low findings (all clauses errored or no severity-bearing results), the
+    // user should see the terminal empty-state surface immediately — not a
+    // spinning lifecycle panel parked on "Preparing red flags" for ~650ms
+    // (the decorative beat between `scanProgress.phase === 'complete'` and
+    // `preparingDone === true`). The "preparing" beat is polish; there is
+    // nothing to polish when there are no red flags to prepare.
+    // Reference: Jakob Nielsen — visibility of system status must be honest.
+    it('does not park on a spinning preparing-red-flags panel when scanning terminates with zero findings', () => {
+      const erroredGrade = (clauseId: string): ToolEvent => ({
+        tool_name: 'grade_clause_severity',
+        input: { clause_id: clauseId },
+        result: { error: 'corpus lookup failed' },
+        audit_id: undefined,
+      });
+      render(
+        <ProviderWithEvents
+          events={[
+            extractEvent(['c1', 'c2']),
+            erroredGrade('c1'),
+            erroredGrade('c2'),
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      // Synchronous assertion — the very first render after the events land
+      // must not park the user on a spinning panel. The empty state is the
+      // correct terminal surface.
+      expect(
+        screen.queryByTestId('red-flag-report-scanning'),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId('red-flag-report-empty')).toBeInTheDocument();
+      // Belt-and-suspenders: no spinner class should be present.
+      expect(document.querySelectorAll('.animate-spin').length).toBe(0);
+    });
+
+    it('keeps the scanning loading state during active extraction (before any gradings)', () => {
+      // Counter-test: confirms the fix does not regress the legitimate
+      // mid-scan state. With extract landed but zero attempts yet, the
+      // lifecycle panel should still be mounted as the active surface.
+      render(
+        <ProviderWithEvents events={[extractEvent(['c1', 'c2', 'c3'])]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(
+        screen.getByTestId('red-flag-report-scanning'),
+      ).toBeInTheDocument();
     });
 
     it('drops skeletons when every clause has a tool_result, even if some errored', () => {
@@ -572,5 +663,75 @@ describe('RedFlagReport', () => {
       // "Example" eyebrow sits inside the preview container.
       expect(preview.textContent ?? '').toMatch(/example/i);
     });
+  });
+
+  // Sprint 26c — Explain + Draft email actions open the FAB drawer
+  // with a prefilled, clause-aware prompt. Defined at the bottom so
+  // the vi.mock + AssistantFabProvider stays out of the older tests'
+  // way.
+});
+
+// ===========================================================================
+// Sprint 26c — RedFlagReport + AssistantFabContext integration
+// ===========================================================================
+//
+// We import AssistantFabProvider/useAssistantFab from the real module and
+// wrap the rendered tree in BOTH providers (ChatStream + Fab). A small
+// Probe captures the FAB context handle so the test can read state and
+// assert that openWith was called with the right payload. The imports
+// already exist at the top of the file.
+
+describe('Sprint 26c — RedFlagReport card actions wire into AssistantFabContext', () => {
+  afterEach(cleanup);
+
+  function renderWithFab(events: ToolEvent[]): {
+    fab: ReturnType<typeof useAssistantFab> | null;
+  } {
+    const ref: { fab: ReturnType<typeof useAssistantFab> | null } = {
+      fab: null,
+    };
+    function Probe(): null {
+      ref.fab = useAssistantFab();
+      return null;
+    }
+    render(
+      <AssistantFabProvider>
+        <LeaseParserProvider initialEvents={events}>
+          <ChatStreamProvider>
+            <Probe />
+            <RedFlagReport />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
+      </AssistantFabProvider>,
+    );
+    return ref;
+  }
+
+  it('renders an Explain button inside the expanded card that opens the FAB drawer with clause context', () => {
+    const ctx = renderWithFab([grade()]);
+    fireEvent.click(screen.getByTestId('red-flag-card-toggle'));
+    const explain = screen.getByTestId('red-flag-explain');
+    expect(explain.tagName).toBe('BUTTON');
+    expect(explain).toHaveAttribute('type', 'button');
+    fireEvent.click(explain);
+
+    expect(ctx.fab?.state).toBe('drawer');
+    expect(ctx.fab?.selection.clauseId).toBe('c1');
+    expect(ctx.fab?.selection.severity).toBe('high');
+    expect(ctx.fab?.selection.statuteCitation).toBe('NJ Stat 46:8-21.2');
+    expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('explain');
+  });
+
+  it('renders a Draft email button inside the expanded card that opens the FAB drawer with a draft prompt', () => {
+    const ctx = renderWithFab([grade()]);
+    fireEvent.click(screen.getByTestId('red-flag-card-toggle'));
+    const draft = screen.getByTestId('red-flag-draft-email');
+    expect(draft.tagName).toBe('BUTTON');
+    fireEvent.click(draft);
+
+    expect(ctx.fab?.state).toBe('drawer');
+    expect(ctx.fab?.selection.clauseId).toBe('c1');
+    expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('draft');
+    expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('email');
   });
 });

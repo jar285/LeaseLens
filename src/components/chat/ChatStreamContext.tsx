@@ -1,22 +1,25 @@
 // Sprint 13 §3f — shared state for the three-pane shell.
 //
-// ChatUI is the single NDJSON stream reader. As it parses tool_use
-// + tool_result events it pushes a normalized record into this
-// context. RedFlagReport (right pane) reads them; PdfViewer (left
-// pane) registers an imperative ref so the citation-chip click can
-// scroll the PDF to the cited page.
+// Sprint 28.7 — chat-only after the state split. Parser-shape state
+// (uploaded lease, tool events, active clause, PdfViewer ref) now
+// lives exclusively on LeaseParserContext. This context retains the
+// chat-thread concerns: the viewer's role (so ChatMessage / ToolCard
+// can branch tenant vs. reviewer rendering) and the auto-scan's
+// captured conversationId (so the FAB's manual chat picks up the
+// same thread instead of forking).
+//
+// `ToolEvent`, `ActiveLeaseRef`, and `PdfViewerHandle` types are kept
+// exported from this file as the shared type surface — LeaseParserContext
+// and other consumers re-use them so the migration didn't require
+// duplicating type definitions.
 
 'use client';
 
 import {
   createContext,
-  type MutableRefObject,
   type ReactNode,
-  useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import type { Role } from '@/lib/auth/types';
@@ -33,38 +36,25 @@ export interface PdfViewerHandle {
 }
 
 /**
- * S19.3 — minimal lease reference threaded through the context so
- * downstream consumers (useScanNarrative, ChatEmptyState) can decide
- * whether to render lease-aware affordances. The full lease object
- * (with pdfUrl etc.) stays local to LeaseLensWorkspaceShell; only the
- * narrative-relevant fields surface here to avoid bloating the context.
+ * S19.3 — minimal lease reference threaded through the parser context
+ * so downstream consumers (useScanNarrative, ChatEmptyState) can decide
+ * whether to render lease-aware affordances.
  *
  * Sprint 23c Phase 2 — `page_count` and `clause_count` added (optional)
- * so the new UploadedLeaseCard can render the "N pages · M clauses"
- * meta line. They're optional to preserve backward compatibility with
- * test fixtures that pre-date the field.
+ * so UploadedLeaseCard can render the "N pages · M clauses" meta line.
+ *
+ * Sprint 24.7 — `pdfUrl` lives here. Type is still exported from this
+ * file as the canonical shape; LeaseParserContext imports it.
  */
 export interface ActiveLeaseRef {
   lease_id: string;
   filename: string;
   page_count?: number;
   clause_count?: number;
+  pdfUrl?: string;
 }
 
 interface ChatStreamContextValue {
-  toolEvents: ToolEvent[];
-  pushToolEvent: (event: ToolEvent) => void;
-  pdfViewerRef: MutableRefObject<PdfViewerHandle | null>;
-  /**
-   * Phase 10.8 — currently focused clause. Set when the user clicks
-   * "View on page N" on a red-flag card; cleared after a short
-   * timeout. The PdfViewer reads this to apply a temporary highlight
-   * ring to the matching page block + sticky callout. The triggering
-   * RedFlagCard reads it to apply an active-card ring on itself so
-   * the connection between the two panes is visible.
-   */
-  activeClauseId: string | null;
-  setActiveClauseId: (id: string | null) => void;
   /**
    * S19.1 — viewer role in the application domain (Tenant / Reviewer /
    * Admin). Set once from the server-rendered page and propagated via
@@ -76,59 +66,39 @@ interface ChatStreamContextValue {
    */
   viewerRole: Role;
   /**
-   * S19.3 — the lease the user has uploaded for this conversation
-   * (or null when none is active). Drives the synthetic
-   * "Lease uploaded" intro message and replaces the generic empty
-   * state once a lease is present.
+   * Sprint 26c.11 — conversationId captured from the silent
+   * AutoScanRunner's NDJSON stream. The auto-scan runs before the
+   * user opens the FAB drawer, so its server-issued conversationId
+   * wouldn't otherwise reach ChatUI. We surface it here; ChatUI
+   * adopts it on mount when its own activeConversationId is null,
+   * so subsequent manual messages continue the same thread.
+   * Null when no auto-scan has run (or it ran with a conversationId
+   * already supplied by SSR).
    */
-  activeLease: ActiveLeaseRef | null;
-  setActiveLease: (lease: ActiveLeaseRef | null) => void;
+  autoScanConversationId: string | null;
+  setAutoScanConversationId: (id: string | null) => void;
 }
 
 const ChatStreamContext = createContext<ChatStreamContextValue | null>(null);
 
 export function ChatStreamProvider({
   children,
-  initialEvents = [],
   viewerRole = 'Tenant',
-  activeLease: activeLeaseProp = null,
 }: {
   children: ReactNode;
-  initialEvents?: ToolEvent[];
   viewerRole?: Role;
-  activeLease?: ActiveLeaseRef | null;
 }): React.JSX.Element {
-  const [toolEvents, setToolEvents] = useState<ToolEvent[]>(initialEvents);
-  const [activeClauseId, setActiveClauseId] = useState<string | null>(null);
-  const [activeLease, setActiveLease] = useState<ActiveLeaseRef | null>(
-    activeLeaseProp,
-  );
-  const pdfViewerRef = useRef<PdfViewerHandle | null>(null);
-
-  // Sync the lease state when the prop changes (e.g. a test that mounts
-  // with one lease and re-renders with another, or a future server-side
-  // hydration path). Calling setActiveLease(null) inside the component
-  // still wins because the effect only fires on prop changes.
-  useEffect(() => {
-    setActiveLease(activeLeaseProp);
-  }, [activeLeaseProp]);
-
-  const pushToolEvent = useCallback((event: ToolEvent) => {
-    setToolEvents((prev) => [...prev, event]);
-  }, []);
+  const [autoScanConversationId, setAutoScanConversationId] = useState<
+    string | null
+  >(null);
 
   const value = useMemo(
     () => ({
-      toolEvents,
-      pushToolEvent,
-      pdfViewerRef,
-      activeClauseId,
-      setActiveClauseId,
       viewerRole,
-      activeLease,
-      setActiveLease,
+      autoScanConversationId,
+      setAutoScanConversationId,
     }),
-    [toolEvents, pushToolEvent, activeClauseId, viewerRole, activeLease],
+    [viewerRole, autoScanConversationId],
   );
 
   return (

@@ -54,3 +54,9 @@ data/eval-reports/
 docs/_references/ai_mcp_chat_ordo/
 .characterization-diffs/
 tmp/
+
+# MCP runtime artifacts (console logs, page snapshots from Playwright MCP)
+.playwright-mcp/
+
+# Claude Code workspace-local state (per-user; shared settings.json may be tracked)
+.claude/settings.local.json

@@ -16,7 +16,7 @@ import type {
   EvalHealthSnapshot,
   LeaseGradingSnapshot,
 } from '@/lib/cockpit/types';
-import { RefreshButton } from './RefreshButton';
+import { CockpitPanel } from './CockpitPanel';
 
 export interface EvalHealthPanelProps {
   initialSnapshot: EvalHealthSnapshot | null;
@@ -45,17 +45,12 @@ export function EvalHealthPanel({
   const [leaseGrading, setLeaseGrading] = useState<LeaseGradingSnapshot | null>(
     initialLeaseGradingSnapshot,
   );
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  async function refresh() {
-    setIsRefreshing(true);
-    try {
-      const next = await refreshEvalHealth();
-      setSnapshot(next.snapshot);
-      setLeaseGrading(next.leaseGrading);
-    } finally {
-      setIsRefreshing(false);
-    }
+  // Sprint 24 — refresh state moved into CockpitPanel.
+  async function handleRefresh() {
+    const next = await refreshEvalHealth();
+    setSnapshot(next.snapshot);
+    setLeaseGrading(next.leaseGrading);
   }
 
   const allPassed =
@@ -65,20 +60,12 @@ export function EvalHealthPanel({
     : 'bg-warning-100 text-warning-600 dark:bg-warning-600/15 dark:text-warning-100';
 
   return (
-    <section
-      data-testid="eval-health-panel"
-      className="overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline dark:border-neutral-800 dark:bg-neutral-900"
+    <CockpitPanel
+      testId="eval-health-panel"
+      title="Eval health"
+      subtitle={<>Tier 1 retrieval · Tier 2 lease grading</>}
+      onRefresh={handleRefresh}
     >
-      <header className="flex items-center justify-between border-b border-neutral-100 px-4 py-3 dark:border-neutral-800">
-        <div>
-          <h2 className="text-sm font-semibold text-fg-default">Eval health</h2>
-          <p className="mt-0.5 text-[11px] text-fg-muted">
-            Tier 1 retrieval · Tier 2 lease grading
-          </p>
-        </div>
-        <RefreshButton isRefreshing={isRefreshing} onClick={refresh} />
-      </header>
-
       {/* Tier 1: retrieval golden eval */}
       <div
         data-testid="eval-tier1"
@@ -166,7 +153,7 @@ export function EvalHealthPanel({
           </>
         )}
       </div>
-    </section>
+    </CockpitPanel>
   );
 }
 

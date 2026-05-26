@@ -2,15 +2,13 @@ import '@testing-library/jest-dom/vitest';
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  ChatStreamProvider,
-  useChatStream,
-} from '@/components/chat/ChatStreamContext';
+import { ChatStreamProvider } from '@/components/chat/ChatStreamContext';
 import {
   GradingDetailBlock,
   type GradingDetailVerbosity,
 } from './GradingDetailBlock';
 import type { GradingResult } from './grading';
+import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 
 const baseGrading: GradingResult = {
   clause_id: 'c1',
@@ -29,9 +27,11 @@ function renderWithProvider(
   verbosity?: GradingDetailVerbosity,
 ) {
   return render(
-    <ChatStreamProvider>
-      <GradingDetailBlock grading={grading} verbosity={verbosity} />
-    </ChatStreamProvider>,
+    <LeaseParserProvider>
+      <ChatStreamProvider>
+        <GradingDetailBlock grading={grading} verbosity={verbosity} />
+      </ChatStreamProvider>
+    </LeaseParserProvider>,
   );
 }
 
@@ -89,14 +89,16 @@ describe('GradingDetailBlock', () => {
   it('clicking the citation chip calls pdfViewerRef.scrollToPage with the grading page', () => {
     const scrollToPage = vi.fn();
     function Wired() {
-      const { pdfViewerRef } = useChatStream();
+      const { pdfViewerRef } = useLeaseParser();
       pdfViewerRef.current = { scrollToPage };
       return <GradingDetailBlock grading={baseGrading} />;
     }
     render(
-      <ChatStreamProvider>
-        <Wired />
-      </ChatStreamProvider>,
+      <LeaseParserProvider>
+        <ChatStreamProvider>
+          <Wired />
+        </ChatStreamProvider>
+      </LeaseParserProvider>,
     );
     fireEvent.click(screen.getByRole('button', { name: /NJ Stat 46:8-19/i }));
     expect(scrollToPage).toHaveBeenCalledWith(4);

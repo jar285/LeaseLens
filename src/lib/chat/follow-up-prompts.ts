@@ -12,6 +12,15 @@ export interface FollowUpPrompt {
   prompt: string;
 }
 
+// Sprint 26c.10 — canonical standard-scan prompt. Lifted out of
+// ChatEmptyState (the legacy "Run the standard scan" card) so both
+// the FAB drawer's quick-action chips and the new AutoScanRunner can
+// import the exact same wording. Keeping it in one place prevents the
+// system prompt from receiving subtly different scan instructions
+// depending on which surface fired the message.
+export const STANDARD_SCAN_PROMPT =
+  'Run the standard scan on my active lease — extract the clauses, grade each against NJ tenant law, and list the red flags.';
+
 // S19.2 — chips shown under the synthetic "Lease uploaded" message
 // before the user has triggered a scan. The first option is the
 // dominant action; the other three are off-ramps for users who want

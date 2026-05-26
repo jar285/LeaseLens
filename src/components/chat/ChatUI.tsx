@@ -1,11 +1,22 @@
 'use client';
 
 import { AlertCircle, RotateCcw, SquarePen } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
+import { useAssistantFab } from './AssistantFabContext';
 import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps, ToolInvocation } from './ChatMessage';
+import { useChatStream } from './ChatStreamContext';
 import { ChatTranscript } from './ChatTranscript';
+
+// Sprint 28.8 — announcement copy for the aria-live region. Screen
+// readers fire on textContent change, so we set this string into the
+// announcer right after the reset. The wording is deliberate: it
+// names the user's concern ("lease preserved") so the SR user knows
+// the destructive-feeling action did NOT delete their workspace.
+const NEW_CONVERSATION_ANNOUNCEMENT =
+  'New conversation started. Your lease and results are preserved.';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to generate response';
@@ -16,6 +27,21 @@ export interface ChatToolEvent {
   input: Record<string, unknown>;
   result: unknown;
   audit_id: string | undefined;
+}
+
+export interface SuggestedPrompt {
+  /** Stable identity — used as React key and test selector. */
+  id: string;
+  /** Short label rendered on the chip. */
+  label: string;
+  /** The full prompt seeded into the composer when the chip is clicked. */
+  prompt: string;
+  /**
+   * Optional. When true, the chip renders disabled (used by the FAB
+   * for context-dependent suggestions like "Explain this clause"
+   * before the user has selected a red flag).
+   */
+  disabled?: boolean;
 }
 
 export interface ChatUIProps {
@@ -30,6 +56,29 @@ export interface ChatUIProps {
    * stream into its own message-state only (Sprints 8-12 behavior).
    */
   onToolEvent?: (event: ChatToolEvent) => void;
+  /**
+   * Sprint 26c — optional seed value for the composer textarea, used
+   * by the assistant FAB to pre-fill prompts like "Explain clause §3"
+   * when the user clicks Explain on a red-flag card or clause row.
+   * Forwarded to ChatComposer's `initialText` prop unchanged.
+   */
+  initialComposerText?: string;
+  /**
+   * Sprint 27.1 — quick-action chips rendered above the composer when
+   * the transcript is empty. The FAB used to surface these as a popup
+   * menu the user had to click through before reaching the chat; that
+   * gate is gone. The same chips now sit inside the open drawer as
+   * suggested next prompts (Steve Krug: obvious affordance; Don Norman:
+   * the FAB icon should afford chat, not force a menu choice).
+   */
+  suggestedPrompts?: SuggestedPrompt[];
+  /**
+   * Sprint 27.1 — invoked when the user clicks a suggested-prompts
+   * chip. The FAB wires this to `fab.openWith({ initialPrompt })` so
+   * the existing prefill plumbing in ChatComposer re-seeds the
+   * textarea. Standalone consumers may ignore this prop.
+   */
+  onSelectSuggestion?: (prompt: string) => void;
 }
 
 export function ChatUI({
@@ -37,12 +86,24 @@ export function ChatUI({
   conversationId = null,
   workspaceName,
   onToolEvent,
+  initialComposerText,
+  suggestedPrompts,
+  onSelectSuggestion,
 }: ChatUIProps) {
   const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
 
+  // Sprint 26c.11 — adopt the auto-scan's conversationId when ChatUI's
+  // own prop is null. AutoScanRunner runs silently before the user
+  // opens the FAB drawer, captures the server-issued conversationId
+  // from its NDJSON stream, and broadcasts it via ChatStreamContext.
+  // Without this sync, the user's manual chat would start a brand-
+  // new conversation B instead of continuing conversation A.
+  //
+  // (Single `useChatStream()` call below pulls every field this
+  // component needs — see the consolidated destructure ~30 lines down.)
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
   >(conversationId);
@@ -50,15 +111,79 @@ export function ChatUI({
   // One-click undo for "New conversation" misclicks. Stashed when the user
   // clicks New; cleared when they send a message in the new thread or click
   // Continue previous. Empty / null = no undo available.
+  //
+  // Sprint 24.7 — the stash now also captures the active lease and the
+  // tool-event log so undo restores the full pre-reset state, not just
+  // the chat thread. Previously "Continue previous" would re-attach the
+  // chat but leave the dropzone in place and the right pane empty, which
+  // looked like a half-finished undo.
   const [previousConversationId, setPreviousConversationId] = useState<
     string | null
   >(null);
   const [previousMessages, setPreviousMessages] = useState<ChatMessageProps[]>(
     [],
   );
+  // Sprint 28.7 — chat-thread snapshots for "Continue previous" undo.
+  // Parser state (activeLease, toolEvents) is intentionally NOT stashed
+  // here: after the Sprint 3+4 state split, parser state lives on
+  // LeaseParserContext and is never reset by a chat-thread action, so
+  // there is nothing to restore on the parser side.
+  const { activeLease } = useLeaseParser();
+  const { autoScanConversationId } = useChatStream();
+  // Sprint 28.8 — FAB context drop on "New conversation". ChatUI may
+  // be mounted standalone (not inside the FAB), so we guard against a
+  // missing provider by accessing via a wrapped hook; useAssistantFab
+  // throws if no provider is mounted, so a try/catch in the handler
+  // would be premature — every production mount goes through the
+  // workspace shells where the provider exists. Tests that mount
+  // ChatUI without the FAB provider stub this hook explicitly.
+  const fab = useAssistantFab();
+
+  // Sprint 28.8 — aria-live announcer text for screen readers. Set
+  // by handleNewConversation; cleared by an effect after a beat so
+  // repeat clicks re-announce.
+  const [announcement, setAnnouncement] = useState<string>('');
+  useEffect(() => {
+    if (!announcement) return;
+    const timer = window.setTimeout(() => setAnnouncement(''), 4000);
+    return () => window.clearTimeout(timer);
+  }, [announcement]);
+
+  // Sprint 26c.11 — promote the auto-scan's captured conversationId
+  // into local state once it's available, so the user's manual chat
+  // continues the same thread instead of starting a fresh one.
+  // Initial useState above seeded from `conversationId` prop only
+  // (auto-scan may not have captured the id yet at first render); this
+  // effect catches the late-arriving case.
+  useEffect(() => {
+    if (activeConversationId === null && autoScanConversationId !== null) {
+      setActiveConversationId(autoScanConversationId);
+    }
+  }, [autoScanConversationId, activeConversationId]);
+
+  // Sprint 25.1 (R8) — track the in-flight chat fetch so we can abort
+  // on unmount / "New conversation" / rapid re-submit. Without this,
+  // navigating away mid-stream leaves the reader loop running and
+  // updating state on a soon-to-unmount component.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+    },
+    [],
+  );
 
   const handleNewConversation = () => {
+    // Cancel any in-flight stream before clearing state so the reader
+    // loop sees AbortError before it can race against the reset.
+    abortRef.current?.abort();
     if (activeConversationId !== null || messages.length > 0) {
+      // Sprint 28.7 — only the chat thread is stashed for the
+      // "Continue previous" undo. The lease lives on
+      // LeaseParserContext and was never touched, so there is nothing
+      // parser-side to restore. Sprint 28.9+ may introduce an
+      // explicit "Reset workspace" affordance that clears both
+      // contexts on confirmation.
       setPreviousConversationId(activeConversationId);
       setPreviousMessages(messages);
     }
@@ -67,6 +192,16 @@ export function ChatUI({
     setStatus('idle');
     setErrorMsg('');
     setQuotaRemaining(null);
+    // Sprint 28.8 — drop the FAB's pendingPrompt + selection so the
+    // next user question isn't biased toward the prior clause
+    // context. The drawer stays open (clearPendingContext doesn't
+    // touch state) — the user is mid-interaction.
+    fab.clearPendingContext();
+    // Sprint 28.8 — announce to screen readers that the lease is
+    // preserved. The destructive-sounding label "New conversation"
+    // would otherwise leave SR users wondering whether their lease
+    // and red flags are still there.
+    setAnnouncement(NEW_CONVERSATION_ANNOUNCEMENT);
   };
 
   const handleContinuePrevious = () => {
@@ -83,8 +218,11 @@ export function ChatUI({
     if (!trimmed || status === 'streaming') return;
 
     // Sending a message commits to the new thread — drop the undo-stash
-    // so "Continue previous" doesn't reappear later.
-    if (previousConversationId !== null) {
+    // so "Continue previous" doesn't reappear later. Sprint 28.7 — the
+    // stash is now chat-only; parser state lives on LeaseParserContext
+    // and is never touched by chat-thread actions, so there is no
+    // pdfUrl/lease binary to revoke here.
+    if (previousConversationId !== null || previousMessages.length > 0) {
       setPreviousConversationId(null);
       setPreviousMessages([]);
     }
@@ -110,6 +248,12 @@ export function ChatUI({
     // Track pending tool invocations for this response
     const pendingTools = new Map<string, ToolInvocation>();
 
+    // Sprint 25.1 (R8) — replace any prior controller so a rapid re-submit
+    // cancels the previous in-flight stream before starting the new one.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -118,6 +262,7 @@ export function ChatUI({
           message: trimmed,
           conversationId: activeConversationId,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok || !response.body) {
@@ -239,6 +384,15 @@ export function ChatUI({
 
       setStatus('idle');
     } catch (error) {
+      // Sprint 25.1 (R8) — silent cancel: user clicked New, unmounted, or
+      // re-submitted while a stream was in flight. Drop the in-progress
+      // assistant bubble; don't render an error banner. Other dispatched
+      // state (status, errorMsg) is reset by whichever path triggered
+      // the abort.
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setMessages((prev) => prev.filter((m) => m.id !== assistantMessageId));
+        return;
+      }
       console.error(error);
       setErrorMsg(getErrorMessage(error));
       setStatus('error');
@@ -246,12 +400,32 @@ export function ChatUI({
   };
 
   const hasMessages = messages.length > 0;
-  const hasPreviousStash = previousConversationId !== null;
-  const showContinuePrevious = !hasMessages && hasPreviousStash;
+  // Sprint 24.7 — undo affordance now activates on a stashed lease too
+  // (not just a stashed chat thread). Without this, a user who uploads
+  // a lease, runs a scan, then misclicks "New conversation" before
+  // sending any message would see no Continue-previous button — their
+  // lease + red-flag cards would be unrecoverable without re-uploading.
+  const hasPreviousStash =
+    previousConversationId !== null || previousMessages.length > 0;
+  const showContinuePrevious = !hasMessages && hasPreviousStash && !activeLease;
   const showToolbar = hasMessages || hasPreviousStash;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
+      {/* Sprint 28.8 — aria-live announcer for chat-thread resets so
+          screen-reader users hear that the lease is preserved. Empty
+          most of the time; populated for ~4s after a New conversation
+          click. role="status" → polite by default, but we set the
+          attribute explicitly for any AT that ignores the role default. */}
+      <div
+        data-testid="new-conversation-announcer"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {announcement}
+      </div>
       <div className="grid min-h-0 w-full flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
         {/* Conversation toolbar — visible when there's an active thread or
             a stashed previous one (one-click undo for misclicked New). */}
@@ -276,8 +450,13 @@ export function ChatUI({
               type="button"
               data-testid="new-conversation-btn"
               onClick={handleNewConversation}
-              disabled={status === 'streaming'}
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40"
+              // Sprint 25.2 — formerly disabled during streaming, which
+              // gated the user out of R8's escape-hatch flow (clicking
+              // New mid-stream is the documented way to abort an
+              // in-flight reply and start fresh). handleNewConversation
+              // calls abortRef.current?.abort() at the top, so the
+              // in-flight fetch cancels cleanly.
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               <SquarePen className="h-3.5 w-3.5" aria-hidden="true" />
               New conversation
@@ -319,9 +498,42 @@ export function ChatUI({
             </div>
           )}
 
+          {/* Sprint 27.1 — suggested-prompts row.
+              Visible only when the transcript is empty (no committed
+              messages yet) AND the caller supplied at least one chip.
+              Clicking a chip fires `onSelectSuggestion(prompt)` which
+              the FAB routes through `fab.openWith` so ChatComposer's
+              existing prefill effect re-seeds the textarea. Hidden
+              once the user starts a thread so the chips don't compete
+              with the composer once chat has begun. */}
+          {!hasMessages &&
+          suggestedPrompts &&
+          suggestedPrompts.length > 0 &&
+          onSelectSuggestion ? (
+            <div
+              data-testid="chat-suggested-prompts"
+              className="flex shrink-0 flex-wrap gap-1.5 border-t border-neutral-100 px-6 pb-2 pt-3 dark:border-neutral-800"
+            >
+              {suggestedPrompts.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  data-testid="chat-suggested-prompt"
+                  data-suggestion-id={s.id}
+                  disabled={s.disabled}
+                  onClick={() => onSelectSuggestion(s.prompt)}
+                  className="inline-flex items-center rounded-full border border-accent-200 bg-surface-card px-3 py-1.5 text-xs font-medium text-accent-700 transition-colors hover:border-accent-300 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-transparent disabled:text-fg-subtle disabled:hover:bg-transparent dark:border-accent-500/30 dark:bg-neutral-900 dark:text-accent-300 dark:hover:border-accent-400/50 dark:hover:bg-accent-500/10"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           <ChatComposer
             onSubmit={handleSubmit}
             isLocked={status === 'streaming'}
+            initialText={initialComposerText}
           />
         </div>
       </div>

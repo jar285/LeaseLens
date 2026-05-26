@@ -2,9 +2,17 @@
  * Sprint 18 §5 — shared test-render helpers for chat components.
  *
  * `withChatStream(ui, { viewerRole, activeLease })` wraps a rendered
- * tree in <ChatStreamProvider> so consumers of useChatStream don't
- * crash in tests. Centralising the wrapper here keeps the test files
- * terse and ensures we don't drift on default values.
+ * tree in BOTH <LeaseParserProvider> and <ChatStreamProvider> so
+ * consumers reading parser state (lease, tool events, active clause)
+ * via either context see the same seed data. Centralising the wrapper
+ * here keeps the test files terse and ensures we don't drift on
+ * default values.
+ *
+ * Sprint 28.6 — both providers are seeded with the same
+ * `initialEvents` and `activeLease` so the consumer migration from
+ * `useChatStream` to `useLeaseParser` happens behind a stable test
+ * surface. After Sprint 4 strips parser state from ChatStreamProvider,
+ * only LeaseParserProvider will hold the seed.
  *
  * Default `viewerRole` is `Tenant` (the most-restrictive view) so
  * legacy tests exercise the same surface real users see by default.
@@ -19,7 +27,9 @@ import {
   ChatStreamProvider,
   type ToolEvent,
 } from '@/components/chat/ChatStreamContext';
+import { LeaseParserProvider } from '@/components/lease/LeaseParserContext';
 import type { Role } from '@/lib/auth/types';
+import { AssistantFabProvider } from './AssistantFabContext';
 
 export interface ChatStreamHarnessOptions {
   viewerRole?: Role;
@@ -36,12 +46,13 @@ export function withChatStream(
   }: ChatStreamHarnessOptions = {},
 ): ReactElement {
   return (
-    <ChatStreamProvider
-      viewerRole={viewerRole}
-      initialEvents={initialEvents}
-      activeLease={activeLease}
-    >
-      {ui}
-    </ChatStreamProvider>
+    <AssistantFabProvider>
+      <LeaseParserProvider
+        initialEvents={initialEvents}
+        activeLease={activeLease}
+      >
+        <ChatStreamProvider viewerRole={viewerRole}>{ui}</ChatStreamProvider>
+      </LeaseParserProvider>
+    </AssistantFabProvider>
   );
 }

@@ -1,3 +1,5 @@
+import { narrowToolEnvelope } from './parse-tool-content';
+
 export type StreamLineMessage =
   | { conversationId: string }
   | { chunk: string }
@@ -62,47 +64,19 @@ export function parseStreamLine(line: string): StreamLineMessage | null {
       };
     }
 
-    // Tool use event
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      'tool_use' in parsed &&
-      typeof (parsed as { tool_use?: unknown }).tool_use === 'object' &&
-      (parsed as { tool_use?: unknown }).tool_use !== null
-    ) {
-      const toolUse = (
-        parsed as {
-          tool_use: {
-            id: string;
-            name: string;
-            input: Record<string, unknown>;
-          };
-        }
-      ).tool_use;
-      return { tool_use: toolUse };
+    // Tool envelopes (tool_use / tool_result) — shared with the SSR
+    // rehydration path via narrowToolEnvelope. Sprint 25.1 (R5).
+    const tool = narrowToolEnvelope(parsed);
+    if (tool && 'tool_use' in tool) {
+      return { tool_use: tool.tool_use };
     }
-
-    // Tool result event
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      'tool_result' in parsed &&
-      typeof (parsed as { tool_result?: unknown }).tool_result === 'object' &&
-      (parsed as { tool_result?: unknown }).tool_result !== null
-    ) {
-      const toolResult = (
-        parsed as {
-          tool_result: {
-            id: string;
-            name: string;
-            result: unknown;
-            error?: string;
-            audit_id?: string;
-            compensating_available?: boolean;
-          };
-        }
-      ).tool_result;
-      return { tool_result: toolResult };
+    if (tool && 'tool_result' in tool) {
+      // The live stream contract requires `name` on tool_result; the
+      // shared envelope keeps it optional to match legacy persisted
+      // rows. Guard the narrower contract here.
+      const { name } = tool.tool_result;
+      if (typeof name !== 'string') return null;
+      return { tool_result: { ...tool.tool_result, name } };
     }
 
     // Truncation event (Sprint 18)

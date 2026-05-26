@@ -8,6 +8,15 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatUI } from '@/components/chat/ChatUI';
 import { withChatStream } from '@/components/chat/test-helpers';
+import { useLeaseParser } from '@/components/lease/LeaseParserContext';
+
+function LeaseProbe(): React.JSX.Element {
+  // Sprint 28.6 — activeLease lives on LeaseParserContext now.
+  const { activeLease } = useLeaseParser();
+  return (
+    <div data-testid="lease-probe">{activeLease?.lease_id ?? '__empty__'}</div>
+  );
+}
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -254,7 +263,13 @@ describe('Homepage Chat UI', () => {
       ).toBeInTheDocument();
     });
 
-    const statusRegion = screen.getByRole('status');
+    // Sprint 28.8 — multiple role="status" regions exist now (the
+    // chat error announcer + the New conversation aria-live announcer).
+    // Disambiguate by textContent to land on the error announcer.
+    const statusRegion = screen
+      .getAllByRole('status')
+      .find((el) => el.textContent?.includes('Error:'));
+    expect(statusRegion).toBeDefined();
     expect(statusRegion).toHaveTextContent(
       'Error: Failed to generate response',
     );
@@ -354,6 +369,159 @@ describe('Homepage Chat UI', () => {
     expect(
       screen.queryByTestId('continue-previous-btn'),
     ).not.toBeInTheDocument();
+  });
+
+  // Sprint 28.6 (Bug 3 fix) — supersedes the Sprint 24.7 expectation
+  // that "New conversation clears the lease". Parser state lives on
+  // LeaseParserContext now, so resetting the chat thread no longer
+  // touches the uploaded lease, extracted clauses, or red flags. The
+  // LeaseProbe (defined at module scope above) reads
+  // LeaseParserContext.activeLease — it must still show the same
+  // lease_id after the user clicks New conversation.
+  it('Sprint 28.6 — New conversation PRESERVES the lease (Bug 3 fix)', () => {
+    render(
+      withChatStream(
+        <>
+          <ChatUI
+            initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]}
+            conversationId="conv-1"
+            workspaceName="Side Quest Syndicate"
+          />
+          <LeaseProbe />
+        </>,
+        {
+          activeLease: {
+            lease_id: 'lease-pre-reset',
+            filename: 'old.pdf',
+          },
+        },
+      ),
+    );
+
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent(
+      'lease-pre-reset',
+    );
+
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+
+    // Bug 3 fix: the lease in LeaseParserContext is untouched by a
+    // chat-thread reset. Pre-Sprint-3 this assertion was '__empty__'.
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent(
+      'lease-pre-reset',
+    );
+  });
+
+  // Sprint 28.6 — supersedes Sprint 24.7's "New -> Continue previous
+  // keeps the Blob URL alive". The continue-previous affordance only
+  // renders when there's no active lease (it gates on `!activeLease`),
+  // so the original scenario is no longer reachable. The replacement
+  // assertion is the load-bearing invariant the original test
+  // protected: clicking "New conversation" must NOT revoke the
+  // active Blob URL — the lease keeps rendering, the URL stays alive.
+  it('Sprint 28.6 — New conversation does not revoke the active Blob URL', () => {
+    const revoke = vi.fn();
+    global.URL.revokeObjectURL = revoke;
+
+    render(
+      withChatStream(
+        <ChatUI
+          initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hi' }]}
+          conversationId="conv-1"
+          workspaceName="Side Quest Syndicate"
+        />,
+        {
+          activeLease: {
+            lease_id: 'lease-keep-alive',
+            filename: 'a.pdf',
+            pdfUrl: 'blob:keep-alive',
+          },
+        },
+      ),
+    );
+
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  // Sprint 28.7 — supersedes Sprint 24.7's "sending after New revokes
+  // the stashed Blob URL". After the state split, ChatUI no longer
+  // owns parser snapshots — the lease lives on LeaseParserContext
+  // and is never reset by a chat-thread action. Send-after-new must
+  // therefore NOT revoke the active Blob URL; the lease is still
+  // mounted, the URL is still in use. Blob URL revocation will move
+  // to Sprint 5's explicit "Reset workspace" affordance.
+  it('Sprint 28.7 — sending a message after New does NOT revoke the active Blob URL', async () => {
+    const revoke = vi.fn();
+    global.URL.revokeObjectURL = revoke;
+
+    render(
+      withChatStream(
+        <ChatUI
+          initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hi' }]}
+          conversationId="conv-1"
+          workspaceName="Side Quest Syndicate"
+        />,
+        {
+          activeLease: {
+            lease_id: 'lease-commit',
+            filename: 'a.pdf',
+            pdfUrl: 'blob:commit-target',
+          },
+        },
+      ),
+    );
+
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+    expect(revoke).not.toHaveBeenCalled();
+
+    const input = screen.getByLabelText('Type a message');
+    fireEvent.change(input, { target: { value: 'commit to new thread' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    // Sprint 28.7: lease persists across the chat thread cycle. No
+    // revoke fires because the URL is still in use.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  // Sprint 28.6 — supersedes Sprint 24.7's "Continue previous restores
+  // the lease". After the state split, the lease was never reset to
+  // begin with — so the test is now simpler: clicking New conversation
+  // leaves the lease visible the whole time. The continue-previous
+  // affordance is hidden when an active lease is mounted (gated on
+  // `!activeLease`); Sprint 5 will revisit the undo surface once the
+  // explicit "Reset workspace" path is wired.
+  it('Sprint 28.6 — the lease stays visible across a New conversation click', () => {
+    render(
+      withChatStream(
+        <>
+          <ChatUI
+            initialMessages={[{ id: 'msg-1', role: 'user', content: 'Hello' }]}
+            conversationId="conv-1"
+            workspaceName="Side Quest Syndicate"
+          />
+          <LeaseProbe />
+        </>,
+        {
+          activeLease: {
+            lease_id: 'lease-original',
+            filename: 'old.pdf',
+          },
+        },
+      ),
+    );
+
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent(
+      'lease-original',
+    );
+
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+
+    // Bug 3 fix: the lease was never reset.
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent(
+      'lease-original',
+    );
   });
 
   it('remounts on workspace change so the prior thread does not bleed across', () => {

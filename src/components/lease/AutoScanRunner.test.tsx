@@ -18,6 +18,7 @@ import {
 } from '@/components/chat/ChatStreamContext';
 import { STANDARD_SCAN_PROMPT } from '@/lib/chat/follow-up-prompts';
 import { __resetAutoScanFiredLeases, AutoScanRunner } from './AutoScanRunner';
+import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 
 const ACTIVE_LEASE: ActiveLeaseRef = {
   lease_id: 'auto-scan-lease',
@@ -97,13 +98,18 @@ function renderRunner({
   activeLease?: ActiveLeaseRef | null;
 }): void {
   render(
-    <ChatStreamProvider
-      viewerRole="Tenant"
+    <LeaseParserProvider
       initialEvents={initialEvents}
       activeLease={activeLease}
     >
-      <AutoScanRunner enabled={enabled} conversationId={null} />
-    </ChatStreamProvider>,
+      <ChatStreamProvider
+        viewerRole="Tenant"
+        initialEvents={initialEvents}
+        activeLease={activeLease}
+      >
+        <AutoScanRunner enabled={enabled} conversationId={null} />
+      </ChatStreamProvider>
+    </LeaseParserProvider>,
   );
 }
 
@@ -160,26 +166,30 @@ describe('AutoScanRunner', () => {
 
   it('only fires once even if the component re-renders', async () => {
     const { rerender } = render(
-      <ChatStreamProvider
-        viewerRole="Tenant"
-        initialEvents={[]}
-        activeLease={ACTIVE_LEASE}
-      >
-        <AutoScanRunner enabled={true} conversationId={null} />
-      </ChatStreamProvider>,
+      <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
+        <ChatStreamProvider
+          viewerRole="Tenant"
+          initialEvents={[]}
+          activeLease={ACTIVE_LEASE}
+        >
+          <AutoScanRunner enabled={true} conversationId={null} />
+        </ChatStreamProvider>
+      </LeaseParserProvider>,
     );
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
     // Re-render with the same lease — should not re-fire.
     rerender(
-      <ChatStreamProvider
-        viewerRole="Tenant"
-        initialEvents={[]}
-        activeLease={ACTIVE_LEASE}
-      >
-        <AutoScanRunner enabled={true} conversationId={null} />
-      </ChatStreamProvider>,
+      <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
+        <ChatStreamProvider
+          viewerRole="Tenant"
+          initialEvents={[]}
+          activeLease={ACTIVE_LEASE}
+        >
+          <AutoScanRunner enabled={true} conversationId={null} />
+        </ChatStreamProvider>
+      </LeaseParserProvider>,
     );
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -187,13 +197,15 @@ describe('AutoScanRunner', () => {
 
   it('renders nothing in the DOM', () => {
     const { container } = render(
-      <ChatStreamProvider
-        viewerRole="Tenant"
-        initialEvents={[]}
-        activeLease={ACTIVE_LEASE}
-      >
-        <AutoScanRunner enabled={false} conversationId={null} />
-      </ChatStreamProvider>,
+      <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
+        <ChatStreamProvider
+          viewerRole="Tenant"
+          initialEvents={[]}
+          activeLease={ACTIVE_LEASE}
+        >
+          <AutoScanRunner enabled={false} conversationId={null} />
+        </ChatStreamProvider>
+      </LeaseParserProvider>,
     );
     expect(container.firstChild).toBeNull();
   });
@@ -210,7 +222,7 @@ describe('AutoScanRunner', () => {
     // probe reads.
     const observed: ToolEvent[] = [];
     function Probe(): null {
-      const { toolEvents } = useChatStream();
+      const { toolEvents } = useLeaseParser();
       // Mirror the current snapshot every render.
       observed.length = 0;
       observed.push(...toolEvents);
@@ -219,14 +231,16 @@ describe('AutoScanRunner', () => {
 
     render(
       <StrictMode>
-        <ChatStreamProvider
-          viewerRole="Tenant"
-          initialEvents={[]}
-          activeLease={ACTIVE_LEASE}
-        >
-          <Probe />
-          <AutoScanRunner enabled={true} conversationId={null} />
-        </ChatStreamProvider>
+        <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
+          <ChatStreamProvider
+            viewerRole="Tenant"
+            initialEvents={[]}
+            activeLease={ACTIVE_LEASE}
+          >
+            <Probe />
+            <AutoScanRunner enabled={true} conversationId={null} />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
       </StrictMode>,
     );
 
@@ -257,7 +271,7 @@ describe('AutoScanRunner', () => {
   it('preserves tool_use input on pushed tool events (Bug 2 follow-up)', async () => {
     const observed: ToolEvent[] = [];
     function Probe(): null {
-      const { toolEvents } = useChatStream();
+      const { toolEvents } = useLeaseParser();
       observed.length = 0;
       observed.push(...toolEvents);
       return null;
@@ -317,14 +331,16 @@ describe('AutoScanRunner', () => {
     );
 
     render(
-      <ChatStreamProvider
-        viewerRole="Tenant"
-        initialEvents={[]}
-        activeLease={ACTIVE_LEASE}
-      >
-        <Probe />
-        <AutoScanRunner enabled={true} conversationId={null} />
-      </ChatStreamProvider>,
+      <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
+        <ChatStreamProvider
+          viewerRole="Tenant"
+          initialEvents={[]}
+          activeLease={ACTIVE_LEASE}
+        >
+          <Probe />
+          <AutoScanRunner enabled={true} conversationId={null} />
+        </ChatStreamProvider>
+      </LeaseParserProvider>,
     );
 
     await waitFor(() => {
@@ -348,14 +364,16 @@ describe('AutoScanRunner', () => {
     }
 
     render(
-      <ChatStreamProvider
-        viewerRole="Tenant"
-        initialEvents={[]}
-        activeLease={ACTIVE_LEASE}
-      >
-        <Probe />
-        <AutoScanRunner enabled={true} conversationId={null} />
-      </ChatStreamProvider>,
+      <LeaseParserProvider initialEvents={[]} activeLease={ACTIVE_LEASE}>
+        <ChatStreamProvider
+          viewerRole="Tenant"
+          initialEvents={[]}
+          activeLease={ACTIVE_LEASE}
+        >
+          <Probe />
+          <AutoScanRunner enabled={true} conversationId={null} />
+        </ChatStreamProvider>
+      </LeaseParserProvider>,
     );
 
     await waitFor(() => {

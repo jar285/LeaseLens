@@ -31,7 +31,6 @@ import {
 } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantFab } from '@/components/chat/AssistantFabContext';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
 import { EmptyState } from '@/components/states/EmptyState';
 import { SPRING_GENTLE } from '@/lib/motion/presets';
 import { CitationChip } from './CitationChip';
@@ -44,6 +43,7 @@ import {
   SEVERITY_ORDER,
   type Severity,
 } from './grading';
+import { useLeaseParser } from './LeaseParserContext';
 import { RedFlagSkeletonCard } from './RedFlagSkeletonCard';
 import { RedFlagsLoadingState } from './RedFlagsLoadingState';
 import { SeverityBadge } from './SeverityBadge';
@@ -77,7 +77,7 @@ export function RedFlagReport(): React.JSX.Element {
     activeClauseId,
     setActiveClauseId,
     activeLease,
-  } = useChatStream();
+  } = useLeaseParser();
   // Sprint 26c — FAB context is available wherever the parser shells
   // mount. RedFlagReport is currently used only inside those shells
   // (and inside Vitest tests that mount both providers), so this is

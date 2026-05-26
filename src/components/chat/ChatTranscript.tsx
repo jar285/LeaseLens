@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import type { SyntheticAssistantMessage } from '@/components/lease/scan-narrative';
 import { UploadedLeaseCard } from '@/components/lease/UploadedLeaseCard';
 import { useScanNarrative } from '@/components/lease/use-scan-narrative';
 import { FOLLOW_UP_PROMPTS } from '@/lib/chat/follow-up-prompts';
 import { ChatEmptyState } from './ChatEmptyState';
 import { ChatMessage, type ChatMessageProps } from './ChatMessage';
-import { useChatStream } from './ChatStreamContext';
 
 export interface ChatTranscriptProps {
   messages: ChatMessageProps[];
@@ -88,7 +88,7 @@ export function ChatTranscript({
   const pinnedToBottom = useRef(true);
 
   const { intro, summary } = useScanNarrative();
-  const { activeLease } = useChatStream();
+  const { activeLease } = useLeaseParser();
   // S20.7 + S20.8 — when the model has already produced a substantive
   // closing assistant message, the synthetic summary is at best
   // redundant and at worst contradicts the model (e.g. model writes a

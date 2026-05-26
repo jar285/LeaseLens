@@ -24,7 +24,6 @@
  */
 
 import { ExternalLink } from 'lucide-react';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
 import { CitationChip } from './CitationChip';
 import {
   clauseLabel,
@@ -33,6 +32,7 @@ import {
   SEVERITY_BAR,
   SEVERITY_LABEL,
 } from './grading';
+import { useLeaseParser } from './LeaseParserContext';
 
 const HIGHLIGHT_DURATION_MS = 4000;
 
@@ -51,7 +51,7 @@ export function GradingDetailBlock({
   grading,
   verbosity = 'tenant',
 }: GradingDetailBlockProps): React.JSX.Element {
-  const { pdfViewerRef, setActiveClauseId } = useChatStream();
+  const { pdfViewerRef, setActiveClauseId } = useLeaseParser();
 
   function handleJumpToPage(): void {
     if (typeof grading.page_number !== 'number') return;

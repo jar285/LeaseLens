@@ -23,6 +23,7 @@ import { ChatStreamProvider } from '@/components/chat/ChatStreamContext';
 import type { Role } from '@/lib/auth/types';
 import { LEASELENS_DISCLAIMER } from '@/lib/lease/disclaimer';
 import { LeaseHeroDropzone } from './LeaseHeroDropzone';
+import { LeaseParserProvider } from './LeaseParserContext';
 import type { UploadResult } from './LeaseUploadDropzone';
 
 export interface ParserLandingShellProps {
@@ -67,112 +68,114 @@ export function ParserLandingShell({
 }: ParserLandingShellProps): React.JSX.Element {
   return (
     <AssistantFabProvider>
-      <ChatStreamProvider viewerRole={viewerRole} activeLease={null}>
-        <section
-          data-testid="parser-landing-shell"
-          // Sprint 26c.3 — `justify-center-safe` falls back to flex-start
-          // when content overflows the section's height. Plain
-          // `justify-center` was causing the eyebrow + badge to bleed
-          // above the scroll viewport (and therefore behind the global
-          // header) on shorter laptop viewports. Same fix the legacy
-          // ChatEmptyState carried for the same reason.
-          className="relative flex min-h-0 flex-1 flex-col items-center justify-center-safe gap-10 overflow-y-auto bg-surface-base px-6 py-12 sm:py-16"
-        >
-          {/* Sprint 26c.5 — brand cluster (eyebrow + badge + wordmark)
+      <LeaseParserProvider activeLease={null}>
+        <ChatStreamProvider viewerRole={viewerRole} activeLease={null}>
+          <section
+            data-testid="parser-landing-shell"
+            // Sprint 26c.3 — `justify-center-safe` falls back to flex-start
+            // when content overflows the section's height. Plain
+            // `justify-center` was causing the eyebrow + badge to bleed
+            // above the scroll viewport (and therefore behind the global
+            // header) on shorter laptop viewports. Same fix the legacy
+            // ChatEmptyState carried for the same reason.
+            className="relative flex min-h-0 flex-1 flex-col items-center justify-center-safe gap-10 overflow-y-auto bg-surface-base px-6 py-12 sm:py-16"
+          >
+            {/* Sprint 26c.5 — brand cluster (eyebrow + badge + wordmark)
               and the hero dropzone live in a tighter sub-stack so the
               wordmark reads as a lockup that introduces the headline,
               rather than a free-floating label 40px away. The outer
               section keeps gap-10 between this unit and the
               flow-strip / trust / disclaimer rows so the page rhythm
               stays calm. */}
-          <div className="flex w-full flex-col items-center gap-2">
-            <div className="flex flex-col items-center gap-3">
-              <p
-                data-testid="parser-landing-eyebrow"
-                className="font-mono text-[10px] tracking-[0.22em] text-fg-subtle uppercase sm:text-[11px]"
-              >
-                {workspaceName}
-              </p>
-              <LeaseHeroBrandBadge />
-              {/* Sprint 26c.5–.8 — wordmark mirrors the "negotiate"
+            <div className="flex w-full flex-col items-center gap-2">
+              <div className="flex flex-col items-center gap-3">
+                <p
+                  data-testid="parser-landing-eyebrow"
+                  className="font-mono text-[10px] tracking-[0.22em] text-fg-subtle uppercase sm:text-[11px]"
+                >
+                  {workspaceName}
+                </p>
+                <LeaseHeroBrandBadge />
+                {/* Sprint 26c.5–.8 — wordmark mirrors the "negotiate"
                   emphasis in the hero headline (font-serif + italic),
                   stepped to text-3xl (30px) and bolded so the lockup
                   reads at full brand strength. Still subordinate to
                   the text-4xl / text-5xl headline below, so hierarchy
                   is preserved. */}
-              <p
-                data-testid="parser-landing-wordmark"
-                className="font-serif font-bold text-3xl text-fg-default italic tracking-tight"
-              >
-                LeaseLens
-              </p>
+                <p
+                  data-testid="parser-landing-wordmark"
+                  className="font-serif font-bold text-3xl text-fg-default italic tracking-tight"
+                >
+                  LeaseLens
+                </p>
+              </div>
+
+              <LeaseHeroDropzone
+                onUploaded={onUploaded ?? (() => {})}
+                conversationId={conversationId ?? null}
+              />
             </div>
 
-            <LeaseHeroDropzone
-              onUploaded={onUploaded ?? (() => {})}
-              conversationId={conversationId ?? null}
-            />
-          </div>
+            <ol
+              data-testid="parser-flow-strip"
+              aria-label="Parser workflow"
+              className="flex max-w-2xl flex-wrap items-baseline justify-center gap-x-3 gap-y-1.5 font-mono text-[10px] tracking-[0.14em] text-fg-subtle uppercase"
+            >
+              {FLOW_STAGES.map((stage, idx) => (
+                <li key={stage} className="inline-flex items-baseline gap-3">
+                  <span>{stage}</span>
+                  {idx < FLOW_STAGES.length - 1 ? (
+                    <span aria-hidden="true" className="text-fg-subtle/50">
+                      →
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
 
-          <ol
-            data-testid="parser-flow-strip"
-            aria-label="Parser workflow"
-            className="flex max-w-2xl flex-wrap items-baseline justify-center gap-x-3 gap-y-1.5 font-mono text-[10px] tracking-[0.14em] text-fg-subtle uppercase"
-          >
-            {FLOW_STAGES.map((stage, idx) => (
-              <li key={stage} className="inline-flex items-baseline gap-3">
-                <span>{stage}</span>
-                {idx < FLOW_STAGES.length - 1 ? (
-                  <span aria-hidden="true" className="text-fg-subtle/50">
-                    →
+            <div
+              data-testid="parser-trust-metrics"
+              className="flex max-w-2xl flex-wrap items-baseline justify-center gap-x-3 gap-y-1.5 text-[11px] text-fg-subtle"
+            >
+              {TRUST_METRICS.map((metric, index) => (
+                <span
+                  key={metric.text}
+                  className="inline-flex items-baseline gap-3 whitespace-nowrap"
+                >
+                  <span className="inline-flex items-baseline gap-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="font-mono text-[10px] tracking-[0.1em] text-fg-subtle/70"
+                    >
+                      {metric.numeral}
+                    </span>
+                    <span>{metric.text}</span>
                   </span>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-
-          <div
-            data-testid="parser-trust-metrics"
-            className="flex max-w-2xl flex-wrap items-baseline justify-center gap-x-3 gap-y-1.5 text-[11px] text-fg-subtle"
-          >
-            {TRUST_METRICS.map((metric, index) => (
-              <span
-                key={metric.text}
-                className="inline-flex items-baseline gap-3 whitespace-nowrap"
-              >
-                <span className="inline-flex items-baseline gap-1.5">
-                  <span
-                    aria-hidden="true"
-                    className="font-mono text-[10px] tracking-[0.1em] text-fg-subtle/70"
-                  >
-                    {metric.numeral}
-                  </span>
-                  <span>{metric.text}</span>
+                  {index < TRUST_METRICS.length - 1 ? (
+                    <span aria-hidden="true" className="text-fg-subtle/50">
+                      ·
+                    </span>
+                  ) : null}
                 </span>
-                {index < TRUST_METRICS.length - 1 ? (
-                  <span aria-hidden="true" className="text-fg-subtle/50">
-                    ·
-                  </span>
-                ) : null}
-              </span>
-            ))}
-          </div>
+              ))}
+            </div>
 
-          <p
-            data-testid="parser-landing-disclaimer"
-            className="max-w-md text-balance text-center text-[11px] text-fg-subtle leading-relaxed"
-          >
-            {LEASELENS_DISCLAIMER}
-          </p>
+            <p
+              data-testid="parser-landing-disclaimer"
+              className="max-w-md text-balance text-center text-[11px] text-fg-subtle leading-relaxed"
+            >
+              {LEASELENS_DISCLAIMER}
+            </p>
 
-          {children}
-        </section>
-        <AssistantFab
-          workspaceName={workspaceName}
-          conversationId={conversationId ?? null}
-          initialMessages={[]}
-        />
-      </ChatStreamProvider>
+            {children}
+          </section>
+          <AssistantFab
+            workspaceName={workspaceName}
+            conversationId={conversationId ?? null}
+            initialMessages={[]}
+          />
+        </ChatStreamProvider>
+      </LeaseParserProvider>
     </AssistantFabProvider>
   );
 }

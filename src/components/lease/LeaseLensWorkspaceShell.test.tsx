@@ -39,6 +39,9 @@ vi.mock('@/components/lease/PdfViewer', () => ({
 // when the context is reset.
 vi.mock('@/components/chat/ChatUI', async () => {
   const { useChatStream } = await import('@/components/chat/ChatStreamContext');
+  const { useLeaseParser } = await import(
+    '@/components/lease/LeaseParserContext'
+  );
   const { useRef } = await import('react');
   return {
     ChatUI: (props: {
@@ -49,12 +52,15 @@ vi.mock('@/components/chat/ChatUI', async () => {
         audit_id: string | undefined;
       }) => void;
     }) => {
-      const {
-        toolEvents,
-        activeLease,
-        resetConversation,
-        restoreConversation,
-      } = useChatStream();
+      // Sprint 28.6 — parser state now lives on LeaseParserContext.
+      // The legacy "reset wipes everything" behavior is preserved
+      // here by calling BOTH resetConversation (chat) and resetParser
+      // (parser) from the stub button. Sprint 5 will split these on
+      // the real ChatUI side so the user-facing "New conversation"
+      // only resets the chat thread.
+      const { resetConversation, restoreConversation } = useChatStream();
+      const { toolEvents, activeLease, resetParser, restoreParserSnapshot } =
+        useLeaseParser();
       const stashRef = useRef<{
         activeLease: typeof activeLease;
         toolEvents: typeof toolEvents;
@@ -89,6 +95,7 @@ vi.mock('@/components/chat/ChatUI', async () => {
             onClick={() => {
               stashRef.current = { activeLease, toolEvents };
               resetConversation();
+              resetParser();
             }}
           >
             reset
@@ -99,6 +106,7 @@ vi.mock('@/components/chat/ChatUI', async () => {
             onClick={() => {
               if (stashRef.current) {
                 restoreConversation(stashRef.current);
+                restoreParserSnapshot(stashRef.current);
                 stashRef.current = null;
               }
             }}

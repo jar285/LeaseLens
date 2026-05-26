@@ -38,7 +38,7 @@ import {
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
+import { useLeaseParser } from './LeaseParserContext';
 import { PdfFocusDialog } from './PdfFocusDialog';
 import {
   PDF_ZOOM_MAX,
@@ -109,7 +109,7 @@ export function PdfViewerClient({
   clauseCount,
   hideFocusToggle = false,
 }: PdfViewerClientProps): React.JSX.Element {
-  const { pdfViewerRef, activeClauseId, toolEvents } = useChatStream();
+  const { pdfViewerRef, activeClauseId, toolEvents } = useLeaseParser();
   const [numPages, setNumPages] = useState<number>(pageCountProp ?? 0);
   const [containerWidth, setContainerWidth] = useState<number>(FALLBACK_WIDTH);
   const [loadError, setLoadError] = useState<string | null>(null);

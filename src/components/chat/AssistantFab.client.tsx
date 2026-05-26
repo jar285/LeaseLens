@@ -12,8 +12,8 @@
 
 import { MessageCircle, X } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { useAssistantFab } from './AssistantFabContext';
-import { useChatStream } from './ChatStreamContext';
 import { ChatUI, type ChatUIProps } from './ChatUI';
 
 export interface AssistantFabClientProps {
@@ -83,13 +83,13 @@ export function AssistantFabClient({
   onToolEvent,
 }: AssistantFabClientProps): React.JSX.Element {
   const fab = useAssistantFab();
-  const stream = useChatStream();
+  const parser = useLeaseParser();
   const pillRef = useRef<HTMLButtonElement>(null);
   const headingId = useId();
 
   const chipContext: ChipContext = {
-    hasActiveClause: stream.activeClauseId !== null,
-    hasGradings: stream.toolEvents.some(
+    hasActiveClause: parser.activeClauseId !== null,
+    hasGradings: parser.toolEvents.some(
       (e) => e.tool_name === 'grade_clause_severity',
     ),
   };

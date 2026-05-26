@@ -19,8 +19,8 @@ import {
 import {
   ChatStreamProvider,
   type ToolEvent,
-  useChatStream,
 } from '@/components/chat/ChatStreamContext';
+import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 import { RedFlagReport } from './RedFlagReport';
 
 afterEach(cleanup);
@@ -38,7 +38,11 @@ function ProviderWithEvents({
 }) {
   return (
     <AssistantFabProvider>
-      <ChatStreamProvider initialEvents={events}>{children}</ChatStreamProvider>
+      <LeaseParserProvider initialEvents={events}>
+        <ChatStreamProvider initialEvents={events}>
+          {children}
+        </ChatStreamProvider>
+      </LeaseParserProvider>
     </AssistantFabProvider>
   );
 }
@@ -257,7 +261,7 @@ describe('RedFlagReport', () => {
   it('"View on page N" sets activeClauseId and applies an active ring to the matching card', () => {
     const scrollToPage = vi.fn();
     function Wired() {
-      const { pdfViewerRef } = useChatStream();
+      const { pdfViewerRef } = useLeaseParser();
       pdfViewerRef.current = { scrollToPage };
       return <RedFlagReport />;
     }
@@ -290,7 +294,7 @@ describe('RedFlagReport', () => {
   it('"View on page N" inside the expanded body calls scrollToPage', () => {
     const scrollToPage = vi.fn();
     function Wired() {
-      const { pdfViewerRef } = useChatStream();
+      const { pdfViewerRef } = useLeaseParser();
       pdfViewerRef.current = { scrollToPage };
       return <RedFlagReport />;
     }
@@ -315,7 +319,7 @@ describe('RedFlagReport', () => {
   it('clicking the citation chip jumps to page and pulses the active ring without expanding the card', () => {
     const scrollToPage = vi.fn();
     function Wired() {
-      const { pdfViewerRef } = useChatStream();
+      const { pdfViewerRef } = useLeaseParser();
       pdfViewerRef.current = { scrollToPage };
       return <RedFlagReport />;
     }
@@ -694,10 +698,12 @@ describe('Sprint 26c — RedFlagReport card actions wire into AssistantFabContex
     }
     render(
       <AssistantFabProvider>
-        <ChatStreamProvider initialEvents={events}>
-          <Probe />
-          <RedFlagReport />
-        </ChatStreamProvider>
+        <LeaseParserProvider initialEvents={events}>
+          <ChatStreamProvider initialEvents={events}>
+            <Probe />
+            <RedFlagReport />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
       </AssistantFabProvider>,
     );
     return ref;

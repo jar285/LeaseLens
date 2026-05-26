@@ -11,10 +11,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { type ReactNode, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  ChatStreamProvider,
-  useChatStream,
-} from '@/components/chat/ChatStreamContext';
+import { ChatStreamProvider } from '@/components/chat/ChatStreamContext';
+import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 
 // react-pdf mock: deterministic, no Workers, no async loading.
 vi.mock('react-pdf', () => ({
@@ -41,7 +39,9 @@ import { PdfViewerClient } from './PdfViewer.client';
 afterEach(cleanup);
 
 const wrap = (children: ReactNode) => (
-  <ChatStreamProvider>{children}</ChatStreamProvider>
+  <LeaseParserProvider>
+    <ChatStreamProvider>{children}</ChatStreamProvider>
+  </LeaseParserProvider>
 );
 
 describe('PdfViewerClient', () => {
@@ -55,7 +55,7 @@ describe('PdfViewerClient', () => {
     type Handle = { scrollToPage: (n: number) => void };
     const captured: { current: Handle | null } = { current: null };
     function Probe() {
-      const { pdfViewerRef } = useChatStream();
+      const { pdfViewerRef } = useLeaseParser();
       // Probe runs as a sibling AFTER PdfViewerClient mounts. By the
       // time React commits, useImperativeHandle has registered the
       // handle on the shared ref; useEffect with [] captures it once.

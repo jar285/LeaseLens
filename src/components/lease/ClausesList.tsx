@@ -16,13 +16,13 @@
 import { MessageSquare } from 'lucide-react';
 import { useMemo } from 'react';
 import { useAssistantFab } from '@/components/chat/AssistantFabContext';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
 import {
   clauseLabel,
   type GradingResult,
   isGradingResult,
   type Severity,
 } from './grading';
+import { useLeaseParser } from './LeaseParserContext';
 import { SeverityBadge } from './SeverityBadge';
 import { partitionByLatestExtract } from './use-scan-progress';
 
@@ -62,7 +62,7 @@ interface ExtractedClause {
 
 export function ClausesList(): React.JSX.Element {
   const { toolEvents, pdfViewerRef, setActiveClauseId, activeLease } =
-    useChatStream();
+    useLeaseParser();
   const fab = useAssistantFab();
 
   const rows = useMemo<ClauseRow[]>(() => {

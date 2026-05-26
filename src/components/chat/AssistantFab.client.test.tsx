@@ -12,6 +12,7 @@ import {
   screen,
 } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LeaseParserProvider } from '@/components/lease/LeaseParserContext';
 import { AssistantFabProvider, useAssistantFab } from './AssistantFabContext';
 import { ChatStreamProvider } from './ChatStreamContext';
 
@@ -74,14 +75,16 @@ function renderFab(): {
   }
   render(
     <AssistantFabProvider>
-      <ChatStreamProvider viewerRole="Tenant">
-        <Spy />
-        <AssistantFabClient
-          workspaceName="Demo"
-          conversationId={null}
-          initialMessages={[]}
-        />
-      </ChatStreamProvider>
+      <LeaseParserProvider>
+        <ChatStreamProvider viewerRole="Tenant">
+          <Spy />
+          <AssistantFabClient
+            workspaceName="Demo"
+            conversationId={null}
+            initialMessages={[]}
+          />
+        </ChatStreamProvider>
+      </LeaseParserProvider>
     </AssistantFabProvider>,
   );
   return ref;

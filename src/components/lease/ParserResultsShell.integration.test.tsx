@@ -21,7 +21,7 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
+import { useLeaseParser } from './LeaseParserContext';
 
 // Test-scoped spy that lives across renders within a single it() block.
 // Reset via beforeEach.
@@ -29,9 +29,9 @@ let scrollSpy: ReturnType<typeof vi.fn<(page: number) => void>>;
 
 vi.mock('./PdfViewer', () => ({
   PdfViewer: function PdfViewerStub() {
-    // Hook into the shell's shared ChatStreamContext and publish a fake
+    // Hook into the shell's shared LeaseParserContext and publish a fake
     // imperative API exactly the way PdfViewer.client does in production.
-    const { pdfViewerRef } = useChatStream();
+    const { pdfViewerRef } = useLeaseParser();
     pdfViewerRef.current = {
       scrollToPage: (page: number) => {
         scrollSpy(page);

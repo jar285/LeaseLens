@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest';
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LeaseParserProvider } from '@/components/lease/LeaseParserContext';
 import { useRollback } from '@/lib/audit/use-rollback';
 import type { Role } from '@/lib/auth/types';
 import type { ToolInvocation } from './ChatMessage';
@@ -55,9 +56,11 @@ function renderToolCard(
   // doesn't fire. S19.8 — pass `viewerRole` when the test wants to
   // exercise the Reviewer/Admin verbosity branches.
   return render(
-    <ChatStreamProvider viewerRole={viewerRole}>
-      <ToolCard invocation={baseInvocation} />
-    </ChatStreamProvider>,
+    <LeaseParserProvider>
+      <ChatStreamProvider viewerRole={viewerRole}>
+        <ToolCard invocation={baseInvocation} />
+      </ChatStreamProvider>
+    </LeaseParserProvider>,
   );
 }
 

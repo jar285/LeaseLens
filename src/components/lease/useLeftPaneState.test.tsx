@@ -14,6 +14,7 @@ import {
   type PdfBinaryRepository,
   setPdfBinaryRepository,
 } from '@/lib/lease/pdf-binary-repository';
+import { LeaseParserProvider } from './LeaseParserContext';
 import { useLeftPaneState } from './useLeftPaneState';
 
 afterEach(() => {
@@ -47,7 +48,9 @@ const wrap =
     } | null,
   ) =>
   ({ children }: { children: ReactNode }) => (
-    <ChatStreamProvider activeLease={initial}>{children}</ChatStreamProvider>
+    <LeaseParserProvider activeLease={initial}>
+      <ChatStreamProvider activeLease={initial}>{children}</ChatStreamProvider>
+    </LeaseParserProvider>
   );
 
 describe('useLeftPaneState', () => {

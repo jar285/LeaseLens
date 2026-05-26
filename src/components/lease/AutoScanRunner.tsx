@@ -4,7 +4,7 @@
 // lease has not yet been scanned (no `extract_clauses` tool event for
 // it), AutoScanRunner fires the canonical STANDARD_SCAN_PROMPT to
 // /api/chat and routes the resulting NDJSON tool_result events into
-// ChatStreamContext via `pushToolEvent`. RedFlagReport, ClausesList,
+// ChatStreamContext via `appendToolEvent`. RedFlagReport, ClausesList,
 // and ScanTimeline (which all consume `useChatStream()`) populate
 // automatically — no FAB drawer pops open, no chat surface mounts.
 //
@@ -25,7 +25,7 @@
 // module-level guard prevents duplicate fires across remounts. If the
 // component truly unmounts mid-scan (e.g. the user clicks Replace),
 // the in-flight fetch's response events land in a stale closure that
-// no longer has a live `pushToolEvent` — they're discarded silently
+// no longer has a live `appendToolEvent` — they're discarded silently
 // without crashing.
 //
 // Sprint 26c.11 — also captures the server's `{conversationId}` stream
@@ -40,6 +40,7 @@ import { useEffect } from 'react';
 import { useChatStream } from '@/components/chat/ChatStreamContext';
 import { STANDARD_SCAN_PROMPT } from '@/lib/chat/follow-up-prompts';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
+import { useLeaseParser } from './LeaseParserContext';
 import { partitionByLatestExtract } from './use-scan-progress';
 
 export interface AutoScanRunnerProps {
@@ -79,8 +80,10 @@ export function AutoScanRunner({
   enabled,
   conversationId,
 }: AutoScanRunnerProps): null {
-  const { activeLease, toolEvents, pushToolEvent, setAutoScanConversationId } =
-    useChatStream();
+  // Parser state lives in LeaseParserContext after Sprint 3; conversationId
+  // handoff stays on ChatStreamContext since it's a chat-thread concern.
+  const { activeLease, toolEvents, appendToolEvent } = useLeaseParser();
+  const { setAutoScanConversationId } = useChatStream();
 
   useEffect(() => {
     if (!enabled) return;
@@ -159,7 +162,7 @@ export function AutoScanRunner({
             } else if ('tool_result' in data) {
               const input = pendingToolUseInputs.get(data.tool_result.id) ?? {};
               pendingToolUseInputs.delete(data.tool_result.id);
-              pushToolEvent({
+              appendToolEvent({
                 tool_name: data.tool_result.name,
                 input,
                 result: data.tool_result.result,
@@ -185,7 +188,7 @@ export function AutoScanRunner({
     activeLease,
     conversationId,
     toolEvents,
-    pushToolEvent,
+    appendToolEvent,
     setAutoScanConversationId,
   ]);
 

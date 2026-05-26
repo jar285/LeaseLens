@@ -6,12 +6,13 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useChatStream } from '@/components/chat/ChatStreamContext';
 import { ChatUI } from '@/components/chat/ChatUI';
 import { withChatStream } from '@/components/chat/test-helpers';
+import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 
 function LeaseProbe(): React.JSX.Element {
-  const { activeLease } = useChatStream();
+  // Sprint 28.6 — activeLease lives on LeaseParserContext now.
+  const { activeLease } = useLeaseParser();
   return (
     <div data-testid="lease-probe">{activeLease?.lease_id ?? '__empty__'}</div>
   );
@@ -364,13 +365,14 @@ describe('Homepage Chat UI', () => {
     ).not.toBeInTheDocument();
   });
 
-  // Sprint 24.7 — verifies the real handleNewConversation wiring:
-  // clicking "New conversation" must clear the context-level lease
-  // (which gates the dropzone-vs-PdfViewer swap in the shell). The
-  // LeaseProbe (defined at module scope above) reads context.activeLease
-  // and renders its lease_id (or '__empty__') so assertions are plain
-  // DOM text.
-  it('Sprint 24.7 — New conversation clears the context lease', () => {
+  // Sprint 28.6 (Bug 3 fix) — supersedes the Sprint 24.7 expectation
+  // that "New conversation clears the lease". Parser state lives on
+  // LeaseParserContext now, so resetting the chat thread no longer
+  // touches the uploaded lease, extracted clauses, or red flags. The
+  // LeaseProbe (defined at module scope above) reads
+  // LeaseParserContext.activeLease — it must still show the same
+  // lease_id after the user clicks New conversation.
+  it('Sprint 28.6 — New conversation PRESERVES the lease (Bug 3 fix)', () => {
     render(
       withChatStream(
         <>
@@ -396,17 +398,21 @@ describe('Homepage Chat UI', () => {
 
     fireEvent.click(screen.getByTestId('new-conversation-btn'));
 
-    expect(screen.getByTestId('lease-probe')).toHaveTextContent('__empty__');
+    // Bug 3 fix: the lease in LeaseParserContext is untouched by a
+    // chat-thread reset. Pre-Sprint-3 this assertion was '__empty__'.
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent(
+      'lease-pre-reset',
+    );
   });
 
-  // Sprint 24.7 — verifies the Continue-previous path does NOT revoke
-  // the stashed pdfUrl. Earlier iterations revoked inside
-  // resetConversation, which left a dead Blob URL in the stash and
-  // made PdfViewer crash with "Unexpected server response (0)" when
-  // undo restored the lease. Revocation moved to the commit boundary
-  // (handleSubmit). This test pins the contract: New -> Continue
-  // previous must NOT touch URL.revokeObjectURL.
-  it('Sprint 24.7 — New -> Continue previous keeps the Blob URL alive', () => {
+  // Sprint 28.6 — supersedes Sprint 24.7's "New -> Continue previous
+  // keeps the Blob URL alive". The continue-previous affordance only
+  // renders when there's no active lease (it gates on `!activeLease`),
+  // so the original scenario is no longer reachable. The replacement
+  // assertion is the load-bearing invariant the original test
+  // protected: clicking "New conversation" must NOT revoke the
+  // active Blob URL — the lease keeps rendering, the URL stays alive.
+  it('Sprint 28.6 — New conversation does not revoke the active Blob URL', () => {
     const revoke = vi.fn();
     global.URL.revokeObjectURL = revoke;
 
@@ -428,7 +434,6 @@ describe('Homepage Chat UI', () => {
     );
 
     fireEvent.click(screen.getByTestId('new-conversation-btn'));
-    fireEvent.click(screen.getByTestId('continue-previous-btn'));
 
     expect(revoke).not.toHaveBeenCalled();
   });
@@ -471,9 +476,14 @@ describe('Homepage Chat UI', () => {
     });
   });
 
-  // Sprint 24.7 — verifies the undo also restores the lease, not just
-  // the chat thread. Without this, "Continue previous" was a half-undo.
-  it('Sprint 24.7 — Continue previous restores the lease alongside the chat', () => {
+  // Sprint 28.6 — supersedes Sprint 24.7's "Continue previous restores
+  // the lease". After the state split, the lease was never reset to
+  // begin with — so the test is now simpler: clicking New conversation
+  // leaves the lease visible the whole time. The continue-previous
+  // affordance is hidden when an active lease is mounted (gated on
+  // `!activeLease`); Sprint 5 will revisit the undo surface once the
+  // explicit "Reset workspace" path is wired.
+  it('Sprint 28.6 — the lease stays visible across a New conversation click', () => {
     render(
       withChatStream(
         <>
@@ -493,10 +503,13 @@ describe('Homepage Chat UI', () => {
       ),
     );
 
-    fireEvent.click(screen.getByTestId('new-conversation-btn'));
-    expect(screen.getByTestId('lease-probe')).toHaveTextContent('__empty__');
+    expect(screen.getByTestId('lease-probe')).toHaveTextContent(
+      'lease-original',
+    );
 
-    fireEvent.click(screen.getByTestId('continue-previous-btn'));
+    fireEvent.click(screen.getByTestId('new-conversation-btn'));
+
+    // Bug 3 fix: the lease was never reset.
     expect(screen.getByTestId('lease-probe')).toHaveTextContent(
       'lease-original',
     );

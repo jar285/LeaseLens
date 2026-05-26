@@ -9,10 +9,8 @@
 
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  ChatStreamProvider,
-  type ToolEvent,
-} from '@/components/chat/ChatStreamContext';
+import type { ToolEvent } from '@/components/chat/ChatStreamContext';
+import { LeaseParserProvider } from './LeaseParserContext';
 import { computeScanNarrative, type NarrativeLease } from './scan-narrative';
 import { useScanNarrative } from './use-scan-narrative';
 
@@ -36,9 +34,9 @@ describe('useScanNarrative', () => {
 
   it('returns null/null when no activeLease is set', () => {
     render(
-      <ChatStreamProvider>
+      <LeaseParserProvider>
         <Probe />
-      </ChatStreamProvider>,
+      </LeaseParserProvider>,
     );
     expect(screen.getByTestId('intro-id').textContent).toBe('(none)');
     expect(screen.getByTestId('summary-id').textContent).toBe('(none)');
@@ -46,9 +44,9 @@ describe('useScanNarrative', () => {
 
   it('returns the intro id when activeLease is set and no events have fired', () => {
     render(
-      <ChatStreamProvider activeLease={LEASE}>
+      <LeaseParserProvider activeLease={LEASE}>
         <Probe />
-      </ChatStreamProvider>,
+      </LeaseParserProvider>,
     );
     const expected = computeScanNarrative({ events: [], lease: LEASE }).intro
       ?.id;
@@ -90,9 +88,9 @@ describe('useScanNarrative', () => {
     ];
 
     render(
-      <ChatStreamProvider activeLease={LEASE} initialEvents={events}>
+      <LeaseParserProvider activeLease={LEASE} initialEvents={events}>
         <Probe />
-      </ChatStreamProvider>,
+      </LeaseParserProvider>,
     );
     const expected = computeScanNarrative({ events, lease: LEASE }).summary?.id;
     expect(screen.getByTestId('summary-id').textContent).toBe(expected);

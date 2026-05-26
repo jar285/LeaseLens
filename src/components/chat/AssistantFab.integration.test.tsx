@@ -15,6 +15,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LeaseParserProvider } from '@/components/lease/LeaseParserContext';
 import { AssistantFabClient } from './AssistantFab.client';
 import { AssistantFabProvider, useAssistantFab } from './AssistantFabContext';
 import { ChatStreamProvider } from './ChatStreamContext';
@@ -66,14 +67,16 @@ describe('AssistantFab integration', () => {
 
     render(
       <AssistantFabProvider>
-        <ChatStreamProvider viewerRole="Tenant">
-          <Probe />
-          <AssistantFabClient
-            workspaceName="Demo workspace"
-            conversationId={null}
-            initialMessages={[]}
-          />
-        </ChatStreamProvider>
+        <LeaseParserProvider>
+          <ChatStreamProvider viewerRole="Tenant">
+            <Probe />
+            <AssistantFabClient
+              workspaceName="Demo workspace"
+              conversationId={null}
+              initialMessages={[]}
+            />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
       </AssistantFabProvider>,
     );
 
@@ -124,14 +127,16 @@ describe('AssistantFab integration', () => {
 
     render(
       <AssistantFabProvider>
-        <ChatStreamProvider viewerRole="Tenant">
-          <Probe />
-          <AssistantFabClient
-            workspaceName="Demo workspace"
-            conversationId={null}
-            initialMessages={[]}
-          />
-        </ChatStreamProvider>
+        <LeaseParserProvider>
+          <ChatStreamProvider viewerRole="Tenant">
+            <Probe />
+            <AssistantFabClient
+              workspaceName="Demo workspace"
+              conversationId={null}
+              initialMessages={[]}
+            />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
       </AssistantFabProvider>,
     );
 
@@ -181,14 +186,16 @@ describe('AssistantFab integration', () => {
 
     render(
       <AssistantFabProvider>
-        <ChatStreamProvider viewerRole="Tenant">
-          <Probe />
-          <AssistantFabClient
-            workspaceName="Demo workspace"
-            conversationId={null}
-            initialMessages={[]}
-          />
-        </ChatStreamProvider>
+        <LeaseParserProvider>
+          <ChatStreamProvider viewerRole="Tenant">
+            <Probe />
+            <AssistantFabClient
+              workspaceName="Demo workspace"
+              conversationId={null}
+              initialMessages={[]}
+            />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
       </AssistantFabProvider>,
     );
 

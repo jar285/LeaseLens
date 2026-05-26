@@ -20,13 +20,13 @@ import {
   type ActiveLeaseRef,
   ChatStreamProvider,
   type ToolEvent,
-  useChatStream,
 } from '@/components/chat/ChatStreamContext';
 import type { ChatToolEvent, ChatUIProps } from '@/components/chat/ChatUI';
 import type { Role } from '@/lib/auth/types';
 import { getPdfBinaryRepository } from '@/lib/lease/pdf-binary-repository';
 import { AutoScanRunner } from './AutoScanRunner';
 import { ClausesList } from './ClausesList';
+import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 import { PdfViewer } from './PdfViewer';
 import { RedFlagReport } from './RedFlagReport';
 import { RedFlagsPaneHeader } from './RedFlagsPaneHeader';
@@ -59,15 +59,24 @@ export interface ParserResultsShellProps {
 export function ParserResultsShell(
   props: ParserResultsShellProps,
 ): React.JSX.Element {
+  // Sprint 28.6 — parser state lives in LeaseParserProvider now.
+  // ChatStreamProvider keeps the same props for one sprint as inert
+  // dead-state so any not-yet-migrated consumer still sees something
+  // sensible. Sprint 4 drops the parser props from ChatStreamProvider.
   return (
     <AssistantFabProvider>
-      <ChatStreamProvider
-        viewerRole={props.viewerRole}
+      <LeaseParserProvider
         initialEvents={props.initialToolEvents}
         activeLease={props.initialActiveLease}
       >
-        <ResultsShellInner {...props} />
-      </ChatStreamProvider>
+        <ChatStreamProvider
+          viewerRole={props.viewerRole}
+          initialEvents={props.initialToolEvents}
+          activeLease={props.initialActiveLease}
+        >
+          <ResultsShellInner {...props} />
+        </ChatStreamProvider>
+      </LeaseParserProvider>
     </AssistantFabProvider>
   );
 }
@@ -79,7 +88,7 @@ function ResultsShellInner({
   onReplace,
   triggerAutoScan,
 }: ParserResultsShellProps): React.JSX.Element {
-  const { pushToolEvent, activeLease, resetConversation } = useChatStream();
+  const { appendToolEvent, activeLease, resetParser } = useLeaseParser();
   const leftPaneState = useLeftPaneState();
 
   // Sprint 25 — cache eviction on mount mirrors the legacy shell so the
@@ -94,7 +103,7 @@ function ResultsShellInner({
   }, []);
 
   function handleToolEvent(event: ChatToolEvent): void {
-    pushToolEvent({
+    appendToolEvent({
       tool_name: event.tool_name,
       input: event.input,
       result: event.result,
@@ -103,7 +112,7 @@ function ResultsShellInner({
   }
 
   function handleReplace(): void {
-    resetConversation();
+    resetParser();
     onReplace?.();
   }
 

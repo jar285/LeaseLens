@@ -24,10 +24,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import {
-  type ToolEvent,
-  useChatStream,
-} from '@/components/chat/ChatStreamContext';
+import type { ToolEvent } from '@/components/chat/ChatStreamContext';
+import { useLeaseParser } from './LeaseParserContext';
 import { type ScanProgress, useScanProgress } from './use-scan-progress';
 
 export type ScanLifecycleStage =
@@ -179,7 +177,7 @@ export function stageLabel(stage: ScanLifecycleStage): string {
 const PREPARING_HOLD_MS = 650;
 
 export function useScanLifecycle(): ScanLifecycleSnapshot {
-  const { toolEvents, activeLease } = useChatStream();
+  const { toolEvents, activeLease } = useLeaseParser();
   const scanProgress = useScanProgress();
   const [preparingDone, setPreparingDone] = useState(false);
 

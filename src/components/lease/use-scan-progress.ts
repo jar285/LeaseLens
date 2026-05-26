@@ -20,10 +20,8 @@
  */
 
 import { useMemo } from 'react';
-import {
-  type ToolEvent,
-  useChatStream,
-} from '@/components/chat/ChatStreamContext';
+import type { ToolEvent } from '@/components/chat/ChatStreamContext';
+import { useLeaseParser } from './LeaseParserContext';
 
 export type ScanPhase = 'idle' | 'extracting' | 'grading' | 'complete';
 
@@ -192,7 +190,7 @@ export function computeScanProgress(
 }
 
 export function useScanProgress(): ScanProgress {
-  const { toolEvents, activeLease } = useChatStream();
+  const { toolEvents, activeLease } = useLeaseParser();
   const leaseId = activeLease?.lease_id ?? null;
   return useMemo(
     () => computeScanProgress(toolEvents, leaseId),

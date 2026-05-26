@@ -219,6 +219,56 @@ describe('LeaseParserContext', () => {
     expect(result.current.activeLease).toEqual(startLease);
   });
 
+  it('RedFlagReport reads gradings from LeaseParserContext when ChatStreamContext is empty (consumer-migration invariant)', async () => {
+    // Sprint 3.2 — load-bearing test. Consumers must read parser state
+    // from LeaseParserContext. Pre-migration, RedFlagReport reads from
+    // useChatStream and this test fails (empty stream → empty state).
+    // Post-migration, RedFlagReport reads from useLeaseParser and the
+    // seeded grading event surfaces as a card.
+    const { ChatStreamProvider } = await import(
+      '@/components/chat/ChatStreamContext'
+    );
+    const { AssistantFabProvider } = await import(
+      '@/components/chat/AssistantFabContext'
+    );
+    const { RedFlagReport } = await import('./RedFlagReport');
+    const { render: rtlRender, screen } = await import(
+      '@testing-library/react'
+    );
+
+    const gradingEvent = {
+      tool_name: 'grade_clause_severity',
+      input: { clause_id: 'c-deposit' },
+      result: {
+        clause_id: 'c-deposit',
+        severity: 'high',
+        statute_citation: 'NJ Stat 46:8-21.2',
+        chunk_id: 'security-deposit#1',
+        reasoning: 'Two months exceeds NJ 1.5x cap.',
+        recommended_action: 'Negotiate to 1.5 months.',
+        page_number: 4,
+        clause_type: 'security_deposit',
+        clause_index: 3,
+      },
+      audit_id: undefined,
+    } as const;
+
+    rtlRender(
+      <LeaseParserProvider initialEvents={[gradingEvent]}>
+        <ChatStreamProvider initialEvents={[]}>
+          <AssistantFabProvider>
+            <RedFlagReport />
+          </AssistantFabProvider>
+        </ChatStreamProvider>
+      </LeaseParserProvider>,
+    );
+
+    // If RedFlagReport still reads from useChatStream, gradings.length
+    // is 0 and the empty state renders. The migration succeeds when
+    // the grading shows up as a card here.
+    expect(screen.queryByTestId('red-flag-card')).not.toBeNull();
+  });
+
   it('useLeaseParser throws when called outside <LeaseParserProvider>', () => {
     const consoleError = console.error;
     console.error = () => {};

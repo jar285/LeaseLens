@@ -27,7 +27,6 @@ import {
   type ActiveLeaseRef,
   ChatStreamProvider,
   type ToolEvent,
-  useChatStream,
 } from '@/components/chat/ChatStreamContext';
 import {
   type ChatToolEvent,
@@ -37,6 +36,7 @@ import {
 import { ResizableSplitLayout } from '@/components/layout/ResizableSplitLayout';
 import type { Role } from '@/lib/auth/types';
 import { getPdfBinaryRepository } from '@/lib/lease/pdf-binary-repository';
+import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 import { LeaseUploadDropzone, type UploadResult } from './LeaseUploadDropzone';
 import { PdfViewer } from './PdfViewer';
 import { RedFlagReport } from './RedFlagReport';
@@ -81,13 +81,18 @@ export function LeaseLensWorkspaceShell(
   // probes) keeps working until the shell is deleted in Sprint 26d.
   return (
     <AssistantFabProvider>
-      <ChatStreamProvider
-        viewerRole={props.viewerRole}
+      <LeaseParserProvider
         initialEvents={props.initialToolEvents}
         activeLease={props.initialActiveLease ?? null}
       >
-        <ShellInner {...props} />
-      </ChatStreamProvider>
+        <ChatStreamProvider
+          viewerRole={props.viewerRole}
+          initialEvents={props.initialToolEvents}
+          activeLease={props.initialActiveLease ?? null}
+        >
+          <ShellInner {...props} />
+        </ChatStreamProvider>
+      </LeaseParserProvider>
     </AssistantFabProvider>
   );
 }
@@ -104,7 +109,7 @@ function ShellInner({
   // lease attached" — `ChatUI.handleNewConversation` only had a
   // setter for the context shape, never the local one. Collapsing to
   // a single source of truth makes the reset one call.
-  const { pushToolEvent, activeLease, setActiveLease } = useChatStream();
+  const { appendToolEvent, activeLease, setActiveLease } = useLeaseParser();
   const leftPaneState = useLeftPaneState();
 
   // Sprint 25 — evict stale entries on mount so the cache stays bounded.
@@ -152,7 +157,7 @@ function ShellInner({
       result: event.result,
       audit_id: event.audit_id,
     };
-    pushToolEvent(toolEvent);
+    appendToolEvent(toolEvent);
   }
 
   // S20.3 — layout is delegated to ResizableSplitLayout, which owns

@@ -22,11 +22,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import {
-  type ActiveLeaseRef,
-  useChatStream,
-} from '@/components/chat/ChatStreamContext';
+import type { ActiveLeaseRef } from '@/components/chat/ChatStreamContext';
 import { getPdfBinaryRepository } from '@/lib/lease/pdf-binary-repository';
+import { useLeaseParser } from './LeaseParserContext';
 
 export type LeftPaneState =
   | { kind: 'empty' }
@@ -41,7 +39,7 @@ export type LeftPaneState =
   | { kind: 'reattach'; lease: ActiveLeaseRef };
 
 export function useLeftPaneState(): LeftPaneState {
-  const { activeLease, setActiveLease } = useChatStream();
+  const { activeLease, setActiveLease } = useLeaseParser();
   // `reattach` is the terminal state once an IndexedDB lookup misses for
   // a given lease_id. Without this flag we'd stay in `restoring` forever
   // on a cache miss (the activeLease still has no pdfUrl).

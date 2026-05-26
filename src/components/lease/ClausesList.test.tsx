@@ -21,9 +21,9 @@ import {
 import {
   ChatStreamProvider,
   type ToolEvent,
-  useChatStream,
 } from '@/components/chat/ChatStreamContext';
 import { ClausesList } from './ClausesList';
+import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 
 afterEach(() => {
   cleanup();
@@ -89,7 +89,7 @@ function renderWithEvents(events: ToolEvent[]): {
   const setActiveSpy = vi.fn();
 
   function Probe(): null {
-    const { pdfViewerRef, setActiveClauseId } = useChatStream();
+    const { pdfViewerRef, setActiveClauseId } = useLeaseParser();
     // Install the spies onto the context's refs on first render.
     pdfViewerRef.current = { scrollToPage: scrollSpy };
     // setActiveClauseId itself is a stable function from the context;
@@ -105,10 +105,12 @@ function renderWithEvents(events: ToolEvent[]): {
 
   render(
     <AssistantFabProvider>
-      <ChatStreamProvider initialEvents={events} viewerRole="Tenant">
-        <Probe />
-        <ClausesList />
-      </ChatStreamProvider>
+      <LeaseParserProvider initialEvents={events}>
+        <ChatStreamProvider initialEvents={events} viewerRole="Tenant">
+          <Probe />
+          <ClausesList />
+        </ChatStreamProvider>
+      </LeaseParserProvider>
     </AssistantFabProvider>,
   );
 
@@ -330,10 +332,12 @@ describe('Sprint 26c — ClausesList Explain action', () => {
     }
     render(
       <AssistantFabProvider>
-        <ChatStreamProvider initialEvents={events}>
-          <Probe />
-          <ClausesList />
-        </ChatStreamProvider>
+        <LeaseParserProvider initialEvents={events}>
+          <ChatStreamProvider initialEvents={events}>
+            <Probe />
+            <ClausesList />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
       </AssistantFabProvider>,
     );
     return ref;
@@ -379,30 +383,31 @@ describe('Sprint 26c — ClausesList Explain action', () => {
     // a minimal Fab provider so Explain doesn't throw.
     cleanup();
 
+    const probeEvents = [
+      extractClausesEvent([
+        {
+          clause_id: 'c1',
+          clause_index: 0,
+          clause_type: 'security_deposit',
+          page_number: 1,
+        },
+      ]),
+    ];
     function Wrapper(): React.JSX.Element {
       return (
         <AssistantFabProvider>
-          <ChatStreamProvider
-            initialEvents={[
-              extractClausesEvent([
-                {
-                  clause_id: 'c1',
-                  clause_index: 0,
-                  clause_type: 'security_deposit',
-                  page_number: 1,
-                },
-              ]),
-            ]}
-          >
-            <ClausesListProbe />
-            <ClausesList />
-          </ChatStreamProvider>
+          <LeaseParserProvider initialEvents={probeEvents}>
+            <ChatStreamProvider initialEvents={probeEvents}>
+              <ClausesListProbe />
+              <ClausesList />
+            </ChatStreamProvider>
+          </LeaseParserProvider>
         </AssistantFabProvider>
       );
     }
 
     function ClausesListProbe(): null {
-      const { pdfViewerRef } = useChatStream();
+      const { pdfViewerRef } = useLeaseParser();
       pdfViewerRef.current = {
         scrollToPage: scrollSpy as unknown as (page: number) => void,
       };

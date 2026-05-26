@@ -2,6 +2,7 @@
 
 import { AlertCircle, RotateCcw, SquarePen } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
 import { getPdfBinaryRepository } from '@/lib/lease/pdf-binary-repository';
 import { ChatComposer } from './ChatComposer';
@@ -132,13 +133,15 @@ export function ChatUI({
     useState<ActiveLeaseRef | null>(null);
   const [previousToolEvents, setPreviousToolEvents] = useState<ToolEvent[]>([]);
 
-  const {
-    activeLease,
-    toolEvents,
-    resetConversation,
-    restoreConversation,
-    autoScanConversationId,
-  } = useChatStream();
+  // Sprint 28.6 — parser state (activeLease, toolEvents) lives on
+  // LeaseParserContext now. Chat-thread state (resetConversation,
+  // restoreConversation, autoScanConversationId) stays on
+  // ChatStreamContext. The two reset functions intentionally only
+  // touch their own slice — that's the Bug 3 fix in action: clicking
+  // "New conversation" no longer drops the lease or the red flags.
+  const { activeLease, toolEvents } = useLeaseParser();
+  const { resetConversation, restoreConversation, autoScanConversationId } =
+    useChatStream();
 
   // Sprint 26c.11 — promote the auto-scan's captured conversationId
   // into local state once it's available, so the user's manual chat

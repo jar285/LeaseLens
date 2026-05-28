@@ -169,6 +169,40 @@ describe('AssistantFabContext', () => {
     expect(ctx.current?.selection.statuteCitation).toBeUndefined();
   });
 
+  // Sprint 29.3 — third clearing-style method, narrower than
+  // clearPendingContext. Used by the new in-drawer context bar's
+  // "Detach clause" ✕ button. Drops ONLY the selection (clauseId +
+  // severity + statuteCitation); keeps pendingPrompt and drawer state
+  // intact so the user can detach a clause focus without losing their
+  // typed draft or being kicked out of the drawer.
+  it('Sprint 29.3 — detachSelection drops selection ONLY (preserves pendingPrompt + drawer state)', () => {
+    const ctx = spyContext();
+    act(() => {
+      ctx.current?.openWith({
+        initialPrompt: 'Explain this clause',
+        clauseId: 'c-deposit',
+        severity: 'high',
+        statuteCitation: 'NJ Stat 46:8-19',
+      });
+    });
+    expect(ctx.current?.state).toBe<AssistantFabState>('drawer');
+    expect(ctx.current?.pendingPrompt).toBe('Explain this clause');
+    expect(ctx.current?.selection.clauseId).toBe('c-deposit');
+
+    act(() => {
+      ctx.current?.detachSelection();
+    });
+    // Drawer stays open — the user is still mid-interaction.
+    expect(ctx.current?.state).toBe<AssistantFabState>('drawer');
+    // pendingPrompt SURVIVES — distinguishes detachSelection from
+    // clearPendingContext (which drops both).
+    expect(ctx.current?.pendingPrompt).toBe('Explain this clause');
+    // Selection is gone — the clause context is detached.
+    expect(ctx.current?.selection.clauseId).toBeNull();
+    expect(ctx.current?.selection.severity).toBeUndefined();
+    expect(ctx.current?.selection.statuteCitation).toBeUndefined();
+  });
+
   it('throws when useAssistantFab is consumed outside the provider', () => {
     // Swallow the React error logs that come along for the ride.
     const originalError = console.error;

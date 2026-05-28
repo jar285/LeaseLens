@@ -109,6 +109,18 @@
    */
   --color-citation: #1b3b6f;
 
+  /*
+   * Sprint 29.x — hero ambient blob tokens. Decorative only; theme-aware
+   * so landing gradients never reference raw accent-200 in dark mode
+   * (light peach on espresso reads as a harsh spotlight).
+   */
+  --color-accent-ambient-core: #f1bca1;
+  --color-accent-ambient-soft: #f8decf;
+  --accent-ambient-gradient-mix: 42%;
+  --accent-ambient-fade-mix: 55%;
+  --accent-ambient-ellipse-opacity: 40%;
+  --accent-ambient-soft-opacity: 35%;
+
   /* Semantic aliases — light defaults; dark overrides at :root below.
      Sprint 23i — re-pointed at the warm-cream neutrals + warm border
      hairline.
@@ -248,6 +260,13 @@
   /* Sprint 23h — lightened ink-blue citation, distinct from the warm
      interactive primary so legal references stay visually separated. */
   --color-citation: #7c9cd1;
+  /* Sprint 29.x — muted terracotta ambient companions for dark landing. */
+  --color-accent-ambient-core: #7a4535;
+  --color-accent-ambient-soft: #5c3829;
+  --accent-ambient-gradient-mix: 14%;
+  --accent-ambient-fade-mix: 70%;
+  --accent-ambient-ellipse-opacity: 17%;
+  --accent-ambient-soft-opacity: 12%;
 }
 
 @layer base {
@@ -308,30 +327,46 @@ a[href] {
 }
 
 /*
- * Sprint 15.2 — short-lived theme-flip transition. The ThemeToggle adds
- * .theme-transition to <html> right before flipping .dark, then removes
- * it after 240ms. While the class is present, every element gets a
- * 220ms ease-out transition on the three colour properties that swap
- * with the theme. !important wins the cascade against per-element
- * transition-colors classes (e.g. composer focus-within crossfade).
- * Outside that 240ms window, hover/focus animations keep their tighter
- * per-element timings — the rule simply doesn't match.
+ * Sprint 15.2 — short-lived theme-flip transition. ThemeToggle adds
+ * .theme-transition on <html>, flips .dark on the next animation frame,
+ * then removes the class after 240ms.
+ *
+ * Sprint 29.x — scope to html/body + [data-theme-surface] shells instead
+ * of `*` so Mode A landing (ambient blobs, fixed rails) does not animate
+ * every node. Skipped entirely when prefers-reduced-motion: reduce.
  */
+@media (prefers-reduced-motion: no-preference) {
+  /*
+   * !important is intentional and per-file-overridden in biome.json.
+   */
+  html.theme-transition,
+  html.theme-transition body,
+  html.theme-transition [data-theme-surface],
+  html.theme-transition [data-theme-surface] *,
+  html.theme-transition [data-theme-surface] *::before,
+  html.theme-transition [data-theme-surface] *::after {
+    transition:
+      background-color 220ms var(--ease-out-soft),
+      border-color 220ms var(--ease-out-soft),
+      color 220ms var(--ease-out-soft) !important;
+    transition-delay: 0s !important;
+  }
+}
+
 /*
- * !important is intentional and per-file-overridden in biome.json. Per-
- * element transition-colors classes (e.g. composer focus crossfade)
- * would otherwise win the cascade and squash the theme flip. This is
- * the canonical theme-library pattern (used by next-themes, shadcn);
- * the rule only matches inside the 240ms toggle window so day-to-day
- * hover/focus animations are unaffected.
+ * Sprint 29.x — Mode A landing paper grain (Open Design–inspired).
+ * Sits above surface-base, below hero content; does not affect contrast.
  */
-.theme-transition,
-.theme-transition *,
-.theme-transition *::before,
-.theme-transition *::after {
-  transition:
-    background-color 220ms var(--ease-out-soft),
-    border-color 220ms var(--ease-out-soft),
-    color 220ms var(--ease-out-soft) !important;
-  transition-delay: 0s !important;
+.parser-landing-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.032;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+:root.dark .parser-landing-shell::before {
+  opacity: 0.016;
 }

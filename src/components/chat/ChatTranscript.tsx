@@ -12,6 +12,28 @@ export interface ChatTranscriptProps {
   isStreaming?: boolean;
   onSelectPrompt?: (prompt: string) => void;
   workspaceName: string;
+  /**
+   * Sprint 29.2 — selects the empty-state surface.
+   *
+   * `'hero'` (default): the full `ChatEmptyState` landing-page hero —
+   * "Find what to negotiate, before you sign" plus prompt cards. The
+   * right shape for any non-FAB consumer where the chat IS the page
+   * (e.g. legacy `LeaseLensWorkspaceShell`).
+   *
+   * `'compact'`: a small in-drawer header — heading + one-line subhead
+   * only. Used inside the FAB drawer so the assistant stops competing
+   * with the parser surface for visual weight (Dieter Rams: less but
+   * better; Don Norman: secondary tools should look secondary).
+   */
+  emptyStateVariant?: 'hero' | 'compact';
+  /**
+   * Sprint 29.4 — override for the compact-variant subhead. Lets the
+   * FAB pass job-aware copy ("No lease attached yet…", "Scanning your
+   * lease…", "Ask about this lease…") that mirrors the chip set
+   * shown below the composer. Ignored when `emptyStateVariant !==
+   * 'compact'`. Default is a generic fallback.
+   */
+  emptyStateSubhead?: string;
 }
 
 /*
@@ -83,6 +105,8 @@ export function ChatTranscript({
   isStreaming = false,
   onSelectPrompt,
   workspaceName,
+  emptyStateVariant = 'hero',
+  emptyStateSubhead = 'Ask about your lease, clauses, red flags, or citations.',
 }: ChatTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
@@ -167,10 +191,30 @@ export function ChatTranscript({
         data-testid="chat-transcript-scroll"
         className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
       >
-        <ChatEmptyState
-          onSelectPrompt={onSelectPrompt}
-          workspaceName={workspaceName}
-        />
+        {emptyStateVariant === 'compact' ? (
+          // Sprint 29.2 — compact in-drawer header. No prompt cards
+          // (the FAB's own `suggestedPrompts` chip row renders below
+          // the composer for that role). Just a heading + one-line
+          // subhead so the user knows what surface they're in.
+          // Sprint 29.4 — subhead is prop-driven so the FAB can swap
+          // copy per parser stage (no-lease / mid-scan / scan-complete).
+          <header
+            data-testid="assistant-drawer-empty-header"
+            className="flex flex-col gap-1 px-4 py-6 text-center"
+          >
+            <h3 className="text-[15px] font-semibold text-fg-default">
+              LeaseLens Assistant
+            </h3>
+            <p className="text-[13px] leading-snug text-fg-muted">
+              {emptyStateSubhead}
+            </p>
+          </header>
+        ) : (
+          <ChatEmptyState
+            onSelectPrompt={onSelectPrompt}
+            workspaceName={workspaceName}
+          />
+        )}
       </div>
     );
   }

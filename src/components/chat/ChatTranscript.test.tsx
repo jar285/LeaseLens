@@ -158,6 +158,52 @@ describe('ChatTranscript', () => {
     ).toBeInTheDocument();
   });
 
+  // Sprint 29.2 — when ChatTranscript is mounted inside the FAB drawer
+  // (caller passes `emptyStateVariant="compact"`), the full ChatEmptyState
+  // hero is suppressed and replaced by a compact in-drawer header. The
+  // big "Find what to negotiate, before you sign" hero is the parser
+  // landing page's identity; rendering it inside the FAB drawer makes
+  // the assistant compete with the parser surface instead of supporting
+  // it (Dieter Rams: less but better). The compact variant strips the
+  // hero to a one-line heading + subhead.
+  describe('Sprint 29.2 — emptyStateVariant', () => {
+    it('default ("hero") still renders the full ChatEmptyState hero', () => {
+      // Regression guard for any non-FAB consumer (e.g. legacy
+      // LeaseLensWorkspaceShell) that mounts ChatTranscript directly.
+      render(
+        withChatStream(
+          <ChatTranscript messages={[]} workspaceName="LeaseLens" />,
+        ),
+      );
+      expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
+      expect(
+        screen.queryByTestId('assistant-drawer-empty-header'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('"compact" variant suppresses the hero and renders the compact assistant header', () => {
+      render(
+        withChatStream(
+          <ChatTranscript
+            messages={[]}
+            workspaceName="LeaseLens"
+            emptyStateVariant="compact"
+          />,
+        ),
+      );
+      // The big landing hero is gone…
+      expect(screen.queryByTestId('chat-empty-state')).not.toBeInTheDocument();
+      // …replaced by a small in-drawer header with the assistant's
+      // heading + one-line subhead.
+      const header = screen.getByTestId('assistant-drawer-empty-header');
+      expect(header).toBeInTheDocument();
+      expect(header.textContent ?? '').toMatch(/leaselens assistant/i);
+      expect(header.textContent ?? '').toMatch(
+        /ask about your lease, clauses, red flags, or citations/i,
+      );
+    });
+  });
+
   it('renders follow-up chips under the latest assistant message', () => {
     const onSelectPrompt = vi.fn();
 

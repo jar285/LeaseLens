@@ -99,9 +99,7 @@ export function WorkspaceRouterShell(
     );
   }
 
-  // Sprint 26b — post-upload routes to ParserResultsShell. The legacy
-  // LeaseLensWorkspaceShell stays in the codebase as a fallback until
-  // Sprint 26d's cleanup pass.
+  // Sprint 26b — post-upload routes to ParserResultsShell.
   //
   // Sprint 26c.9 — on a fresh in-session upload, pass an empty tool-
   // events array so RedFlagReport and ClausesList start clean (no

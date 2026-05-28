@@ -78,6 +78,15 @@ export interface AssistantFabContextValue {
    * re-open the drawer.
    */
   clearPendingContext: () => void;
+  /**
+   * Sprint 29.3 — narrower than clearPendingContext. Drops ONLY the
+   * clause selection (clauseId + severity + statuteCitation);
+   * preserves pendingPrompt + drawer state. Used by the in-drawer
+   * context bar's "Detach clause" ✕ button so the user can drop a
+   * specific clause focus without losing their typed prefill or
+   * being kicked out of the drawer.
+   */
+  detachSelection: () => void;
 }
 
 const AssistantFabContext = createContext<AssistantFabContextValue | null>(
@@ -133,6 +142,14 @@ export function AssistantFabProvider({
     setSelection(EMPTY_SELECTION);
   }, []);
 
+  const detachSelection = useCallback(() => {
+    // Sprint 29.3 — narrower than clearPendingContext: only the
+    // clause selection clears. pendingPrompt + drawer state survive
+    // so the user can drop a clause focus without losing their
+    // typed prefill or having the drawer reset around them.
+    setSelection(EMPTY_SELECTION);
+  }, []);
+
   const value = useMemo<AssistantFabContextValue>(
     () => ({
       state,
@@ -144,6 +161,7 @@ export function AssistantFabProvider({
       close,
       clearContext,
       clearPendingContext,
+      detachSelection,
     }),
     [
       state,
@@ -155,6 +173,7 @@ export function AssistantFabProvider({
       close,
       clearContext,
       clearPendingContext,
+      detachSelection,
     ],
   );
 

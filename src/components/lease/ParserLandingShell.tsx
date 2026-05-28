@@ -6,8 +6,7 @@
 // the bottom-right slot the real FAB will own in Sprint 26c.
 //
 // State: this shell intentionally does NOT mount LeaseLensWorkspaceShell.
-// When upload completes, the parent (`WorkspaceRouterShell` calling
-// `router.refresh()` or a setState swap) is responsible for transitioning
+// When upload completes, the parent (`WorkspaceRouterShell`) is responsible for transitioning
 // to Mode B. In Sprint 26a the transition path is server-driven: the
 // user uploads, /api/leases sets the active-lease cookie, the page
 // re-renders, and the router picks the post-upload shell.
@@ -15,16 +14,25 @@
 'use client';
 
 import { motion, useReducedMotion } from 'motion/react';
-import { useEffect, useState } from 'react';
+import { Children, type ReactNode, useEffect, useState } from 'react';
 import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
 import { AssistantFab } from '@/components/chat/AssistantFab';
 import { AssistantFabProvider } from '@/components/chat/AssistantFabContext';
 import { ChatStreamProvider } from '@/components/chat/ChatStreamContext';
 import type { Role } from '@/lib/auth/types';
 import { LEASELENS_DISCLAIMER } from '@/lib/lease/disclaimer';
+import {
+  LEASELENS_CAPABILITIES_PANEL,
+  LEASELENS_CAPABILITY_PILLS,
+  LEASELENS_DATA_PANEL,
+} from '@/lib/lease/landing-panels';
+import { LEASELENS_TRUST_METRICS } from '@/lib/lease/trust-metrics';
+import { EASE_OUT_SOFT } from '@/lib/motion/presets';
+import { LandingPageRails } from './LandingPageRails';
 import { LeaseHeroDropzone } from './LeaseHeroDropzone';
 import { LeaseParserProvider } from './LeaseParserContext';
 import type { UploadResult } from './LeaseUploadDropzone';
+import { ParserLandingEditorialFrame } from './ParserLandingEditorialRails';
 
 export interface ParserLandingShellProps {
   workspaceName: string;
@@ -45,138 +53,242 @@ export interface ParserLandingShellProps {
   children?: React.ReactNode;
 }
 
-const TRUST_METRICS = [
-  { numeral: '01', text: '15+ clauses checked' },
-  { numeral: '02', text: 'Every flag cites NJSA' },
-  { numeral: '03', text: 'Plain-English explanations' },
-] as const;
-
 const FLOW_STAGES = [
-  'Upload',
-  'Parse',
-  'Extract clauses',
-  'Flag risks',
-  'Review',
+  { numeral: '01', label: 'Upload' },
+  { numeral: '02', label: 'Parse' },
+  { numeral: '03', label: 'Extract clauses' },
+  { numeral: '04', label: 'Flag risks' },
+  { numeral: '05', label: 'Review' },
 ] as const;
 
-export function ParserLandingShell({
-  workspaceName,
-  viewerRole,
-  conversationId,
-  onUploaded,
-  children,
-}: ParserLandingShellProps): React.JSX.Element {
+/*
+ * Sprint 29.x — Gemini-style ambient field for Mode A landing.
+ *
+ * Soft terracotta glow centered behind the hero lockup (not a literal
+ * shape). Mirrors ChatEmptyState's accent orb but scales up for the
+ * full landing viewport and layers a radial wash + two blurred ellipses
+ * so the cream page reads as depth rather than flat fill. Pure CSS,
+ * no motion — reduced-motion users see the same static atmosphere.
+ *
+ * The landing `<section>` uses `isolate` so this layer's `-z-10` paints
+ * above the section's cream background but below in-flow hero content.
+ * Without `isolate`, negative z-index children fall behind the parent's
+ * `bg-surface-base` and the blob is invisible.
+ *
+ * Colors come from `--color-accent-ambient-*` tokens in globals.css so
+ * dark mode never inherits light-mode accent-200 peach values.
+ */
+function LeaseHeroAmbientBlob(): React.JSX.Element {
   return (
-    <AssistantFabProvider>
-      <LeaseParserProvider activeLease={null}>
-        <ChatStreamProvider viewerRole={viewerRole}>
-          <section
-            data-testid="parser-landing-shell"
-            // Sprint 26c.3 — `justify-center-safe` falls back to flex-start
-            // when content overflows the section's height. Plain
-            // `justify-center` was causing the eyebrow + badge to bleed
-            // above the scroll viewport (and therefore behind the global
-            // header) on shorter laptop viewports. Same fix the legacy
-            // ChatEmptyState carried for the same reason.
-            className="relative flex min-h-0 flex-1 flex-col items-center justify-center-safe gap-10 overflow-y-auto bg-surface-base px-6 py-12 sm:py-16"
+    <div
+      data-testid="parser-landing-hero-blob"
+      data-theme-layer="ambient"
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+    >
+      <div
+        data-testid="parser-landing-hero-blob-gradient"
+        className="absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 80% 60% at 50% 40%, color-mix(in srgb, var(--color-accent-ambient-core) var(--accent-ambient-gradient-mix), transparent), transparent 68%)',
+        }}
+      />
+      <div className="absolute top-[38%] left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center">
+        <div
+          className="h-[min(28rem,70vh)] w-[min(36rem,92vw)] rounded-full blur-[100px]"
+          style={{
+            background:
+              'color-mix(in srgb, var(--color-accent-ambient-core) var(--accent-ambient-ellipse-opacity), transparent)',
+          }}
+        />
+      </div>
+      <div
+        className="absolute top-[46%] left-[58%] h-52 w-52 -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl"
+        style={{
+          background:
+            'color-mix(in srgb, var(--color-accent-ambient-soft) var(--accent-ambient-soft-opacity), transparent)',
+        }}
+      />
+      <div
+        className="absolute top-[34%] left-[42%] h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full blur-3xl"
+        style={{
+          background:
+            'color-mix(in srgb, var(--color-accent-ambient-core) calc(var(--accent-ambient-soft-opacity) * 0.85), transparent)',
+        }}
+      />
+      {/* Sprint 29.x — fade the blob toward the dropzone tray so terracotta
+          glow + upload surface read as one calm field, not two stacked layers. */}
+      <div
+        data-testid="parser-landing-hero-blob-fade"
+        className="absolute inset-x-0 bottom-0 h-[48%]"
+        style={{
+          background:
+            'linear-gradient(to bottom, transparent, color-mix(in srgb, var(--color-surface-base) var(--accent-ambient-fade-mix), transparent))',
+        }}
+      />
+    </div>
+  );
+}
+
+const CAPABILITY_PILL_CLASS =
+  'inline-flex cursor-default rounded-full border border-border-hairline bg-surface-elevated/55 px-3 py-1.5 text-xs font-medium text-fg-default shadow-hairline transition-[background-color,border-color,color,transform] duration-200 ease-out motion-safe:[@media(hover:hover)]:hover:scale-[1.02] motion-safe:[@media(hover:hover)]:hover:border-accent-400/70 motion-safe:[@media(hover:hover)]:hover:bg-accent-50/75 motion-safe:[@media(hover:hover)]:hover:text-accent-700 motion-reduce:transition-none motion-reduce:hover:scale-100 dark:bg-surface-elevated/25 dark:motion-safe:[@media(hover:hover)]:hover:border-accent-500/45 dark:motion-safe:[@media(hover:hover)]:hover:bg-accent-500/12 dark:motion-safe:[@media(hover:hover)]:hover:text-accent-200';
+
+const TRUST_METRIC_CIRCLE_CLASS =
+  'flex h-14 w-14 items-center justify-center rounded-full border border-border-hairline bg-surface-elevated/50 font-mono text-lg text-accent-600 tabular-nums shadow-hairline transition-transform duration-200 ease-out motion-safe:[@media(hover:hover)]:hover:scale-105 motion-reduce:transition-none motion-reduce:hover:scale-100 dark:bg-surface-elevated/25 dark:text-accent-300';
+
+const HERO_ENTRANCE_ITEM = {
+  hidden: { opacity: 0, y: 10 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.28, ease: EASE_OUT_SOFT },
+  },
+} as const;
+
+function ParserLandingTrustMetric({
+  numeral,
+  text,
+}: {
+  numeral: string;
+  text: string;
+}): React.JSX.Element {
+  return (
+    <div
+      data-testid="parser-trust-metric"
+      className="flex min-w-[6.5rem] max-w-[8.5rem] flex-col items-center gap-2 text-center"
+    >
+      <div
+        aria-hidden="true"
+        data-testid="parser-trust-metric-circle"
+        className={TRUST_METRIC_CIRCLE_CLASS}
+      >
+        {numeral}
+      </div>
+      <p className="text-[10px] text-fg-subtle leading-snug tracking-wide uppercase sm:text-[11px]">
+        {text}
+      </p>
+    </div>
+  );
+}
+
+/*
+ * Sprint 29.x — CloudConvert-style below-fold band: capability pills +
+ * privacy panel. Read-only; upload remains the only action.
+ */
+function ParserLandingScrollPanels(): React.JSX.Element {
+  return (
+    <div
+      data-testid="parser-landing-panels"
+      className="relative z-0 grid w-full max-w-3xl grid-cols-1 gap-8 border-t border-border-hairline/70 pt-10 sm:grid-cols-2 sm:gap-10"
+    >
+      <article
+        data-testid="parser-landing-panel-capabilities"
+        className="flex flex-col gap-3 text-left"
+      >
+        <p className="font-mono text-[10px] text-accent-600 tracking-[0.22em] uppercase dark:text-accent-400">
+          {LEASELENS_CAPABILITIES_PANEL.eyebrow}
+        </p>
+        <h2 className="font-serif text-xl font-bold text-fg-default tracking-tight sm:text-2xl">
+          {LEASELENS_CAPABILITIES_PANEL.headline}
+        </h2>
+        <p className="text-sm text-fg-muted leading-relaxed">
+          {LEASELENS_CAPABILITIES_PANEL.body}
+        </p>
+        <ul
+          data-testid="parser-landing-capability-pills"
+          className="mt-1 flex flex-wrap gap-2"
+          aria-label="Parser outputs"
+        >
+          {LEASELENS_CAPABILITY_PILLS.map((pill) => (
+            <li key={pill.id}>
+              <span
+                data-testid="parser-landing-capability-pill"
+                className={CAPABILITY_PILL_CLASS}
+              >
+                {pill.label}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </article>
+
+      <article
+        data-testid="parser-landing-panel-privacy"
+        className="flex flex-col gap-3 text-left"
+      >
+        <p className="font-mono text-[10px] text-accent-600 tracking-[0.22em] uppercase dark:text-accent-400">
+          {LEASELENS_DATA_PANEL.eyebrow}
+        </p>
+        <h2 className="font-serif text-xl font-bold text-fg-default tracking-tight sm:text-2xl">
+          {LEASELENS_DATA_PANEL.headline}
+        </h2>
+        <p className="text-sm text-fg-muted leading-relaxed">
+          {LEASELENS_DATA_PANEL.body}
+        </p>
+      </article>
+    </div>
+  );
+}
+
+/*
+ * Sprint 29.x — Open Design–style staggered reveal on Mode A hero.
+ * Two beats: brand lockup, then dropzone. Reduced motion + SSR render
+ * the static tree (same mount gate as LeaseHeroBrandBadge).
+ */
+function LeaseHeroEntrance({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}): React.JSX.Element {
+  const reduced = useReducedMotion();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const animate = mounted && !reduced;
+
+  if (!animate) {
+    return (
+      <div
+        data-testid="parser-landing-hero-entrance"
+        data-motion="static"
+        className={className}
+      >
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      data-testid="parser-landing-hero-entrance"
+      data-motion="animated"
+      className={className}
+      initial="hidden"
+      animate="visible"
+      variants={{
+        visible: { transition: { staggerChildren: 0.07 } },
+      }}
+    >
+      {Children.map(children, (child) =>
+        child ? (
+          <motion.div
+            key={
+              typeof child === 'object' && child !== null && 'key' in child
+                ? String(child.key)
+                : undefined
+            }
+            variants={HERO_ENTRANCE_ITEM}
+            className="flex w-full flex-col items-center"
           >
-            {/* Sprint 26c.5 — brand cluster (eyebrow + badge + wordmark)
-              and the hero dropzone live in a tighter sub-stack so the
-              wordmark reads as a lockup that introduces the headline,
-              rather than a free-floating label 40px away. The outer
-              section keeps gap-10 between this unit and the
-              flow-strip / trust / disclaimer rows so the page rhythm
-              stays calm. */}
-            <div className="flex w-full flex-col items-center gap-2">
-              <div className="flex flex-col items-center gap-3">
-                <p
-                  data-testid="parser-landing-eyebrow"
-                  className="font-mono text-[10px] tracking-[0.22em] text-fg-subtle uppercase sm:text-[11px]"
-                >
-                  {workspaceName}
-                </p>
-                <LeaseHeroBrandBadge />
-                {/* Sprint 26c.5–.8 — wordmark mirrors the "negotiate"
-                  emphasis in the hero headline (font-serif + italic),
-                  stepped to text-3xl (30px) and bolded so the lockup
-                  reads at full brand strength. Still subordinate to
-                  the text-4xl / text-5xl headline below, so hierarchy
-                  is preserved. */}
-                <p
-                  data-testid="parser-landing-wordmark"
-                  className="font-serif font-bold text-3xl text-fg-default italic tracking-tight"
-                >
-                  LeaseLens
-                </p>
-              </div>
-
-              <LeaseHeroDropzone
-                onUploaded={onUploaded ?? (() => {})}
-                conversationId={conversationId ?? null}
-              />
-            </div>
-
-            <ol
-              data-testid="parser-flow-strip"
-              aria-label="Parser workflow"
-              className="flex max-w-2xl flex-wrap items-baseline justify-center gap-x-3 gap-y-1.5 font-mono text-[10px] tracking-[0.14em] text-fg-subtle uppercase"
-            >
-              {FLOW_STAGES.map((stage, idx) => (
-                <li key={stage} className="inline-flex items-baseline gap-3">
-                  <span>{stage}</span>
-                  {idx < FLOW_STAGES.length - 1 ? (
-                    <span aria-hidden="true" className="text-fg-subtle/50">
-                      →
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-
-            <div
-              data-testid="parser-trust-metrics"
-              className="flex max-w-2xl flex-wrap items-baseline justify-center gap-x-3 gap-y-1.5 text-[11px] text-fg-subtle"
-            >
-              {TRUST_METRICS.map((metric, index) => (
-                <span
-                  key={metric.text}
-                  className="inline-flex items-baseline gap-3 whitespace-nowrap"
-                >
-                  <span className="inline-flex items-baseline gap-1.5">
-                    <span
-                      aria-hidden="true"
-                      className="font-mono text-[10px] tracking-[0.1em] text-fg-subtle/70"
-                    >
-                      {metric.numeral}
-                    </span>
-                    <span>{metric.text}</span>
-                  </span>
-                  {index < TRUST_METRICS.length - 1 ? (
-                    <span aria-hidden="true" className="text-fg-subtle/50">
-                      ·
-                    </span>
-                  ) : null}
-                </span>
-              ))}
-            </div>
-
-            <p
-              data-testid="parser-landing-disclaimer"
-              className="max-w-md text-balance text-center text-[11px] text-fg-subtle leading-relaxed"
-            >
-              {LEASELENS_DISCLAIMER}
-            </p>
-
-            {children}
-          </section>
-          <AssistantFab
-            workspaceName={workspaceName}
-            conversationId={conversationId ?? null}
-            initialMessages={[]}
-          />
-        </ChatStreamProvider>
-      </LeaseParserProvider>
-    </AssistantFabProvider>
+            {child}
+          </motion.div>
+        ) : null,
+      )}
+    </motion.div>
   );
 }
 
@@ -227,5 +339,144 @@ function LeaseHeroBrandBadge(): React.JSX.Element {
     >
       <LeaseLensMark size={28} animated={false} />
     </div>
+  );
+}
+
+export function ParserLandingShell({
+  workspaceName,
+  viewerRole,
+  conversationId,
+  onUploaded,
+  children,
+}: ParserLandingShellProps): React.JSX.Element {
+  return (
+    <AssistantFabProvider>
+      <LeaseParserProvider activeLease={null}>
+        <ChatStreamProvider viewerRole={viewerRole}>
+          <section
+            data-testid="parser-landing-shell"
+            data-theme-surface
+            // Sprint 26c.3 — `justify-center-safe` falls back to flex-start
+            // when content overflows the section's height. Plain
+            // `justify-center` was causing the eyebrow + badge to bleed
+            // above the scroll viewport (and therefore behind the global
+            // header) on shorter laptop viewports. Same fix the legacy
+            // ChatEmptyState carried for the same reason.
+            // Sprint 29.x — window owns scroll (page.tsx min-h-screen); no
+            // overflow-y-auto here or sticky rails lose their scroll ancestor.
+            className="parser-landing-shell relative isolate bg-surface-base px-4 py-12 sm:px-6 sm:py-16 lg:px-8"
+          >
+            <LeaseHeroAmbientBlob />
+
+            {/* Sprint 29.13 — rails moved OUT of the hero grid into the
+                page-shell-level `LandingPageRails` (fixed positioning).
+                The grid drops its 3-column template and reverts to a
+                single column of central content; the rails are now
+                viewport metadata, not section decoration. */}
+            <LandingPageRails />
+            {/* Sprint 29.x — editorial frame sits higher than the hero wrapper,
+                so the caption + hairline read as page metadata, not content. */}
+            <div className="pointer-events-none absolute inset-x-4 top-4 z-0 mx-auto w-full max-w-6xl sm:inset-x-6 lg:inset-x-8">
+              <div className="relative h-0">
+                <ParserLandingEditorialFrame workspaceName={workspaceName} />
+              </div>
+            </div>
+
+            <div className="relative mx-auto w-full max-w-6xl">
+              <div
+                data-testid="parser-landing-grid"
+                className="relative z-10 grid w-full grid-cols-1 gap-y-10"
+              >
+                <div className="flex min-w-0 flex-col items-center justify-center-safe gap-10 px-2 pt-8 sm:px-4 sm:pt-10">
+                  {/* Sprint 29.x — workspace eyebrow lives on the editorial frame
+                      hairline (ParserLandingEditorialFrame); badge + headline only. */}
+                  <LeaseHeroEntrance className="relative z-0 flex w-full flex-col items-center gap-2">
+                    <div className="flex flex-col items-center gap-3">
+                      <LeaseHeroBrandBadge />
+                    </div>
+
+                    <LeaseHeroDropzone
+                      onUploaded={onUploaded ?? (() => {})}
+                      conversationId={conversationId ?? null}
+                    />
+                  </LeaseHeroEntrance>
+
+                  <div
+                    data-testid="parser-landing-support"
+                    className="relative z-0 flex w-full max-w-2xl flex-col items-center gap-8 border-t border-border-hairline/70 pt-10"
+                  >
+                    <div className="flex w-full flex-col items-center gap-4">
+                      <p
+                        data-testid="parser-landing-support-label"
+                        className="font-mono text-[10px] text-fg-subtle tracking-[0.22em] uppercase"
+                      >
+                        How it works
+                      </p>
+                      <ol
+                        data-testid="parser-flow-strip"
+                        aria-label="Parser workflow"
+                        className="flex max-w-2xl flex-wrap items-baseline justify-center gap-x-2 gap-y-2 font-mono text-[10px] text-fg-subtle tracking-[0.12em] uppercase sm:gap-x-3 sm:text-[11px]"
+                      >
+                        {FLOW_STAGES.map((stage, idx) => (
+                          <li
+                            key={stage.label}
+                            className="inline-flex items-baseline gap-2"
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="tabular-nums text-accent-600/90 dark:text-accent-400/90"
+                            >
+                              {stage.numeral}
+                            </span>
+                            <span>{stage.label}</span>
+                            {idx < FLOW_STAGES.length - 1 ? (
+                              <span
+                                aria-hidden="true"
+                                className="text-fg-subtle/45"
+                              >
+                                →
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+
+                    <div
+                      data-testid="parser-trust-metrics"
+                      className="flex max-w-2xl flex-wrap items-start justify-center gap-6 sm:gap-8"
+                    >
+                      {LEASELENS_TRUST_METRICS.map((metric) => (
+                        <ParserLandingTrustMetric
+                          key={metric.text}
+                          numeral={metric.numeral}
+                          text={metric.text}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <ParserLandingScrollPanels />
+
+                  <p
+                    data-testid="parser-landing-disclaimer"
+                    className="relative z-0 max-w-md text-balance text-center text-[11px] text-fg-subtle leading-relaxed"
+                  >
+                    {LEASELENS_DISCLAIMER}
+                  </p>
+
+                  {children}
+                </div>
+              </div>
+            </div>
+          </section>
+          <AssistantFab
+            workspaceName={workspaceName}
+            conversationId={conversationId ?? null}
+            initialMessages={[]}
+          />
+        </ChatStreamProvider>
+      </LeaseParserProvider>
+    </AssistantFabProvider>
   );
 }

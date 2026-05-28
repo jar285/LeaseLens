@@ -28,7 +28,7 @@ export function LeaseHeroDropzone({
   return (
     <section
       data-testid="lease-hero-dropzone"
-      className="flex w-full max-w-2xl flex-col items-center gap-6"
+      className="flex w-full max-w-2xl flex-col items-center gap-4"
     >
       {/* Sprint 26c.4 — hero headline bumped one step (text-3xl → text-4xl
           on mobile; sm:text-4xl → sm:text-5xl on desktop) so the message
@@ -39,20 +39,26 @@ export function LeaseHeroDropzone({
           larger type doesn't break awkwardly. */}
       <h1
         data-testid="lease-hero-headline"
-        className="max-w-2xl text-balance text-center font-serif font-bold text-4xl text-fg-default leading-[1.1] tracking-tight sm:text-5xl"
+        className="max-w-2xl text-balance text-center font-serif font-bold text-4xl text-fg-default leading-[1.1] tracking-tight sm:text-[3.25rem]"
       >
         Find what to <em className="font-normal italic">negotiate</em>, before
         you sign.
       </h1>
+      {/* Sprint 29.x — CloudConvert-style: headline carries the promise;
+          the dropzone owns the "drop here" instruction (no duplicate copy). */}
       <p
         data-testid="lease-hero-subhead"
         className="max-w-md text-balance text-center text-sm text-fg-muted leading-relaxed"
       >
-        Drop your NJ residential lease. We'll parse it, extract clauses, and
-        flag terms that may deserve a closer look.
+        Parse clauses, cite NJ tenant law, and surface red flags before you
+        sign.
       </p>
-      <div className="w-full">
+      <div
+        data-testid="lease-hero-dropzone-tray"
+        className="relative w-full rounded-3xl p-0.5 shadow-sm ring-1 ring-border-hairline/50"
+      >
         <LeaseUploadDropzone
+          presentation="hero"
           onUploaded={onUploaded}
           onError={onError}
           conversationId={conversationId}

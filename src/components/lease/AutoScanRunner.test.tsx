@@ -121,6 +121,7 @@ describe('AutoScanRunner', () => {
       message?: string;
       conversationId?: string | null;
       forceScan?: boolean;
+      startNewConversation?: boolean;
     };
     expect(body.message).toBe(STANDARD_SCAN_PROMPT);
     // Sprint 32.1 — auto-scan MUST send forceScan:true so the chat route
@@ -129,6 +130,12 @@ describe('AutoScanRunner', () => {
     // instead of actually calling extract_clauses (Sprint 32.0 diagnostic
     // confirmed tool_use_count=0 on the broken path).
     expect(body.forceScan).toBe(true);
+    // Sprint 33.0 — auto-scan ALSO sends startNewConversation:true so the
+    // route always creates a fresh conversation row, regardless of any
+    // stale conversationId inherited from SSR. Prevents lease-A's tool
+    // blocks from bleeding into a lease-B Q&A. (Domain reality: one
+    // conversation per lease scan, not per durable session.)
+    expect(body.startNewConversation).toBe(true);
   });
 
   it('does NOT fire when enabled=false', async () => {

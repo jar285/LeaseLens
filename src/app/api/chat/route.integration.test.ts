@@ -251,6 +251,150 @@ describe('Chat API force-tool (Sprint 32.1)', () => {
   });
 });
 
+// Sprint 33.0 — conversation scoping. When startNewConversation:true is in
+// the body, the route MUST create a fresh conversation row, even if the
+// body supplies a non-null conversationId. This pins the lease-A → lease-B
+// isolation invariant: prior-lease tool blocks never leak into a new scan.
+//
+// Kent-C-Dodds-style: tests the user-visible invariant (two distinct
+// conversation rows, zero message bleed) rather than implementation details.
+describe('Chat API conversation scoping (Sprint 33.0)', () => {
+  beforeEach(() => {
+    db.prepare('DELETE FROM messages').run();
+    db.prepare('DELETE FROM conversations').run();
+    db.prepare('DELETE FROM users').run();
+    db.prepare('DELETE FROM rate_limit').run();
+    db.prepare('DELETE FROM spend_log').run();
+
+    db.prepare(
+      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, ?, ?, 1, ?, NULL)`,
+    ).run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      0,
+    );
+
+    process.env.LEASELENS_SESSION_SECRET =
+      'a-very-long-test-secret-that-is-at-least-32-chars';
+    process.env._TEST_DEMO_MODE = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env._TEST_DEMO_MODE;
+  });
+
+  it('creates a NEW conversation when startNewConversation:true is set, ignoring any body conversationId', async () => {
+    // Round 1 — establish a conversation
+    const req1 = await makeSessionRequest('lease A intro', TEST_USER_ID, null, {
+      startNewConversation: true,
+    });
+    const res1 = await POST(req1);
+    expect(res1.status).toBe(200);
+    await drainStream(res1);
+
+    const convsAfterRound1 = db
+      .prepare('SELECT id FROM conversations')
+      .all() as ConversationRow[];
+    expect(convsAfterRound1).toHaveLength(1);
+    const firstConvId = convsAfterRound1[0].id;
+
+    // Round 2 — body explicitly passes the first conversation's id AND the
+    // flag. The flag MUST override and force a fresh row.
+    const req2 = await makeSessionRequest(
+      'lease B intro',
+      TEST_USER_ID,
+      firstConvId,
+      { startNewConversation: true },
+    );
+    const res2 = await POST(req2);
+    expect(res2.status).toBe(200);
+    await drainStream(res2);
+
+    const convsAfterRound2 = db
+      .prepare('SELECT id FROM conversations ORDER BY created_at ASC')
+      .all() as ConversationRow[];
+    expect(convsAfterRound2).toHaveLength(2);
+    expect(convsAfterRound2[1].id).not.toBe(firstConvId);
+  });
+
+  it('continues an EXISTING conversation when startNewConversation is omitted (regression guard)', async () => {
+    // Round 1 — create conversation via the flag path
+    const req1 = await makeSessionRequest('msg 1', TEST_USER_ID, null, {
+      startNewConversation: true,
+    });
+    await drainStream(await POST(req1));
+    const convs = db
+      .prepare('SELECT id FROM conversations')
+      .all() as ConversationRow[];
+    const convId = convs[0].id;
+
+    // Round 2 — same user/workspace, pass the conversationId, NO flag → reuse
+    const req2 = await makeSessionRequest('msg 2', TEST_USER_ID, convId);
+    await drainStream(await POST(req2));
+
+    const convsAfter = db
+      .prepare('SELECT id FROM conversations')
+      .all() as ConversationRow[];
+    expect(convsAfter).toHaveLength(1);
+    expect(convsAfter[0].id).toBe(convId);
+  });
+
+  it('lease-A messages do NOT bleed into the new conversation when startNewConversation fires (Kent-C-Dodds invariant)', async () => {
+    // Round 1 — lease A
+    const req1 = await makeSessionRequest(
+      'lease A user message — distinctive marker AAAA',
+      TEST_USER_ID,
+      null,
+      { startNewConversation: true },
+    );
+    await drainStream(await POST(req1));
+    const convsR1 = db
+      .prepare('SELECT id FROM conversations')
+      .all() as ConversationRow[];
+    const convA = convsR1[0].id;
+
+    // Round 2 — lease B; pass convA's id AND set the flag
+    const req2 = await makeSessionRequest(
+      'lease B user message — distinctive marker BBBB',
+      TEST_USER_ID,
+      convA,
+      { startNewConversation: true },
+    );
+    await drainStream(await POST(req2));
+
+    const convsR2 = db
+      .prepare('SELECT id FROM conversations ORDER BY created_at ASC')
+      .all() as ConversationRow[];
+    const convB = convsR2[1].id;
+
+    // The user-visible invariant: messages tied to conv B contain ONLY
+    // lease B's content. AAAA must not appear in conv B's message table.
+    const convBMessages = db
+      .prepare(
+        'SELECT content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
+      )
+      .all(convB) as { content: string }[];
+
+    for (const msg of convBMessages) {
+      expect(msg.content).not.toContain('AAAA');
+    }
+    // And the lease A marker still lives only in conv A.
+    const convAMessages = db
+      .prepare(
+        'SELECT content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
+      )
+      .all(convA) as { content: string }[];
+    expect(convAMessages.some((m) => m.content.includes('AAAA'))).toBe(true);
+    expect(convAMessages.some((m) => m.content.includes('BBBB'))).toBe(false);
+  });
+});
+
 describe('Chat API Demo Guardrails', () => {
   beforeEach(() => {
     db.prepare('DELETE FROM messages').run();

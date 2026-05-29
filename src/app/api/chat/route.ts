@@ -43,6 +43,13 @@ const chatRequestBodySchema = z.object({
   // the default 'auto' so the model can stop when grading is done.
   // Set by AutoScanRunner; regular FAB chat omits it.
   forceScan: z.boolean().optional(),
+  // Sprint 33.0 — when true, the route IGNORES any conversationId
+  // in the body and ALWAYS creates a fresh conversation row. This is
+  // the canonical "new lease scan started" signal: AutoScanRunner
+  // sets it so a prior conversation's tool blocks never bleed into
+  // a freshly-uploaded lease's Q&A. The flag is separate from
+  // forceScan (composable, no implicit coupling).
+  startNewConversation: z.boolean().optional(),
 });
 
 const SPEND_CEILING_MESSAGE =
@@ -172,7 +179,8 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    const { message, conversationId, forceScan } = parsedBody.data;
+    const { message, conversationId, forceScan, startNewConversation } =
+      parsedBody.data;
 
     // Resolve userId and role from session cookie; fall back to default Creator
     const sessionCookie = req.cookies.get('leaselens_session');
@@ -283,7 +291,11 @@ export async function POST(req: NextRequest) {
     // Round 3 — conversation lookup AND insert are scoped to workspace_id
     // so a conversationId from a foreign workspace falls through to a fresh
     // conversation in the current workspace. Spec §20.
-    let activeConversationId = conversationId ?? null;
+    // Sprint 33.0 — when startNewConversation:true, ignore any body
+    // conversationId and force-create a fresh row downstream. The
+    // existing lookup-or-create branch already treats null as "create."
+    let activeConversationId =
+      startNewConversation === true ? null : (conversationId ?? null);
     db.transaction(() => {
       const existingConv = activeConversationId
         ? db

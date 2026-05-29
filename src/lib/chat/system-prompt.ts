@@ -104,8 +104,16 @@ export function buildSystemPrompt(
   // lease" and starts calling extract_clauses immediately when the
   // user asks "find the red flags in this lease" / "review my lease"
   // / etc. The pluralization helper keeps the rendered line clean.
+  //
+  // Sprint 31.1 — the prior wording said "{N} clauses extracted",
+  // which the model conflated with "the extract_clauses tool already
+  // ran this conversation" and combined with the Sprint 23e reuse-
+  // prior-results guard to refuse the scan on a brand-new conversation
+  // tied to a freshly-uploaded lease. Result: auto-scan stuck on
+  // "Upload received" forever. The new wording makes the upload-
+  // pipeline indexing distinct from the scan-tool gradings.
   const leaseAwarenessSection = activeLease
-    ? `An active lease IS loaded for this conversation: "${activeLease.filename}" (${activeLease.page_count} ${activeLease.page_count === 1 ? 'page' : 'pages'}, ${activeLease.clause_count} ${activeLease.clause_count === 1 ? 'clause' : 'clauses'} extracted, lease_id ${activeLease.id}). When the user asks about "this lease", "the lease", "my lease", or anything specific to it (e.g. "find red flags", "what does it say about X", "review the deposit clause"), CALL extract_clauses or grade_clause_severity directly — do NOT ask the user to upload, the upload is already in the left pane and this conversation is bound to it.`
+    ? `An active lease IS loaded for this conversation: "${activeLease.filename}" (${activeLease.page_count} ${activeLease.page_count === 1 ? 'page' : 'pages'}, ${activeLease.clause_count} ${activeLease.clause_count === 1 ? 'clause' : 'clauses'} indexed from the PDF text-layer at upload time — NOT YET graded; you still need to call extract_clauses to read the clause list and grade_clause_severity once per clause to grade them, lease_id ${activeLease.id}). When the user asks about "this lease", "the lease", "my lease", or anything specific to it (e.g. "find red flags", "what does it say about X", "review the deposit clause"), CALL extract_clauses or grade_clause_severity directly — do NOT ask the user to upload, the upload is already in the left pane and this conversation is bound to it.`
     : 'No lease is currently loaded for this conversation. If the user asks about "this lease" or "my lease" anyway, call extract_clauses once — the recent-upload fallback will resolve a freshly-uploaded lease that has not yet been bound to this conversation. Only respond "please upload a lease" if extract_clauses returns the corpus-not-loaded / no-lease error.';
 
   // Sprint 23e — prefer prior tool results on follow-up turns. Without
@@ -116,6 +124,20 @@ export function buildSystemPrompt(
   // a record of clause gradings" replies after a successful scan.
   const reusePriorResultsSection =
     "When the conversation history already contains grade_clause_severity or extract_clauses tool_result blocks from earlier turns, REUSE those results to answer follow-up questions (ranking, summarising, drafting emails for specific clauses). Do NOT re-run the scan tools on follow-up turns unless the user explicitly asks for a re-scan, the lease changed, or a needed clause is missing from the prior results. When drafting emails or ranking by severity, cite the prior grading's `reasoning` and `statute_citation` directly rather than calling the tool again.";
+
+  // Sprint 29.10 — scan progress awareness. The auto-scan
+  // (AutoScanRunner) streams extract_clauses + grade_clause_severity
+  // tool calls into the SAME conversation as the FAB chat. If the
+  // user opens the FAB mid-scan and asks about findings, the
+  // conversation history may show an extract_clauses tool_result
+  // and SOME (but not all) grade_clause_severity results. The model
+  // must recognize this in-progress state instead of saying "I
+  // don't see a partial scan" — that response reads as if the
+  // assistant has no awareness of what's happening in the right
+  // pane (Jakob Nielsen: visibility of system status; Don Norman:
+  // predictable interaction across surfaces).
+  const scanProgressAwarenessSection =
+    'SCAN PROGRESS AWARENESS: If the conversation history shows an extract_clauses tool_result and SOME (but not all) grade_clause_severity tool_results, an auto-scan is in progress — the remaining gradings stream in within ~10-30 seconds. If the user asks about findings during this state, acknowledge what is already graded (e.g. "I see 7 of 15 clauses graded — the highest-severity finding so far is …") rather than denying that any scan is visible. Likewise, if ANY grade_clause_severity tool_result is present in conversation history, never tell the user "no scan is visible" or "please upload a lease" — the scan is real and you can see it. Wait until the user has results to discuss before suggesting they re-upload or restart.';
 
   // Sprint 23e Phase 2b → Sprint 23f Phase 4 — draft_negotiation_email
   // post-tool-call summary. Originally (s23e.3) this section forced
@@ -149,6 +171,12 @@ export function buildSystemPrompt(
 
     // 2.6 — Sprint 23e: prefer prior tool results on follow-up turns.
     reusePriorResultsSection,
+
+    // 2.65 — Sprint 29.10: acknowledge in-progress auto-scans instead
+    // of denying them. Paired with the Sprint 29.11 client-side
+    // "Scan complete" banner so the user has matching cues at both
+    // the model + UI surfaces.
+    scanProgressAwarenessSection,
 
     // 2.7 — Sprint 23e + 23f Phase 4: concise summary after draft_negotiation_email
     // (cards now render the verbatim subject + body inline).

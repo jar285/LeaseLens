@@ -308,4 +308,99 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toMatch(/Next steps/i);
     });
   });
+
+  // Sprint 31.1 — scan-prompt disambiguation. The active-lease metadata
+  // used to say "{N} clauses extracted", which the model conflated with
+  // "the extract_clauses tool has already been called this conversation"
+  // and combined with the Sprint 23e reuse-prior-results guard to refuse
+  // running scan tools on a brand-new conversation with a freshly-uploaded
+  // lease. Auto-scan got stuck on "Upload received" forever. Fix: drop
+  // the ambiguous "extracted" wording in the active-lease metadata; make
+  // the indexing-vs-grading distinction explicit; tell the model it
+  // still needs to call the scan tools.
+  describe('Sprint 31.1 — scan-prompt disambiguation', () => {
+    it('does NOT describe the active-lease clause count as "extracted" (which the model reads as "scan already ran")', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The metadata line must not use "clauses extracted" — that's the
+      // exact phrase that triggered the model to refuse the scan.
+      expect(prompt).not.toMatch(/\d+\s+clauses?\s+extracted/i);
+    });
+
+    it('clarifies that the clause count is PDF text-layer indexing, not grading', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The wording should make the indexing-vs-grading distinction
+      // explicit so the model can't conflate the upload-pipeline output
+      // with a prior tool call.
+      expect(prompt).toMatch(/indexed.*PDF|text[-\s]?layer/i);
+      expect(prompt).toMatch(/not\s+yet\s+graded/i);
+    });
+
+    it('explicitly tells the model it still needs to call the scan tools (overrides the "follow-up turn" misread)', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'lease-1',
+          filename: 'sample.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      // The exact phrase "still need to call" anchors the new imperative
+      // so the model can't read the metadata as evidence of a prior scan.
+      // (Scoped to a literal substring rather than a loose regex so it
+      // can't accidentally match unrelated sentences via the `s` flag.)
+      expect(prompt).toContain('still need to call extract_clauses');
+      expect(prompt).toContain('grade_clause_severity');
+    });
+  });
+
+  // Sprint 29.10 — scan progress awareness. When AutoScanRunner is
+  // streaming grade_clause_severity tool calls into the conversation
+  // and the user opens the FAB to ask "walk me through the highest-
+  // severity finding," the model must NOT respond "I don't see a
+  // partial scan." That answer is technically honest at the timestamp
+  // (only some gradings have landed in history) but reads as if the
+  // assistant has no awareness of what's happening in the right pane.
+  // The system prompt now tells the model to recognize the in-progress
+  // state from tool_result blocks in conversation history and answer
+  // accurately (e.g. "I see 7 of 15 graded — top finding so far is …").
+  describe('Sprint 29.10 — scan-progress awareness', () => {
+    it('instructs the model to recognize an in-progress scan from conversation history', () => {
+      const prompt = buildSystemPrompt('Tenant');
+      // Section header / opening phrase that pins the contract.
+      expect(prompt).toMatch(/SCAN PROGRESS AWARENESS/);
+      // The instruction names the tool_result blocks the model should
+      // look at (extract_clauses + grade_clause_severity).
+      expect(prompt).toMatch(/extract_clauses/);
+      expect(prompt).toMatch(/grade_clause_severity/);
+      // The instruction explicitly tells the model NOT to default to
+      // "no scan visible" when there are tool_results present —
+      // that's the buggy behavior we're correcting.
+      expect(prompt).toMatch(/never tell the user "no scan is visible"/i);
+    });
+
+    it('instructs the model to acknowledge partial progress to the user', () => {
+      const prompt = buildSystemPrompt('Tenant');
+      // The example phrasing pins the desired response shape — the
+      // model should say "N of M graded" rather than "I don't see
+      // anything."
+      expect(prompt).toMatch(/of \d+ clauses graded/i);
+    });
+  });
 });

@@ -1,11 +1,13 @@
 # Agent Charter — LeaseLens (formerly ContentOps)
 
-**Version:** 1.13
-**Status:** Active
+**Version:** 1.13 (frozen 2026-05-07)
+**Status:** Active for governance (§1–§15); the post-v1.13 update in §15.5 covers what has changed since
 **Governs:** All AI coding agent sessions for the LeaseLens project
 **Precedence:** This charter outranks any single sprint doc, spec, or
 conversational instruction, except where a later amendment to the charter
 itself supersedes an earlier rule.
+
+> **Currentness note.** This document was frozen at v1.13 on 2026-05-07. Sprints 14–33 have shipped since (Editorial brand refresh; **parser-first pivot to `WorkspaceRouterShell` + FAB chat drawer**; production hardening). The §16 roadmap is therefore historical; the §1–§15 governance rules and §15.5 postscript are the parts that still apply. For day-to-day operating rules, read [`CLAUDE.md`](../../CLAUDE.md). For an up-to-date architectural snapshot, read [`architecture.md`](architecture.md). Where this charter's body text (e.g., §2 three-pane UI, §11b / §13 `CONTENTOPS_*` env-var names) contradicts current code, the code wins.
 
 ---
 
@@ -16,7 +18,7 @@ session, you must:
 
 1. Read this charter in full.
 2. Read `docs/_meta/agent-guidelines.md` — prescriptive *how to write code* rules
-   (stack-specific patterns and ContentOps-specific gotchas). Companion to this charter.
+   (stack-specific patterns and LeaseLens-specific gotchas). Companion to this charter.
 3. Read `docs/_references/README.md`.
 4. Read the spec file for the current sprint (e.g., `docs/_specs/sprint-0-foundation/spec.md`).
 5. Read the sprint doc for the current sprint, if one exists yet.
@@ -593,6 +595,16 @@ Context7 is cheap and worth calling; Sequential Thinking is expensive and
 should be reserved for specs, QA passes, and hard debugging.
 
 ---
+
+---
+
+## 15.5. Post-v1.13 note (added 2026-05-29)
+
+This charter was frozen at v1.13 on 2026-05-07. The roadmap below (§16) ends at Sprint 13. The codebase has since advanced through **Sprints 14–33** — eval Tier 2 + cockpit display (14), Workspace UI modernization (16–18), Editorial brand refresh (23a–23k), **Parser-first pivot with FAB chat drawer (26a–26c)**, production hardening (27–28), FAB+chat production UX refactor (29.1–29.13), View-Transitions theme flip (30), scan-prompt disambiguation (31), forced `tool_choice` on auto-scan (32), and the in-progress FAB chat pivot (33, on `feature/fab-menu`).
+
+For day-to-day operating rules and architectural invariants as they stand today, read [`CLAUDE.md`](../../CLAUDE.md) (in the project root) and the most-recent sprint folder in [`docs/_specs/`](../_specs/). For a current architectural snapshot, read [`architecture.md`](architecture.md). The §1–§15 governance rules below remain in force; the §16 roadmap is preserved as historical context only.
+
+**Env-var prefix correction.** The v1.13 changelog entry below states "Codebase artifacts NOT renamed in this amendment (… env-var prefix `CONTENTOPS_` …)." That was true at v1.13 but is no longer current — the env-var prefix is now `LEASELENS_*` throughout the code, `.env.example`, and [`src/lib/env.ts`](../../src/lib/env.ts). Read `.env.example` as the source of truth.
 
 ---
 

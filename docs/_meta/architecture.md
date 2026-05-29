@@ -1,10 +1,10 @@
 # Architecture — LeaseLens
 
-**Snapshot date:** 2026-05-08 (post-Sprint 14, between sprints, before Sprint 15).
+**Snapshot date:** 2026-05-29 (post-Sprint 33, on `feature/fab-menu`).
 
-This document describes LeaseLens as it exists in the codebase today. It is **descriptive** (what is), not **prescriptive** (what should be). For planned changes see [`docs/_specs/`](../_specs/) and the most-recent sprint folder. For *how to write code*, see [`agent-guidelines.md`](agent-guidelines.md). For governance, see [`agent-charter.md`](agent-charter.md).
+This document describes LeaseLens as it exists in the codebase today. It is **descriptive** (what is), not **prescriptive** (what should be). For planned changes see [`docs/_specs/`](../_specs/) and the most-recent sprint folder. For *how to write code*, see [`agent-guidelines.md`](agent-guidelines.md). For governance, see [`agent-charter.md`](agent-charter.md). For the day-to-day operating rules and invariants, see [`CLAUDE.md`](../../CLAUDE.md).
 
-> Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases, and Sprint 14 added the second eval tier + cockpit display. The architecture preserves every charter §4 invariant from the ContentOps era; what changed is the corpus, the tool surface, and the addition of a session-scoped lease ingestion path.
+> Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases. Sprint 14 added the second eval tier + cockpit display. Sprints 16–18 modernised the workspace UI (welcome state, scan progress, severity polish). Sprints 23a–23k brought the editorial brand refresh (cream/terracotta palette, Source Serif 4, ink-blue citation token). Sprints 26a–26c **pivoted the workspace from a three-pane shell to a parser-first router (`WorkspaceRouterShell`) with chat in a floating FAB drawer (`AssistantFab`)**. Sprints 27–28 hardened the FAB persistence and tenant-only UI; Sprints 29.1–29.13 refactored the FAB+chat production UX. Sprints 30–32 added the View-Transitions theme flip, scan-prompt disambiguation, and forced `tool_choice` on auto-scan. Sprint 33 (in progress on `feature/fab-menu`) is iterating on the FAB chat surface. The architecture preserves every charter §4 invariant from the ContentOps era; what has changed since Sprint 13 is the corpus, the tool surface, the lease ingestion path, and the entire workspace UI topology.
 
 ---
 
@@ -13,13 +13,17 @@ This document describes LeaseLens as it exists in the codebase today. It is **de
 LeaseLens is a NJ residential lease red-flag reviewer. The full user story:
 
 1. Operator visits `/`. Middleware ensures a session cookie (Tenant role default) and a workspace cookie (sample fallback).
-2. The home page renders a three-pane workspace shell: PDF viewer on the left, chat in the middle, red-flag report on the right. The seeded sample lease is loaded by default so reviewers face zero cold-start friction.
-3. Operator can switch role (Tenant / Reviewer / Admin) via the role switcher in the header. Tools are filtered by role; lease ownership is enforced separately so a Tenant only sees leases they uploaded.
-4. Operator types into the composer; on send, the assistant streams a response that may use one or more tools. The standard scan flow chains `extract_clauses` → repeated `grade_clause_severity`, with the right-hand report filling in as gradings come back.
-5. Each `grade_clause_severity` result carries a NJ statute citation and a `chunk_id`; the tool throws if the citation is not grounded in the retrieved corpus chunk. Failed citations surface as error pills.
-6. Operator can drag a different lease PDF into the upload dropzone (or use the workspace switcher) — the route parses, segments, classifies, and inserts clauses; the chat thread resets to avoid prior-lease bleed-through.
-7. Operator (Tenant or Admin) asks the assistant to draft a negotiation email about a graded clause. `draft_negotiation_email` runs the LLM call in a `prepare` step, then writes the `negotiation_emails` row + audit_log row in one transaction. The `ToolCard` UI surfaces an Undo button until rolled back.
-8. Operator (Reviewer or Admin) opens `/cockpit` for the operator dashboard: today's spend, audit feed, scheduled emails, and a two-tier eval-health panel (Tier 1 retrieval + Tier 2 lease grading side-by-side).
+2. The home page renders [`WorkspaceRouterShell`](../../src/components/lease/WorkspaceRouterShell.tsx), which routes between two modes:
+   - **Mode A — `ParserLandingShell`**: hero dropzone with the LeaseLens wordmark, an upload affordance, and the seeded sample-lease CTA. Renders when no active lease is rehydrated from the conversation.
+   - **Mode B — `ParserResultsShell`**: two-column parser workspace. PDF viewer on the left; a results stack on the right (Red Flags → Clauses).
+3. Chat lives in a **floating FAB drawer** ([`AssistantFab`](../../src/components/chat/AssistantFab.tsx)), anchored bottom-right and available in Mode B. The drawer is opt-in: it **lazy-mounts on first open and stays mounted** thereafter, so typed drafts and the conversation survive close → reopen. Card actions on red-flag cards and clause rows ("Explain", "Draft email") open the drawer pre-seeded via `fab.openWith({ initialPrompt, clauseId, severity, statuteCitation })`.
+4. Operator can switch role (Tenant / Reviewer / Admin) via the role switcher in the header (demo mode only; hidden in production). Tools are filtered by role; lease ownership is enforced separately so a Tenant only sees leases they uploaded.
+5. Operator types into the FAB composer; on send, the assistant streams a response that may use one or more tools. The standard scan flow chains `extract_clauses` → repeated `grade_clause_severity`, with the right-hand Red Flags pane filling in as gradings come back. On a fresh in-session upload, [`AutoScanRunner`](../../src/components/lease/AutoScanRunner.tsx) auto-fires the scan when `LEASELENS_AUTO_SCAN_ENABLED=true` — see Sprint 32 (force `tool_choice`) for the per-call diagnostic.
+6. Each `grade_clause_severity` result carries a NJ statute citation and a `chunk_id`; the tool throws if the citation is not grounded in the retrieved corpus chunk. Failed citations surface as error pills.
+7. Operator can drag a different lease PDF into the upload dropzone — the route parses, segments, classifies, and inserts clauses; the **Replace** action in `ParserResultsShell`'s header is the only destructive workspace-reset path (requires `window.confirm`, revokes the active Blob URL, evicts the IndexedDB-cached PDF bytes).
+8. **Clear assistant chat** (button inside the FAB drawer) resets *only* the chat thread. It does not touch the lease, extracted clauses, or red flags — an aria-live announcer says so explicitly for SR users.
+9. Operator (Tenant or Admin) asks the assistant to draft a negotiation email about a graded clause. `draft_negotiation_email` runs the LLM call in a `prepare` step, then writes the `negotiation_emails` row + audit_log row in one transaction. The `ToolCard` UI surfaces an Undo button until rolled back.
+10. Operator (Reviewer or Admin) opens `/cockpit` for the operator dashboard: today's spend, audit feed, scheduled emails, and a two-tier eval-health panel (Tier 1 retrieval + Tier 2 lease grading side-by-side). The Cockpit link in the header is hidden in production / Tenant-only mode (Sprint 27).
 
 The seeded sample is `SAMPLE_LEASE_ID` (`00000000-0000-0000-0000-000000000020`), a fictional NJ residential lease whose clauses cover security deposit overcharge, late-fee structure, and other typical red-flag patterns.
 
@@ -28,34 +32,44 @@ The seeded sample is `SAMPLE_LEASE_ID` (`00000000-0000-0000-0000-000000000020`),
 ## 2. Runtime topology
 
 ```
- ┌─────────────────────────────────────────────────────────────────────┐
- │                            Browser                                  │
- │  app/layout.tsx (server component, html/body, Tailwind)             │
- │  └── app/page.tsx (server) → LeaseLensWorkspaceShell (client)       │
- │       ├── PdfViewer        (react-pdf over pdfjs-dist)              │
- │       ├── ChatUI           (NDJSON stream reader)                   │
- │       └── RedFlagReport    (severity cards + citation chips)        │
- │  └── app/cockpit/page.tsx (server) → CockpitDashboard (panels)      │
- └─────────────────────────────────────────────────────────────────────┘
-                                      │ HTTP / streaming fetch
-                                      ▼
- ┌─────────────────────────────────────────────────────────────────────┐
- │                      Next.js 16 (Node.js runtime)                   │
- │   src/middleware.ts                                                 │
- │      ├─ ensure session cookie (Tenant default)                      │
- │      └─ ensure workspace cookie (sample fallback)                   │
- │   src/app/api/chat/route.ts          POST  ndjson streaming         │
- │   src/app/api/leases/route.ts        POST  multipart PDF upload     │
- │   src/app/api/leases/[id]/route.ts   GET   clauses + draft emails   │
- │   src/app/api/audit/route.ts         GET   role-filtered audit list │
- │   src/app/api/audit/[id]/rollback    POST  idempotent rollback      │
- │   src/app/api/workspaces/route.ts    POST  upload + ingest          │
- │   src/app/api/workspaces/select-sample  POST  cookie swap           │
- │                                                                     │
- │   src/lib/db/index.ts (singleton better-sqlite3 handle, WAL)        │
- │   src/lib/anthropic/client.ts (singleton, env-gated mock)           │
- │   src/lib/rag/embed.ts (lazy Xenova WASM pipeline)                  │
- └─────────────────────────────────────────────────────────────────────┘
+ ┌──────────────────────────────────────────────────────────────────────────┐
+ │                                Browser                                   │
+ │  app/layout.tsx (server component, html/body, Tailwind)                  │
+ │  └── app/page.tsx (server) → WorkspaceRouterShell (client)               │
+ │       ├── ParserLandingShell        (Mode A: hero + dropzone)            │
+ │       └── ParserResultsShell        (Mode B: post-upload workspace)      │
+ │            │  providers (pinned order):                                  │
+ │            │    AssistantFabProvider                                     │
+ │            │      └── LeaseParserProvider                                │
+ │            │           └── ChatStreamProvider                            │
+ │            │                                                             │
+ │            ├── PdfViewer            (react-pdf over pdfjs-dist)          │
+ │            ├── RedFlagReport        (severity cards + citation chips)    │
+ │            ├── ClausesList          (clause rows with Explain action)    │
+ │            ├── AutoScanRunner       (fires standard scan on fresh upload)│
+ │            └── AssistantFab         (floating drawer; lazy-mounts on     │
+ │                                      first open; stays mounted)          │
+ │  └── app/cockpit/page.tsx (server) → CockpitDashboard (panels)           │
+ └──────────────────────────────────────────────────────────────────────────┘
+                                       │ HTTP / streaming fetch
+                                       ▼
+ ┌──────────────────────────────────────────────────────────────────────────┐
+ │                       Next.js 16 (Node.js runtime)                       │
+ │   src/middleware.ts                                                      │
+ │      ├─ ensure session cookie (Tenant default)                           │
+ │      └─ ensure workspace cookie (sample fallback)                        │
+ │   src/app/api/chat/route.ts          POST  ndjson streaming              │
+ │   src/app/api/leases/route.ts        POST  multipart PDF upload          │
+ │   src/app/api/leases/[id]/route.ts   GET   clauses + draft emails        │
+ │   src/app/api/audit/route.ts         GET   role-filtered audit list      │
+ │   src/app/api/audit/[id]/rollback    POST  idempotent rollback           │
+ │   src/app/api/workspaces/route.ts    POST  upload + ingest               │
+ │   src/app/api/workspaces/select-sample POST  cookie swap                 │
+ │                                                                          │
+ │   src/lib/db/index.ts (singleton better-sqlite3 handle, WAL)             │
+ │   src/lib/anthropic/client.ts (singleton, env-gated mock)                │
+ │   src/lib/rag/embed.ts (lazy Xenova WASM pipeline)                       │
+ └──────────────────────────────────────────────────────────────────────────┘
                           │                         │
                           ▼                         ▼
             api.anthropic.com/v1/messages    ./data/leaselens.db
@@ -64,15 +78,33 @@ The seeded sample is `SAMPLE_LEASE_ID` (`00000000-0000-0000-0000-000000000020`),
              default claude-haiku-4-5)
 
  Side process (not part of the Next.js app):
- ┌─────────────────────────────────────────────────────────────────────┐
- │   mcp/leaselens-server.ts (npm run mcp:server)                      │
- │   stdio transport; exposes the same registry via                    │
- │   toolRegistry.execute(...) against the same SQLite file.           │
- │   Hardcoded role=Admin, workspace=sample.                           │
- └─────────────────────────────────────────────────────────────────────┘
+ ┌──────────────────────────────────────────────────────────────────────────┐
+ │   mcp/leaselens-server.ts (npm run mcp:server)                           │
+ │   stdio transport; exposes the same registry via                         │
+ │   toolRegistry.execute(...) against the same SQLite file.                │
+ │   Hardcoded role=Admin, workspace=sample.                                │
+ └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 There is no background worker, no cron, no message queue. Mutations are synchronous. Workspace TTL purge is lazy on the upload route. Embedding pipeline initializes lazily on the first `embedBatch` call. PDF parsing is synchronous on the upload route — the 1 MB / 30-page caps keep this acceptable.
+
+### Provider tree (pinned)
+
+The Mode-B subtree is wrapped in three React contexts in this exact order — do not reorder:
+
+```
+AssistantFabProvider     // drawer state: closed/drawer, pendingPrompt, selection
+  └── LeaseParserProvider   // activeLease, toolEvents, activeClauseId, pdfViewerRef
+       └── ChatStreamProvider  // chat-only: viewerRole, autoScanConversationId
+```
+
+State ownership is enforced by the separation:
+
+- `LeaseParserContext` owns parser state. Hooks: `useLeaseParser()`.
+- `ChatStreamContext` is chat-only. **Parser fields are explicitly excluded.** The exposed-keys boundary is pinned by a Vitest test ([`ChatStreamContext.test.tsx`](../../src/components/chat/ChatStreamContext.test.tsx)) that fails immediately if a parser field is re-added.
+- `AssistantFabContext` owns drawer state, the pending prompt (used by `fab.openWith(...)` to seed the composer on cross-card actions), and the current selection. Hooks: `useAssistantFab()`.
+
+Components must read parser state via `useLeaseParser()`, chat state via `useChatStream()`, FAB state via `useAssistantFab()`. Do not reach across contexts.
 
 ---
 
@@ -83,11 +115,11 @@ There is no background worker, no cron, no message queue. Mutations are synchron
 | Path | Purpose |
 |---|---|
 | [`layout.tsx`](../../src/app/layout.tsx) | Root server layout, html/body, Tailwind import. |
-| [`page.tsx`](../../src/app/page.tsx) | Three-pane workspace home. Server resolves session + workspace + latest conversation, hands payload to `LeaseLensWorkspaceShell`. |
-| [`globals.css`](../../src/app/globals.css) | `@import "tailwindcss"` + minimal base layer. |
-| [`onboarding/`](../../src/app/onboarding/) | Brand-upload wizard (legacy; pre-LeaseLens workspace flow). |
-| [`cockpit/page.tsx`](../../src/app/cockpit/page.tsx) | Operator cockpit. Reviewer+ only; Tenant redirects home. |
-| [`api/chat/route.ts`](../../src/app/api/chat/route.ts) | POST → NDJSON streaming chat with tool-use loop (max 3 iterations). |
+| [`page.tsx`](../../src/app/page.tsx) | Server entry. Resolves session + workspace + latest conversation, rehydrates messages + tool events + active lease snapshot, hands payload to `WorkspaceRouterShell`. |
+| [`globals.css`](../../src/app/globals.css) | `@import "tailwindcss"` + minimal base layer + theme tokens. |
+| [`onboarding/`](../../src/app/onboarding/) | Brand-upload wizard (legacy; pre-LeaseLens workspace flow — not on the parser-first home path). |
+| [`cockpit/page.tsx`](../../src/app/cockpit/page.tsx) | Operator cockpit. Reviewer+ only; Tenant redirects home. Link hidden when `LEASELENS_DEMO_MODE=false`. |
+| [`api/chat/route.ts`](../../src/app/api/chat/route.ts) | POST → NDJSON streaming chat with tool-use loop (max 3 iterations). Sprint 32 forces `tool_choice` on auto-scan and emits a dev-only per-call diagnostic. |
 | [`api/leases/route.ts`](../../src/app/api/leases/route.ts) | POST multipart PDF → parse + segment + classify + insert. Validates against `LEASELENS_LEASE_MAX_BYTES` and `LEASELENS_LEASE_MAX_PAGES`. |
 | [`api/leases/[id]/route.ts`](../../src/app/api/leases/[id]/route.ts) | GET lease + clauses + draft emails (lease-ownership-checked). |
 | [`api/audit/route.ts`](../../src/app/api/audit/route.ts) | GET role-filtered audit log. |
@@ -109,10 +141,11 @@ There is no background worker, no cron, no message queue. Mutations are synchron
 | [`auth/role-labels.ts`](../../src/lib/auth/role-labels.ts) | Single bridge between DB-level role literals and UI/prompt-facing labels. |
 | [`anthropic/client.ts`](../../src/lib/anthropic/client.ts) | Singleton SDK client; swaps in `e2e-mock` when `LEASELENS_E2E_MOCK=1`. |
 | [`anthropic/e2e-mock.ts`](../../src/lib/anthropic/e2e-mock.ts) | Deterministic mock for Playwright runs. Knows the lease toolset. |
-| [`chat/system-prompt.ts`](../../src/lib/chat/system-prompt.ts) | Build role-aware, workspace-aware prompt with RAG context block + LeaseLens disclaimer. |
+| [`chat/system-prompt.ts`](../../src/lib/chat/system-prompt.ts) | Build role-aware, workspace-aware prompt with RAG context block + LeaseLens disclaimer. Sprint 31 disambiguates lease metadata to stop the "scan already done" hallucination. |
 | [`chat/context-window.ts`](../../src/lib/chat/context-window.ts) | Slice conversation history to fit token budget. Sprint 14 hotfix: post-trim drop loop strips messages with leading orphan `tool_result` blocks. |
 | [`chat/conversations.ts`](../../src/lib/chat/conversations.ts) | Workspace-scoped conversation queries. |
 | [`chat/parse-stream-line.ts`](../../src/lib/chat/parse-stream-line.ts) | Client-side NDJSON line parser. |
+| [`chat/rehydrate-history.ts`](../../src/lib/chat/rehydrate-history.ts) | Server-side rebuild of `ChatMessageProps[]` + `ToolEvent[]` from persisted messages — feeds the SSR payload to the router shell. |
 | [`tools/domain.ts`](../../src/lib/tools/domain.ts) | `ToolDescriptor` (with optional async `prepare`), `MutationOutcome`, `ToolExecutionContext`. |
 | [`tools/registry.ts`](../../src/lib/tools/registry.ts) | RBAC dispatch + sync-transaction wrapping for mutating tools. Honours `prepare` outside the transaction. |
 | [`tools/create-registry.ts`](../../src/lib/tools/create-registry.ts) | Wires the 7 tools to the DB handle (4 retained corpus/visualization + 3 new lease). |
@@ -123,10 +156,11 @@ There is no background worker, no cron, no message queue. Mutations are synchron
 | [`lease/parse-pdf.ts`](../../src/lib/lease/parse-pdf.ts) | `parsePdf(buffer)` via `pdfjs-dist`. Returns `{ pageCount, pages: { pageNumber, text }[] }`. Detects empty text layers (`MIN_PAGE_TEXT_CHARS = 30` per page). |
 | [`lease/segment-clauses.ts`](../../src/lib/lease/segment-clauses.ts) | Page-text → clause segments. Splits on `1.` / `(a)` / `ARTICLE I` numbered prefixes. |
 | [`lease/classify-clause.ts`](../../src/lib/lease/classify-clause.ts) | Heuristic classifier → `ClauseType` (security_deposit, late_fee, early_termination, …, unknown). |
-| [`lease/queries.ts`](../../src/lib/lease/queries.ts) | `getLease`, `listClauses`, `listEmailsForLease`, etc. All workspace-scoped. |
+| [`lease/queries.ts`](../../src/lib/lease/queries.ts) | `getLease`, `listClauses`, `listEmailsForLease`, `getActiveLeaseSnapshot`, etc. All workspace-scoped. |
 | [`lease/assert-lease-ownership.ts`](../../src/lib/lease/assert-lease-ownership.ts) | Single helper: Tenant only sees leases where `uploaded_by === ctx.userId`; Reviewer + Admin see all. Called by every lease tool and the `/api/leases/[id]` route guard. |
 | [`lease/resolve-lease-id.ts`](../../src/lib/lease/resolve-lease-id.ts) | Resolve `lease_id` from tool input, falling back to `conversation.active_lease_id` and (chat path only) the most-recent upload. |
-| [`lease/validate-upload.ts`](../../src/lib/lease/validate-upload.ts) | Pure function: `{ ok: true, file } | { ok: false, error }`. Enforces size + page caps. |
+| [`lease/validate-upload.ts`](../../src/lib/lease/validate-upload.ts) | Pure function: `{ ok: true, file } \| { ok: false, error }`. Enforces size + page caps. |
+| [`lease/pdf-binary-repository.ts`](../../src/lib/lease/pdf-binary-repository.ts) | IndexedDB-backed PDF bytes cache. Survives role-switch / cockpit round-trips; evicted on Replace. |
 | [`lease/disclaimer.ts`](../../src/lib/lease/disclaimer.ts) | Single-source `LEASELENS_DISCLAIMER` string. Imported by home, chat empty state, system prompt, and README. |
 | [`rag/embed.ts`](../../src/lib/rag/embed.ts) | Lazy Xenova `all-MiniLM-L6-v2` pipeline; L2-normalized Float32 output. |
 | [`rag/chunk-document.ts`](../../src/lib/rag/chunk-document.ts) | Hierarchical chunking (document / section / passage). |
@@ -153,18 +187,30 @@ There is no background worker, no cron, no message queue. Mutations are synchron
 
 | Path | Purpose |
 |---|---|
-| [`lease/LeaseLensWorkspaceShell.tsx`](../../src/components/lease/LeaseLensWorkspaceShell.tsx) | Top-level three-pane client shell. Owns the active-lease state and bridges the chat → report citation hook. |
+| [`lease/WorkspaceRouterShell.tsx`](../../src/components/lease/WorkspaceRouterShell.tsx) | Sprint 26a — routes between Mode A (no active lease) and Mode B (active lease). Holds the live-active-lease + fresh-upload state so an in-session upload transitions modes without a full page refresh. |
+| [`lease/ParserLandingShell.tsx`](../../src/components/lease/ParserLandingShell.tsx) | Sprint 26a — Mode A. Hero dropzone + sample-lease CTA. |
+| [`lease/ParserResultsShell.tsx`](../../src/components/lease/ParserResultsShell.tsx) | Sprint 26b/26c — Mode B. PDF on the left, results stack on the right, `AssistantFab` bottom-right. Wraps subtree in `AssistantFabProvider` → `LeaseParserProvider` → `ChatStreamProvider`. |
+| [`lease/LeaseParserContext.tsx`](../../src/components/lease/LeaseParserContext.tsx) | Sprint 28.6 — owns parser state (`activeLease`, `toolEvents`, `activeClauseId`, `pdfViewerRef`). Hooks: `useLeaseParser()`. |
 | [`lease/PdfViewer.tsx`](../../src/components/lease/PdfViewer.tsx) | `react-pdf` viewer with scroll-to-page handle for citation chips. |
-| [`lease/RedFlagReport.tsx`](../../src/components/lease/RedFlagReport.tsx) | Severity cards (high/medium/low/ok) with statute chip + reasoning + recommended action. |
+| [`lease/RedFlagReport.tsx`](../../src/components/lease/RedFlagReport.tsx) | Severity cards (high/medium/low/ok) with statute chip + reasoning + recommended action. Card actions open the FAB via `fab.openWith(...)`. |
+| [`lease/RedFlagsPaneHeader.tsx`](../../src/components/lease/RedFlagsPaneHeader.tsx) | Replaces the inline header the legacy three-pane shell used. |
+| [`lease/ClausesList.tsx`](../../src/components/lease/ClausesList.tsx) | Clause rows with "Explain" action; consumes parser state. |
+| [`lease/AutoScanRunner.tsx`](../../src/components/lease/AutoScanRunner.tsx) | Sprint 26c.10 — fires the standard scan automatically on a fresh in-session upload when `LEASELENS_AUTO_SCAN_ENABLED=true`. |
 | [`lease/CitationChip.tsx`](../../src/components/lease/CitationChip.tsx) | Renders a NJ statute citation; clicking scrolls the PdfViewer to the cited clause page. |
 | [`lease/LeaseUploadDropzone.tsx`](../../src/components/lease/LeaseUploadDropzone.tsx) | Drag-and-drop PDF upload affordance. |
-| [`lease/LeaseScanCTA.tsx`](../../src/components/lease/LeaseScanCTA.tsx) | "Run the standard scan" button; sends a templated chat turn. |
-| [`chat/ChatUI.tsx`](../../src/components/chat/ChatUI.tsx) | NDJSON stream reader + message state. |
+| [`lease/LeaseLensWorkspaceShell.tsx`](../../src/components/lease/LeaseLensWorkspaceShell.tsx) | **Dead production code.** Pre-Sprint-26 three-pane shell; only its colocated test imports it, and a handful of code comments reference it as "legacy". Slated for removal. Do not add new dependencies on it. |
+| [`chat/AssistantFab.tsx`](../../src/components/chat/AssistantFab.tsx) | Sprint 26c / 29 — the floating chat drawer. Anchored bottom-right; lazy-mounts on first open, stays mounted thereafter so drafts survive close→reopen. |
+| [`chat/AssistantFabContext.tsx`](../../src/components/chat/AssistantFabContext.tsx) | Drawer state, pending prompt (for `fab.openWith(...)` cross-card actions), and selection. Hooks: `useAssistantFab()`. |
+| [`chat/ChatStreamContext.tsx`](../../src/components/chat/ChatStreamContext.tsx) | Chat-only context — `viewerRole`, `autoScanConversationId`. The exposed-keys boundary is pinned by a Vitest test (do not re-add parser fields here). |
+| [`chat/ChatUI.tsx`](../../src/components/chat/ChatUI.tsx) | NDJSON stream reader + message state. Mounted inside the FAB drawer. |
+| [`chat/ChatTranscript.tsx`](../../src/components/chat/ChatTranscript.tsx) | Per-conversation transcript rendering inside the drawer. |
 | [`chat/ChatMessage.tsx`](../../src/components/chat/ChatMessage.tsx) | Per-turn message renderer. Motion-animated assistant entry; user messages plain. |
 | [`chat/ToolCard.tsx`](../../src/components/chat/ToolCard.tsx) | Tool-result card. Branches to `MermaidDiagram` for the diagram tool; renders Undo for mutating-tool results. |
 | [`chat/MermaidDiagram.tsx`](../../src/components/chat/MermaidDiagram.tsx) | Client-only Mermaid renderer. |
 | [`chat/TypingIndicator.tsx`](../../src/components/chat/TypingIndicator.tsx) | Pre-first-token pulse. |
-| [`auth/RoleSwitcher.tsx`](../../src/components/auth/RoleSwitcher.tsx) | Role swap → updates session cookie. |
+| [`auth/RoleSwitcher.tsx`](../../src/components/auth/RoleSwitcher.tsx) | Role swap → updates session cookie. Demo-mode only. |
+| [`auth/ThemeToggle.tsx`](../../src/components/auth/ThemeToggle.tsx) | system / light / dark cycle. Sprint 30 — uses the View Transitions API with a double-rAF fallback for a smoother flip. |
+| [`brand/LeaseLensMark.tsx`](../../src/components/brand/LeaseLensMark.tsx) | Bespoke document+magnifier mark with a one-shot scan-sweep on mount (Sprint 17.2). |
 | [`cockpit/EvalHealthPanel.tsx`](../../src/components/cockpit/EvalHealthPanel.tsx) | Two-tier eval display (Sprint 14 Phase 12) — Tier 1 + Tier 2 side-by-side, 6-metric grid. |
 | [`cockpit/AuditFeedPanel.tsx`](../../src/components/cockpit/AuditFeedPanel.tsx) | Audit log feed with role-filtered visibility. |
 | [`cockpit/SchedulePanel.tsx`](../../src/components/cockpit/SchedulePanel.tsx) | Drafted negotiation emails. |
@@ -274,7 +320,7 @@ fetch POST /api/chat ────► route.ts:POST
 client reads NDJSON ◄────────┘
 ```
 
-Streaming pattern: NDJSON, one JSON object per line, `Content-Type: application/x-ndjson`. Final assistant message persisted after stream closes. `recordSpend` only runs in demo mode.
+Streaming pattern: NDJSON, one JSON object per line, `Content-Type: application/x-ndjson`. Final assistant message persisted after stream closes. `recordSpend` only runs in demo mode. Sprint 32 forces `tool_choice` on auto-scan turns and emits a dev-only per-call diagnostic line (gated by `NODE_ENV === 'development'`).
 
 ### B. RAG retrieval
 
@@ -319,7 +365,7 @@ POST /api/leases (multipart form)
   └→ return { lease_id, page_count, clause_count }
 ```
 
-The route is synchronous. The 1 MB / 30-page caps keep parse time within the dev-server response window. Empty-text-layer PDFs return 422 with a paste-text-fallback hint (paste-text fallback itself is a Sprint 15 backlog item).
+The route is synchronous. The 1 MB / 30-page caps keep parse time within the dev-server response window. Empty-text-layer PDFs return 422 with a paste-text-fallback hint (paste-text fallback itself is on the backlog, not yet implemented).
 
 ### D. Mutating tool — `draft_negotiation_email` with `prepare`
 
@@ -410,13 +456,13 @@ Tailwind v4, import-only. [`src/app/globals.css`](../../src/app/globals.css) is 
 @import "tailwindcss";
 
 @layer base {
-  /* minimal resets and font defaults */
+  /* minimal resets, font defaults, theme tokens */
 }
 ```
 
-No `tailwind.config.js`. No design-token CSS. No theming layer. All component styling is inline Tailwind utility classes in TSX. Icons are imported from `lucide-react`.
+No `tailwind.config.js`. No external design-token JSON. All component styling is inline Tailwind utility classes in TSX. Icons are imported from `lucide-react`. The editorial brand tokens (cream/terracotta palette, ink-blue citation, Source Serif 4 weight 700) landed in the Sprint 23 series.
 
-The three-pane workspace shell uses `h-dvh + flex-col` so the header takes its natural height and the rest of the viewport is a single `min-h-0` region. Each pane owns its own overflow chain; the page itself never scrolls.
+Sprint 28.13 dropped the "page must not scroll" invariant — the workspace is now a window-scrolled document with a sticky header (`min-h-screen` + `relative` on `<main>`). Mode B (`ParserResultsShell`) uses CSS grid for the two-column PDF / results layout; the FAB drawer is `position: fixed` anchored bottom-right. `prefers-reduced-motion` is honoured at every animation site via conditional render (not `transition: { duration: 0 }`).
 
 ---
 
@@ -424,19 +470,20 @@ The three-pane workspace shell uses `h-dvh + flex-col` so the header takes its n
 
 | Layer | Tool | Scope |
 |---|---|---|
-| Pure functions | Vitest | `chunk-document`, `bm25`, `parse-stream-line`, `context-window`, `scoring`, `parse-pdf`, `segment-clauses`, `classify-clause`, `validate-upload`, `embed` (mocked pipeline). |
+| Pure functions | Vitest | `chunk-document`, `bm25`, `parse-stream-line`, `context-window`, `scoring`, `parse-pdf`, `segment-clauses`, `classify-clause`, `validate-upload`, `embed` (mocked pipeline), `use-scan-progress`, `scan-lifecycle`, `grading`. |
 | DB / queries | Vitest, in-memory SQLite | `db/schema`, `db/spend`, `db/rate-limit`, `workspaces/queries`, `workspaces/cleanup`, `cockpit/queries`, `lease/queries`. |
 | Tool registry | Vitest | RBAC dispatch, mutating-vs-read paths, audit transaction wrapping, `prepare` step ordering. |
 | Lease tools | Vitest | `extract_clauses`, `grade_clause_severity` (citation-grounding validators), `draft_negotiation_email` (prepare + transaction + rollback). |
 | Route handlers | Vitest (`*.integration.test.ts`) | `POST /api/chat` streaming, `POST /api/leases` upload happy path + 422 no-text-layer, `GET /api/leases/[id]` ownership, `GET /api/audit`, `POST /api/audit/[id]/rollback`. |
-| UI components | Vitest + happy-dom | `LeaseLensWorkspaceShell`, `PdfViewer`, `RedFlagReport`, `CitationChip`, `LeaseUploadDropzone`, `LeaseScanCTA`, `ChatUI`, `ChatMessage`, `ToolCard`, `MermaidDiagram`, cockpit panels. |
+| UI components | Vitest + happy-dom | `WorkspaceRouterShell`, `ParserLandingShell`, `ParserResultsShell`, `PdfViewer`, `RedFlagReport`, `ClausesList`, `AutoScanRunner`, `CitationChip`, `LeaseUploadDropzone`, `AssistantFab`, `ChatTranscript`, `ChatMessage`, `ToolCard`, `MermaidDiagram`, cockpit panels. |
+| Context boundary | Vitest | [`ChatStreamContext.test.tsx`](../../src/components/chat/ChatStreamContext.test.tsx) pins the exposed-keys invariant — fails immediately if parser fields are re-added to `ChatStreamContext`. |
 | Server pages | Vitest + happy-dom | `app/page.test.tsx`, `app/cockpit/page.test.tsx`. Asserts redirect, role gate, payload shape. |
 | End-to-end | Playwright | `tests/e2e/*.spec.ts`. Real browser, real Next.js server, mocked Anthropic via `LEASELENS_E2E_MOCK=1`. |
-| Tier 1 eval | Custom harness | `npm run eval:golden` runs 12 NJ tenant-law retrieval cases against the seeded corpus. Hermetic (no network). Baseline at [`data/eval-reports/baseline-sprint-14.json`](../../data/eval-reports/baseline-sprint-14.json) — 10/12 pass at 40.4 / 48 pts. |
+| Tier 1 eval | Custom harness | `npm run eval:golden` runs 12 NJ tenant-law retrieval cases against the seeded corpus. Hermetic (no network). |
 | Tier 2 eval | Custom harness | `npm run eval:leases` drives `grade_clause_severity` against 12 curated lease clauses; calls Anthropic. |
 | MCP contract | Vitest | `mcp/leaselens-server.test.ts` — registry parity with chat route. |
 
-**Counts as of 2026-05-08 (post-Sprint 14):** 506/506 tests passing across roughly 70 files, lint 0 errors, typecheck green. Sprint 14 added the Tier 2 runner + 12 lease cases + 3 hermetic tests, the cockpit two-tier display, and 17 lint fixes.
+Provider-aware UI tests use the shared `withChatStream` helper in [`src/components/chat/test-helpers.tsx`](../../src/components/chat/test-helpers.tsx), which wraps in all three providers in the pinned order. Direct mounts of `ChatStreamProvider` must also wrap with `LeaseParserProvider` + `AssistantFabProvider` if the component-under-test uses those hooks. `window.confirm` is not implemented in happy-dom — stub via `vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))`.
 
 In-memory SQLite ([`src/lib/test/db.ts`](../../src/lib/test/db.ts)) is the standard test fixture. Real-DB tests are limited to `mcp/leaselens-server.test.ts` and `src/lib/tools/corpus-tools.test.ts`, which assume `./data/leaselens.db` is seeded.
 
@@ -458,7 +505,7 @@ In-memory SQLite ([`src/lib/test/db.ts`](../../src/lib/test/db.ts)) is the stand
 
 7. **Lease ownership is a separate axis from RBAC.** A Tenant *can* see the `extract_clauses` tool in their manifest, but `assertLeaseOwnership` rejects calls on leases the Tenant did not upload. Reviewer + Admin bypass the check. One helper, called by every lease tool and the route guard.
 
-8. **Embeddings as BLOB on the row, not a separate vector index.** 28 corpus documents, ~120 chunks; in-app dot-product is fast enough. No external vector DB to operate.
+8. **Embeddings as BLOB on the row, not a separate vector index.** ~28 corpus documents, ~120 chunks; in-app dot-product is fast enough. No external vector DB to operate.
 
 9. **Hybrid retrieval via RRF.** Vector catches semantic phrasing, BM25 catches statute-string matches ("46:8-21.2"). RRF merges ranks without tuning weights.
 
@@ -474,21 +521,23 @@ In-memory SQLite ([`src/lib/test/db.ts`](../../src/lib/test/db.ts)) is the stand
 
 15. **Tool registry is the single mutation entry point.** MCP server and chat route both call `toolRegistry.execute`. There is no second code path that mutates `negotiation_emails`, `audit_log`, or any other table.
 
-16. **Tier 1 + Tier 2 evals run on different cadences.** Tier 1 is hermetic (no LLM calls) and cheap — safe to run on every PR. Tier 2 calls Anthropic and must be gated on the daily spend ceiling; today it's a manual `npm run eval:leases`. A GitHub Actions workflow with `workflow_dispatch` for Tier 2 is captured for Sprint 16.
+16. **Tier 1 + Tier 2 evals run on different cadences.** Tier 1 is hermetic (no LLM calls) and cheap — safe to run on every PR. Tier 2 calls Anthropic and must be gated on the daily spend ceiling; today it's a manual `npm run eval:leases`.
 
 17. **Diagrams render client-side, not server-side.** Inherited from Sprint 12. The `mermaid` bundle is dynamic-imported; the cost is paid only on first render.
 
-18. **Motion is scoped to three surfaces.** `MermaidDiagram` first-paint, `ChatMessage` assistant entry, `ToolCard` expand/collapse. `useReducedMotion()` is honoured via *conditional render*, not via `transition: { duration: 0 }`. The `data-motion="on"|"off"` attribute is the test hook.
+18. **Motion is scoped and reduced-motion-respecting.** `MermaidDiagram` first-paint, `ChatMessage` assistant entry, `ToolCard` expand/collapse, theme-flip (Sprint 30, View Transitions API with double-rAF fallback). `useReducedMotion()` is honoured via *conditional render*, not via `transition: { duration: 0 }`. The `data-motion="on"|"off"` attribute is the test hook.
 
 19. **Role labels vs role literals.** Charter v1.13 renamed Creator/Editor/Admin to Tenant/Reviewer/Admin in all UI and prompt surfaces, but the DB literals stay Creator/Editor/Admin so the schema, session JWT payload, and demo-user seed don't churn. [`auth/role-labels.ts`](../../src/lib/auth/role-labels.ts) is the only bridge.
 
 20. **Disclaimer is a compile-time constant.** `LEASELENS_DISCLAIMER` in [`lease/disclaimer.ts`](../../src/lib/lease/disclaimer.ts) is imported by the home page, chat empty state, system prompt, and README so the wording cannot drift across surfaces. (§2.8 invariant from the Sprint 13 spec.)
 
+21. **Parser-first, assistant-second.** (Sprint 26 pivot.) The PDF viewer + red flags + clauses list are the load-bearing UI; chat is a floating drawer that lazy-mounts on first open and stays mounted. State ownership is split across three contexts in a pinned order (`AssistantFabProvider` → `LeaseParserProvider` → `ChatStreamProvider`) so chat actions cannot accidentally clear parser state. "Clear assistant chat" resets the chat thread only — the lease, clauses, and red flags survive by construction.
+
 ---
 
 ## 9. Deployment shape
 
-**Intended target:** Vercel (Sprint 16 will exercise this; not yet deployed).
+**Intended target:** Vercel. Local dev + demo is the primary surface today; no public deployment yet.
 
 `next.config.ts` is Vercel-aware:
 - `serverExternalPackages: ['better-sqlite3']` — keeps the native module on the Node runtime.
@@ -499,52 +548,50 @@ In-memory SQLite ([`src/lib/test/db.ts`](../../src/lib/test/db.ts)) is the stand
 | Var | Purpose |
 |---|---|
 | `LEASELENS_DB_PATH` | Path to the SQLite file. Default `./data/leaselens.db`. |
-| `LEASELENS_DEMO_MODE` | `true` engages rate limit + spend ceiling. |
+| `LEASELENS_DEMO_MODE` | `true` engages rate limit + spend ceiling. Also gates the Cockpit link + RoleSwitcher. |
 | `LEASELENS_ANTHROPIC_MODEL` | Model pin. Default `claude-haiku-4-5`. |
 | `LEASELENS_DAILY_SPEND_CEILING_USD` | Default `2`. Demo only. |
 | `LEASELENS_SESSION_SECRET` | ≥32-char HS256 secret. Used for both session and workspace cookies. |
 | `LEASELENS_LEASE_MAX_BYTES` | Default `1048576` (1 MB). |
 | `LEASELENS_LEASE_MAX_PAGES` | Default `30`. |
+| `LEASELENS_AUTO_SCAN_ENABLED` | When `true`, `AutoScanRunner` fires the standard scan on fresh in-session uploads. |
 | `ANTHROPIC_API_KEY` | Required for real API calls. Tier 2 eval and prod both need a real key. |
 | `LEASELENS_E2E_MOCK` | When `1`, swaps in the deterministic Anthropic mock. Set by Playwright's `webServer.env`. |
 
+All env vars are declared in [`src/lib/env.ts`](../../src/lib/env.ts) (Zod schema) and mirrored in `.env.example`.
+
 **Build:**
-- `npm run build` → `next build`. `prebuild` runs `copy-pdf-worker` + `seed-if-empty`.
+- `npm run build` → `next build`. `predev` runs `copy-pdf-worker` + `seed-if-empty`.
 - Tailwind v4 is processed by PostCSS via `@tailwindcss/postcss`.
 
 **Runtime:**
 - `npm run start` → `next start`.
 - MCP server (`npm run mcp:server`) runs separately; not deployed with the web app today.
 
-**Not yet wired (Sprint 16):**
-- Vercel env-var rename in dashboard (`CONTENTOPS_*` → `LEASELENS_*` is done in code; deployed envs need to be updated when the project is created).
-- 90-second Loom recording embedded in README.
-- Optional GitHub Actions `eval.yml` (Tier 1 on PR, Tier 2 on `workflow_dispatch`).
-
 ---
 
 ## 10. Known risks
 
-1. **Vector-only retrieval can miss exact-statute citations.** RRF with BM25 mitigates partly, but for queries that should match a specific `46:8-21.2`-style citation, FTS5 would tighten the rank. Sprint 14 baseline — 10/12 pass — is partly bottlenecked here on Precision@K for a couple of cases.
+1. **Vector-only retrieval can miss exact-statute citations.** RRF with BM25 mitigates partly, but for queries that should match a specific `46:8-21.2`-style citation, FTS5 would tighten the rank.
 
 2. **Demo-mode guardrails apply only to the chat endpoint.** Rate limit and spend ceiling guard `POST /api/chat`. The lease-upload endpoint has the per-file size + page caps but no per-session rate limit; a flood of large PDFs could fill disk. Acceptable for an internal demo, not for an exposed public deploy.
 
-3. **Auth is demo cookies, not real auth.** Three hardcoded users with stable IDs; the role switcher is cosmetic state in a JWT. If publicly exposed without a real auth layer, anyone can switch to Admin.
+3. **Auth is demo cookies, not real auth.** Three hardcoded users with stable IDs; the role switcher is cosmetic state in a JWT. If publicly exposed without a real auth layer, anyone can switch to Admin. The `LEASELENS_DEMO_MODE=false` mode hides the switcher and the Cockpit link, but does not introduce real auth.
 
 4. **Single SQLite file with no backup automation.** A filesystem failure on the deploy target loses all workspaces, leases, and audit trail.
 
 5. **Embedding model auto-downloads on first use.** Xenova's WASM pipeline fetches the model on first `embedBatch`. Cold-start serverless platforms can be slow on the first request after deploy.
 
-6. **MCP server is hardcoded to the sample workspace.** Multi-workspace MCP is post-Sprint-13.
+6. **MCP server is hardcoded to the sample workspace.** Multi-workspace MCP is on the backlog.
 
-7. **Scanned-PDF fallback is missing.** A scanned-image lease (no text layer) returns 422 with `error: 'pdf_no_text_layer'`. The paste-text fallback that closes the loop is captured in the Sprint 15 backlog but not yet implemented.
+7. **Scanned-PDF fallback is missing.** A scanned-image lease (no text layer) returns 422 with `error: 'pdf_no_text_layer'`. The paste-text fallback that closes the loop is on the backlog.
 
-8. **Cross-file dev-DB integration test isolation.** Three tests pass in isolation but flake when the full suite runs against a shared dev DB. Captured in `impl-qa.md`'s Sprint 15 backlog.
+8. **Legacy `content_calendar` / `approvals` tables linger in the schema.** They carry no rows post-Sprint-13 but the DDL remains. A schema cleanup migration is not yet scheduled.
 
-9. **Legacy `content_calendar` / `approvals` tables linger in the schema.** They carry no rows post-Sprint-13 but the DDL remains. A schema cleanup migration is not yet scheduled.
+9. **`LeaseLensWorkspaceShell` lives on as dead code.** Only its colocated test imports it; the workspace is fully on `WorkspaceRouterShell` → `ParserLandingShell` / `ParserResultsShell`. Slated for removal — do not add new dependencies on it.
 
 ---
 
 **End of architecture snapshot.**
 
-This document is dated 2026-05-08 and pinned to the post-Sprint-14 codebase. Refresh discipline: update this file at every sprint boundary, in the same commit as the sprint's documentation amendments. If any section here drifts from the code, the code is the source of truth — fix the doc.
+This document is dated 2026-05-29 and pinned to the post-Sprint-33 codebase. Refresh discipline: update this file at every sprint boundary, in the same commit as the sprint's documentation amendments. If any section here drifts from the code, the code is the source of truth — fix the doc.

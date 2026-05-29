@@ -69,6 +69,7 @@ async function makeSessionRequest(
   message: string,
   userId = TEST_USER_ID,
   conversationId: string | null = null,
+  extraBody: Record<string, unknown> = {},
 ) {
   const token = await encrypt({
     userId,
@@ -77,7 +78,7 @@ async function makeSessionRequest(
   });
   const req = new NextRequest(new URL('/api/chat', BASE_URL), {
     method: 'POST',
-    body: JSON.stringify({ message, conversationId }),
+    body: JSON.stringify({ message, conversationId, ...extraBody }),
   });
   req.cookies.set('leaselens_session', token);
   // Sprint 11 — chat route requires a workspace cookie. Default to sample.
@@ -161,6 +162,92 @@ describe('Chat API Persistence Integration', () => {
     expect(messages[1].content).toBe('Test assistant response');
     expect(messages[1].tokens_in).toBe(10);
     expect(messages[1].tokens_out).toBe(5);
+  });
+});
+
+// Sprint 32.1 — when the request body sets forceScan:true, the FIRST
+// iteration of the agentic loop must call Anthropic with
+// tool_choice:{type:'any'} so the model cannot return a text-only
+// hallucinated "scan complete" reply (Sprint 32.0 confirmed that's
+// what was breaking the auto-scan UX). When forceScan is omitted or
+// false, the request remains tool_choice-agnostic (the default 'auto')
+// so regular FAB chat behaviour is unchanged.
+describe('Chat API force-tool (Sprint 32.1)', () => {
+  beforeEach(() => {
+    db.prepare('DELETE FROM messages').run();
+    db.prepare('DELETE FROM conversations').run();
+    db.prepare('DELETE FROM users').run();
+    db.prepare('DELETE FROM rate_limit').run();
+    db.prepare('DELETE FROM spend_log').run();
+
+    db.prepare(
+      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, ?, ?, 1, ?, NULL)`,
+    ).run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      0,
+    );
+
+    process.env.LEASELENS_SESSION_SECRET =
+      'a-very-long-test-secret-that-is-at-least-32-chars';
+    process.env._TEST_DEMO_MODE = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env._TEST_DEMO_MODE;
+  });
+
+  it('passes tool_choice:{type:"any"} to Anthropic on iteration 1 when forceScan=true', async () => {
+    const { getAnthropicClient } = await import('@/lib/anthropic/client');
+    // Cast through `unknown` because Anthropic's `create` has overloaded
+    // signatures that confuse `vi.mocked()`; the runtime mock is a plain
+    // vi.fn() (set up via vi.mock above), so the cast is safe.
+    const createMock = getAnthropicClient().messages
+      .create as unknown as ReturnType<typeof vi.fn>;
+    createMock.mockClear();
+
+    const req = await makeSessionRequest(
+      'Run the standard scan',
+      TEST_USER_ID,
+      null,
+      { forceScan: true },
+    );
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    await drainStream(res);
+
+    expect(createMock).toHaveBeenCalled();
+    const firstCallArgs = createMock.mock.calls[0]?.[0] as
+      | { tool_choice?: { type: string } }
+      | undefined;
+    expect(firstCallArgs?.tool_choice).toEqual({ type: 'any' });
+  });
+
+  it('does NOT pass tool_choice when forceScan is omitted (regular chat unchanged)', async () => {
+    const { getAnthropicClient } = await import('@/lib/anthropic/client');
+    // Cast through `unknown` because Anthropic's `create` has overloaded
+    // signatures that confuse `vi.mocked()`; the runtime mock is a plain
+    // vi.fn() (set up via vi.mock above), so the cast is safe.
+    const createMock = getAnthropicClient().messages
+      .create as unknown as ReturnType<typeof vi.fn>;
+    createMock.mockClear();
+
+    const req = await makeSessionRequest('Hello');
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    await drainStream(res);
+
+    expect(createMock).toHaveBeenCalled();
+    const firstCallArgs = createMock.mock.calls[0]?.[0] as
+      | { tool_choice?: { type: string } }
+      | undefined;
+    expect(firstCallArgs?.tool_choice).toBeUndefined();
   });
 });
 

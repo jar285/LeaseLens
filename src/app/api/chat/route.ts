@@ -36,6 +36,13 @@ export const runtime = 'nodejs';
 const chatRequestBodySchema = z.object({
   message: z.string().min(1),
   conversationId: z.string().nullable().optional(),
+  // Sprint 32.1 — when true, the route applies Anthropic
+  // tool_choice:{type:'any'} on the FIRST iteration so the model
+  // cannot return a text-only hallucinated "scan complete" reply
+  // instead of calling extract_clauses. Subsequent iterations use
+  // the default 'auto' so the model can stop when grading is done.
+  // Set by AutoScanRunner; regular FAB chat omits it.
+  forceScan: z.boolean().optional(),
 });
 
 const SPEND_CEILING_MESSAGE =
@@ -165,7 +172,7 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    const { message, conversationId } = parsedBody.data;
+    const { message, conversationId, forceScan } = parsedBody.data;
 
     // Resolve userId and role from session cookie; fall back to default Creator
     const sessionCookie = req.cookies.get('leaselens_session');
@@ -406,6 +413,10 @@ export async function POST(req: NextRequest) {
         let tokensIn = 0;
         let tokensOut = 0;
         let hasMoreIterations = true;
+        // Sprint 32.0 — dev-only counter to diagnose "hallucinated scan" failures
+        // where the model returns a text summary without ever calling tools.
+        // Logged after the agentic loop ends; gated on NODE_ENV !== 'production'.
+        let toolUseCount = 0;
 
         try {
           while (hasMoreIterations && iterations < MAX_TOOL_ITERATIONS) {
@@ -490,6 +501,7 @@ export async function POST(req: NextRequest) {
               ) {
                 // Execute tools and continue loop
                 for (const toolUse of toolUseBlocks) {
+                  toolUseCount += 1;
                   await executeToolAndPersist(
                     toolUse,
                     resolvedConversationId,
@@ -508,6 +520,16 @@ export async function POST(req: NextRequest) {
               hasMoreIterations = false;
             } else {
               // Non-streaming for tool-use iterations
+              //
+              // Sprint 32.1 — when the client sets forceScan:true (auto-scan
+              // path), require the model to call at least one tool on the
+              // FIRST iteration. Without this, the model occasionally
+              // hallucinates a "scan complete" text reply and never calls
+              // extract_clauses (Sprint 32.0 diagnostic: tool_use_count=0).
+              // Apply only on iteration 1 — once any tool has run, let the
+              // model decide whether to call more or finish.
+              const forceToolOnFirstIteration =
+                forceScan === true && iterations === 1;
               const response = await getAnthropicClient().messages.create({
                 model: env.LEASELENS_ANTHROPIC_MODEL,
                 system: systemForRequest,
@@ -518,6 +540,9 @@ export async function POST(req: NextRequest) {
                 messages: contextMessages as MessageParam[],
                 max_tokens: MAX_OUTPUT_TOKENS,
                 tools: toolsForRequest as Tool[] | undefined,
+                ...(forceToolOnFirstIteration
+                  ? { tool_choice: { type: 'any' as const } }
+                  : {}),
               });
 
               tokensIn += response.usage.input_tokens;
@@ -541,6 +566,7 @@ export async function POST(req: NextRequest) {
               if (toolUseBlocks.length > 0) {
                 // Execute tools and continue loop
                 for (const toolUse of toolUseBlocks) {
+                  toolUseCount += 1;
                   await executeToolAndPersist(
                     toolUse,
                     resolvedConversationId,
@@ -567,6 +593,26 @@ export async function POST(req: NextRequest) {
               }
               hasMoreIterations = false;
             }
+          }
+
+          // Sprint 32.0 — dev-only diagnostic. Prints once per /api/chat turn
+          // so we can see whether the model called tools or hallucinated a
+          // text-only summary. The "look for: tool_use=0" pattern is the
+          // hallucination signature (AutoScanRunner stream landed zero
+          // tool_result events; right pane stays empty even though the
+          // chat got a summary). Never ships to prod.
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(
+              '[chat-diag s32.0]',
+              JSON.stringify({
+                conversation_id: resolvedConversationId,
+                iterations,
+                tool_use_count: toolUseCount,
+                final_text_length: finalResponse.length,
+                final_text_head: finalResponse.slice(0, 200),
+                user_message_head: message.slice(0, 120),
+              }),
+            );
           }
 
           // Persist final assistant message
@@ -666,6 +712,26 @@ async function executeToolAndPersist(
   } catch (err) {
     toolError = err instanceof Error ? err.message : 'Tool execution failed';
     toolResult = { error: toolError };
+  }
+
+  // Sprint 32.2.0 — dev-only per-tool-call diagnostic. Disambiguates
+  // Theory A (server-side grading errors) from Theory B (stale clause_id
+  // mismatch from prior conversation history). One line per executed
+  // tool; grep for `[chat-diag s32.2]`. NODE_ENV-gated.
+  if (process.env.NODE_ENV !== 'production') {
+    const r = (toolResult ?? {}) as Record<string, unknown>;
+    const i = (toolUse.input ?? {}) as Record<string, unknown>;
+    console.log(
+      '[chat-diag s32.2]',
+      JSON.stringify({
+        tool_name: toolUse.name,
+        input_clause_id: typeof i.clause_id === 'string' ? i.clause_id : null,
+        result_clause_id: typeof r.clause_id === 'string' ? r.clause_id : null,
+        result_severity: typeof r.severity === 'string' ? r.severity : null,
+        result_has_error: toolError !== undefined,
+        error_msg_head: toolError ? toolError.slice(0, 100) : null,
+      }),
+    );
   }
 
   // Emit tool_result event. audit_id and compensating_available are

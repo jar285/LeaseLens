@@ -125,6 +125,11 @@ export function AutoScanRunner({
           body: JSON.stringify({
             message: STANDARD_SCAN_PROMPT,
             conversationId,
+            // Sprint 32.1 — force Anthropic tool_choice:{type:'any'} on
+            // iteration 1 server-side so the model cannot return a
+            // text-only hallucinated "scan complete" reply (Sprint 32.0
+            // diagnostic confirmed tool_use_count=0 on the broken path).
+            forceScan: true,
           }),
           // No AbortController signal — we want the stream to run to
           // completion even if the React effect's cleanup fires from

@@ -120,8 +120,15 @@ describe('AutoScanRunner', () => {
     const body = JSON.parse(String(init.body)) as {
       message?: string;
       conversationId?: string | null;
+      forceScan?: boolean;
     };
     expect(body.message).toBe(STANDARD_SCAN_PROMPT);
+    // Sprint 32.1 — auto-scan MUST send forceScan:true so the chat route
+    // applies Anthropic tool_choice:'any' on iteration 1. This is what
+    // stops the model from hallucinating a "scan complete" text reply
+    // instead of actually calling extract_clauses (Sprint 32.0 diagnostic
+    // confirmed tool_use_count=0 on the broken path).
+    expect(body.forceScan).toBe(true);
   });
 
   it('does NOT fire when enabled=false', async () => {

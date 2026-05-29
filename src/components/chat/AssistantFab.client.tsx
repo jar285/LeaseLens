@@ -83,55 +83,43 @@ const ONBOARDING_CHIPS: Chip[] = [
     enabled: () => true,
   },
 ];
-const MID_SCAN_CHIPS: Chip[] = [
+// Sprint 33.A — scan-agnostic Q&A chip set. The prior Sprint 29.4
+// three-way split (onboarding / mid-scan / review-ready) is retired:
+// the chat is no longer narrating the scan, so the chip set is the
+// same whether the scan is mid-flight or complete. All four chips
+// are gated on `hasGradings` because every prompt references "the
+// highest-severity finding" or similar — they don't make sense
+// before any grading has landed. The chip strip reads as disabled
+// during mid-scan, which matches the empty-state-subhead "Ask about
+// any clause, citation, finding…" affordance.
+const QA_CHIPS: Chip[] = [
   {
-    id: 'what-checking',
-    label: 'What is it checking?',
+    id: 'explain-top-finding',
+    label: 'Explain the highest-risk clause',
     prompt:
-      'What is LeaseLens currently checking in my lease? What clause types and statutes?',
-    enabled: () => true,
-  },
-  {
-    id: 'how-read-flags',
-    label: 'How should I read red flags?',
-    prompt:
-      'How should I read the red flags once they appear? What does each severity (high / medium / low / ok) mean?',
-    enabled: () => true,
-  },
-  {
-    id: 'after-scanning',
-    label: 'What happens after scanning?',
-    prompt:
-      "After the scan finishes, what can I do next? What's the best workflow for reviewing the red flags?",
-    enabled: () => true,
-  },
-];
-const REVIEW_READY_CHIPS: Chip[] = [
-  {
-    id: 'explain-clause',
-    label: 'Explain this clause',
-    prompt:
-      "Explain the highest-risk concern with the clause I'm looking at and cite the supporting NJ statute verbatim.",
-    enabled: (c) => c.hasActiveClause,
-  },
-  {
-    id: 'draft-email',
-    label: 'Draft a negotiation email',
-    prompt:
-      'Draft a polite negotiation email to the landlord about the most concerning clause.',
+      "Walk me through the highest-severity finding in the current lease in plain English — what's the risk and what should I do about it?",
     enabled: (c) => c.hasGradings,
   },
   {
-    id: 'summarize-risks',
-    label: 'Summarize lease risks',
-    prompt: 'Summarize the red flags in this lease in plain English.',
+    id: 'draft-biggest-concern-email',
+    label: 'Draft an email about my biggest concern',
+    prompt:
+      'Draft a polite negotiation email to my landlord about the highest-severity finding.',
     enabled: (c) => c.hasGradings,
   },
   {
-    id: 'understand-citation',
-    label: 'Help me understand a citation',
-    prompt: 'How do I read an NJ statute citation like NJ Stat 46:8-19?',
-    enabled: () => true,
+    id: 'compare-to-nj-law',
+    label: 'Compare to NJ law',
+    prompt:
+      'For the highest-severity finding, use search_corpus and show what NJ law says vs what the lease says.',
+    enabled: (c) => c.hasGradings,
+  },
+  {
+    id: 'what-to-fix-first',
+    label: 'What should I fix first?',
+    prompt:
+      'Rank the findings by what I should push back on first, given both severity and how realistic it is to get the landlord to agree.',
+    enabled: (c) => c.hasGradings,
   },
 ];
 
@@ -212,17 +200,15 @@ export function AssistantFabClient({
   //   - lease, review_ready → original four post-scan chips
   // The empty-state heading stays "LeaseLens Assistant" across all
   // three; only the subhead changes to mirror the chip set.
+  // Sprint 33.A — chip + subhead binary choice (onboarding vs Q&A),
+  // not lifecycle-driven. The chat is no longer narrating the scan
+  // (the right pane owns that). `isReviewReady` is still used by the
+  // pill label below, but it no longer gates the chip set.
   const isReviewReady = lifecycle.stage === 'review_ready';
-  const chips: Chip[] = !parser.activeLease
-    ? ONBOARDING_CHIPS
-    : isReviewReady
-      ? REVIEW_READY_CHIPS
-      : MID_SCAN_CHIPS;
+  const chips: Chip[] = !parser.activeLease ? ONBOARDING_CHIPS : QA_CHIPS;
   const emptyStateSubhead = !parser.activeLease
     ? 'No lease attached yet. Upload a lease to get clause-specific explanations, red-flag summaries, and negotiation help.'
-    : isReviewReady
-      ? 'Ask about this lease, a clause, a red flag, or a citation.'
-      : 'Scanning your lease… You can ask general questions now, but clause-specific answers will be better once the scan is complete.';
+    : 'Ask about any clause, citation, finding, or what to negotiate.';
 
   // Sprint 29.6 — FAB pill state label (lg+). Same three-way split
   // as the chip set / empty-state subhead so the user sees a

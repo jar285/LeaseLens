@@ -259,11 +259,17 @@ describe('buildSystemPrompt', () => {
     });
   });
 
-  // Sprint 23f Phase 4 — scan-complete summary uses a markdown table
-  // with deterministic columns. Without this prescription the model
-  // drifted between table and bulleted-list formats across runs.
-  describe('Sprint 23f Phase 4 — scan-complete summary table format', () => {
-    it('prescribes a markdown table with the canonical column set', () => {
+  // Sprint 33.A — post-scan summary trim. The Sprint 23f Phase 4 markdown
+  // table prescription was retired because the model occasionally
+  // fabricated findings to fill the table, producing chat content that
+  // disagreed with the (correct) right-pane cards. The new contract:
+  //   - The assistant text on the auto-scan turn is ONE concise sentence.
+  //   - The model MUST NOT produce a markdown table, bulleted list of
+  //     findings, or any multi-row summary of the gradings.
+  //   - The cards are the deliverable; the chat acknowledges + invites
+  //     a follow-up.
+  describe('Sprint 33.A — scan-complete summary trim', () => {
+    it('does NOT prescribe a markdown table for the post-scan summary', () => {
       const prompt = buildSystemPrompt({
         role: 'Tenant',
         activeLease: {
@@ -273,13 +279,16 @@ describe('buildSystemPrompt', () => {
           clause_count: 15,
         },
       });
-      // The four-column header (or close paraphrase) must be present
-      // so the model has a concrete template.
-      expect(prompt).toMatch(/markdown\s+table/i);
-      expect(prompt).toMatch(/#\s*\|\s*Clause\s*\|\s*Issue\s*\|\s*Statute/i);
+      // The exact 4-column-header pattern from Sprint 23f Phase 4 must
+      // be gone. (Other "markdown table" mentions in the prompt could
+      // still legitimately exist for non-scan flows, so we pin the
+      // canonical header pattern rather than the loose word "table".)
+      expect(prompt).not.toMatch(
+        /#\s*\|\s*Clause\s*\|\s*Issue\s*\|\s*Statute/i,
+      );
     });
 
-    it('describes the sort order (severity then clause_index)', () => {
+    it('explicitly forbids a multi-row findings format on the auto-scan turn', () => {
       const prompt = buildSystemPrompt({
         role: 'Tenant',
         activeLease: {
@@ -289,11 +298,12 @@ describe('buildSystemPrompt', () => {
           clause_count: 15,
         },
       });
-      expect(prompt).toMatch(/sorted by severity/i);
-      expect(prompt).toMatch(/clause_index|clause index/i);
+      // Pin a literal anchor phrase from the new instruction so future
+      // edits can't accidentally water it down.
+      expect(prompt).toContain('MUST NOT reproduce the findings');
     });
 
-    it('requires OK + Ungraded lines and a Next steps bulleted block under the table', () => {
+    it('tells the model the assistant text is ONE short sentence pointing at the cards', () => {
       const prompt = buildSystemPrompt({
         role: 'Tenant',
         activeLease: {
@@ -303,9 +313,8 @@ describe('buildSystemPrompt', () => {
           clause_count: 15,
         },
       });
-      expect(prompt).toMatch(/\bOK\b/);
-      expect(prompt).toMatch(/Ungraded/i);
-      expect(prompt).toMatch(/Next steps/i);
+      expect(prompt).toMatch(/single short sentence|one short sentence/i);
+      expect(prompt).toMatch(/(see|on) the (findings|right)/i);
     });
   });
 

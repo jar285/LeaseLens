@@ -156,8 +156,15 @@ export function buildSystemPrompt(
   // 4-column markdown table, vs. a flat bulleted list) across runs.
   // The table reads as a scannable risk register; pin it as the
   // canonical shape so the post-scan summary feels consistent.
+  // Sprint 33.A — retired the Sprint 23f Phase 4 markdown-table
+  // prescription. Live evidence (the 2026-05-29 reproduction) showed
+  // the model fabricating findings to fill the table format on a
+  // clean lease whose actual gradings were 1 LOW + 10 OK. The chat
+  // text claimed 10 HIGH-severity violations the tool results did not
+  // support — pure hallucination filling a prescribed format. New
+  // contract: the cards are the canonical surface; the chat is Q&A.
   const scanCompleteSummarySection =
-    "After completing a full lease scan (extract_clauses + grade_clause_severity for every clause), the right-pane RedFlagReport already shows each red flag as a card. Your assistant text MUST produce the post-scan summary as a markdown TABLE with the columns `# | Clause | Issue | Statute / Authority`, one row per HIGH and MEDIUM severity grading sorted by severity (high first) then by clause_index. Below the table: an `OK` line listing any severity='ok' clauses, an `Ungraded` line listing any clauses that errored during grading, and a brief `Next steps` bulleted list (3-5 items) ending with the verbatim disclaimer in **bold markdown**. Do NOT replace the table with a flat bulleted list of red flags — the table is the scannable risk register the user expects.";
+    "After completing the auto-scan tool loop (extract_clauses + grade_clause_severity for every clause), the right-pane RedFlagReport already shows every graded clause as a card AND the client UI shows a deterministic 'Scan complete — N findings on the right' receipt line. You MUST NOT reproduce the findings as a markdown table, bulleted list, numbered list, or any other multi-row format in your assistant text. Your reply on the auto-scan turn is a single short sentence acknowledging completion and inviting the user to ask a follow-up — e.g. 'Done — see the findings on the right; ask me about any clause.' Subsequent Q&A turns answer the user's specific question about ONE finding at a time, grounded in the prior grade_clause_severity tool_result blocks. Render the legal-grading disclaimer in **bold markdown** at the end of any message that interprets a grading.";
 
   const sections = [
     // 1. Identity

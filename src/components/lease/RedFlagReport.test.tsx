@@ -665,6 +665,118 @@ describe('RedFlagReport', () => {
     });
   });
 
+  // Sprint 33.B — verdict headline + errored-clause hand-off. The
+  // count strip ("2 high · 3 medium") was a tally, not a verdict.
+  // After Sprint 33.A retired the chat's markdown table, the right
+  // pane has to absorb the prioritisation answer the chat used to
+  // (badly) provide. The headline is computed deterministically by
+  // computeScanVerdict — no model hallucination risk.
+  describe('Sprint 33.B — verdict headline + errored-clause line', () => {
+    function gradeWith(
+      overrides: Partial<NonNullable<ToolEvent['result']>>,
+      clauseId: string,
+    ): ToolEvent {
+      return grade({
+        input: { clause_id: clauseId },
+        result: {
+          ...(grade().result as object),
+          clause_id: clauseId,
+          ...overrides,
+        },
+      });
+    }
+
+    it('renders a verdict headline above the count strip when gradings exist', () => {
+      render(
+        <ProviderWithEvents
+          events={[
+            gradeWith(
+              {
+                severity: 'high',
+                clause_type: 'indemnification',
+                clause_index: 10,
+              },
+              'c1',
+            ),
+            gradeWith({ severity: 'ok', clause_index: 0 }, 'c2'),
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const verdict = screen.getByTestId('red-flag-verdict');
+      expect(verdict.textContent ?? '').toMatch(/high risk/i);
+      expect(verdict.textContent ?? '').toMatch(/Indemnification/i);
+    });
+
+    it('renders a "balanced" verdict when no findings exceed ok severity', () => {
+      render(
+        <ProviderWithEvents
+          events={[
+            gradeWith({ severity: 'ok', clause_index: 0 }, 'c1'),
+            gradeWith({ severity: 'ok', clause_index: 1 }, 'c2'),
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const verdict = screen.getByTestId('red-flag-verdict');
+      expect(verdict.textContent ?? '').toMatch(/balanced|no high-severity/i);
+    });
+
+    it('does NOT render a verdict headline when there are zero gradings (empty state)', () => {
+      render(
+        <ProviderWithEvents events={[]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(screen.queryByTestId('red-flag-verdict')).not.toBeInTheDocument();
+    });
+
+    it('renders an ungraded-clause line when at least one grading errored', () => {
+      const erroredGrading: ToolEvent = {
+        tool_name: 'grade_clause_severity',
+        input: { clause_id: 'c-err-1' },
+        audit_id: undefined,
+        // Mirrors the executeToolAndPersist catch-block shape (Sprint
+        // 32.0 diagnostic). Note: result lacks clause_id / severity.
+        result: {
+          error: 'grade_clause_severity: statute_citation … does not appear',
+        } as unknown as ToolEvent['result'],
+      };
+      render(
+        <ProviderWithEvents
+          events={[
+            gradeWith({ severity: 'high', clause_index: 0 }, 'c1'),
+            erroredGrading,
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const ungradedLine = screen.getByTestId('red-flag-ungraded-line');
+      expect(ungradedLine.textContent ?? '').toMatch(
+        /1 clause couldn't be graded|1 clause could not be graded/i,
+      );
+    });
+
+    it('does NOT render the ungraded line when every grading succeeded', () => {
+      render(
+        <ProviderWithEvents
+          events={[
+            gradeWith({ severity: 'high', clause_index: 0 }, 'c1'),
+            gradeWith({ severity: 'ok', clause_index: 1 }, 'c2'),
+          ]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(
+        screen.queryByTestId('red-flag-ungraded-line'),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   // Sprint 26c — Explain + Draft email actions open the FAB drawer
   // with a prefilled, clause-aware prompt. Defined at the bottom so
   // the vi.mock + AssistantFabProvider stays out of the older tests'

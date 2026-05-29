@@ -62,6 +62,7 @@ export function draftEmailPromptFor(g: GradingResult): string {
   return `Draft a polite negotiation email to the landlord about ${label}. Cite ${g.statute_citation} and propose a specific edit.`;
 }
 
+import { computeScanVerdict } from '@/lib/lease/scan-verdict';
 import { partitionByLatestExtract, useScanProgress } from './use-scan-progress';
 
 // Phase 10.8 — how long the page-level highlight + active-card ring
@@ -132,6 +133,49 @@ export function RedFlagReport(): React.JSX.Element {
     for (const g of gradings) c[g.severity] += 1;
     return c;
   }, [gradings]);
+
+  // Sprint 33.B — synthesized verdict headline + ungraded count.
+  //
+  // The headline answers "is this lease bad and what should I worry
+  // about first" — a question the count strip can't. Computed
+  // deterministically by computeScanVerdict from the same gradings
+  // the cards render, so the headline can never disagree with the
+  // cards (unlike the model-authored chat table this replaces).
+  //
+  // The ungraded count surfaces clauses whose grade_clause_severity
+  // tool errored (e.g. citation grounding rejected). Without this,
+  // the count strip silently undersells the scan ("9 OK" hides "4
+  // clauses we couldn't speak to"). [Jakob Nielsen visibility +
+  // Don Norman recovery: every absence the user might notice gets
+  // a label and a path to learn more.]
+  const ungradedCount = useMemo(() => {
+    const activeLeaseId = activeLease?.lease_id ?? null;
+    const { extract } = partitionByLatestExtract(toolEvents, activeLeaseId);
+    const allowedClauseIds = extract
+      ? new Set(extract.clauses.map((c) => c.clause_id))
+      : null;
+    const seen = new Set<string>();
+    let count = 0;
+    for (const event of toolEvents) {
+      if (event.tool_name !== 'grade_clause_severity') continue;
+      if (isGradingResult(event.result)) continue;
+      const inputClauseId =
+        typeof (event.input as { clause_id?: unknown })?.clause_id === 'string'
+          ? ((event.input as { clause_id: string }).clause_id as string)
+          : null;
+      if (!inputClauseId) continue;
+      if (allowedClauseIds && !allowedClauseIds.has(inputClauseId)) continue;
+      if (seen.has(inputClauseId)) continue;
+      seen.add(inputClauseId);
+      count += 1;
+    }
+    return count;
+  }, [toolEvents, activeLease?.lease_id]);
+
+  const verdict = useMemo(
+    () => computeScanVerdict(gradings, ungradedCount),
+    [gradings, ungradedCount],
+  );
 
   // Sprint 15 Phase 8 — pulse the summary row once each time the count
   // grows. previousCountRef sees the last-rendered length; if the new
@@ -329,6 +373,17 @@ export function RedFlagReport(): React.JSX.Element {
         className="relative flex flex-col gap-3"
         data-testid="red-flag-report"
       >
+        {/* Sprint 33.B — synthesized verdict headline sits above the count
+            strip. Rendered ONLY when at least one valid grading exists
+            (verdict.tier !== 'idle'), so the empty state stays clean. */}
+        {verdict.tier !== 'idle' ? (
+          <p
+            data-testid="red-flag-verdict"
+            className="text-sm font-medium text-fg-default leading-snug"
+          >
+            {verdict.headline}
+          </p>
+        ) : null}
         {/* Summary row — at-a-glance severity counts. */}
         {animate ? (
           <motion.div
@@ -679,6 +734,37 @@ export function RedFlagReport(): React.JSX.Element {
               <RedFlagSkeletonCard key={`pending-${i}`} delay={i * 0.08} />
             ))
           : null}
+        {/* Sprint 33.B — errored-clause hand-off. Renders ONLY when at
+            least one grade_clause_severity event came back as an error
+            envelope (e.g. citation grounding rejected). Clicking opens
+            the FAB drawer with a pre-filled question; this keeps the
+            chat as the consistent "ask why" surface for the explanation
+            without forcing the user to type it themselves. */}
+        {ungradedCount > 0 ? (
+          <button
+            type="button"
+            data-testid="red-flag-ungraded-line"
+            onClick={() =>
+              fab.openWith({
+                initialPrompt:
+                  "Why couldn't these clauses be graded? Walk me through which ones and what went wrong.",
+              })
+            }
+            className="flex items-center gap-1.5 self-start rounded-md py-1 text-[12px] text-fg-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
+          >
+            <span>
+              {ungradedCount === 1
+                ? "1 clause couldn't be graded"
+                : `${ungradedCount} clauses couldn't be graded`}
+            </span>
+            <span aria-hidden="true" className="text-fg-subtle">
+              ·
+            </span>
+            <span className="underline-offset-2 hover:underline">
+              view in chat
+            </span>
+          </button>
+        ) : null}
       </div>
     </LayoutGroup>
   );

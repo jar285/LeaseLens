@@ -98,9 +98,9 @@ beforeEach(() => {
     start(controller) {
       controller.enqueue(
         new TextEncoder().encode(
-          JSON.stringify({
+          `${JSON.stringify({
             conversationId: 'conv-int',
-          }) + '\n',
+          })}\n`,
         ),
       );
       controller.close();

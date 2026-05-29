@@ -201,13 +201,10 @@ describe('AssistantFabClient', () => {
 
   it('passes quick-action chips into the drawer as suggested prompts', () => {
     // Sprint 27.1 — the four CHIPS that used to live in the menu popup
-    // are now passed to ChatUI as `suggestedPrompts`. We assert the
-    // count + that the always-enabled "citation" chip is present and
-    // not disabled.
-    // Sprint 29.4 — the chip count + identities depend on
-    // lifecycle.stage; we seed review_ready + an activeLease so the
-    // post-scan four-chip set is selected (matches this test's
-    // original intent: prove the FAB wires the chip set into ChatUI).
+    // are now passed to ChatUI as `suggestedPrompts`.
+    // Sprint 33.A — chip set is scan-agnostic Q&A. Seed review_ready +
+    // an activeLease + one grading event so the gating chips
+    // ('explain-top-finding' etc.) read as enabled.
     scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
     renderFab({
       activeLease: {
@@ -217,23 +214,38 @@ describe('AssistantFabClient', () => {
         clause_count: 1,
         pdfUrl: 'blob:test',
       },
+      initialEvents: [
+        {
+          tool_name: 'grade_clause_severity',
+          input: { clause_id: 'c-1' },
+          audit_id: undefined,
+          result: {
+            clause_id: 'c-1',
+            clause_type: 'security_deposit',
+            clause_index: 3,
+            severity: 'high',
+            chunk_id: 'chk-1',
+            statute_citation: 'NJ Stat 46:8-19',
+            reasoning: 'Test reasoning',
+          },
+        },
+      ],
     });
     fireEvent.click(screen.getByTestId('assistant-fab'));
     const suggestions = screen.getAllByTestId('chat-ui-mock-suggestion');
     expect(suggestions).toHaveLength(4);
-    const citationChip = suggestions.find(
-      (s) => s.getAttribute('data-suggestion-id') === 'understand-citation',
+    const explainChip = suggestions.find(
+      (s) => s.getAttribute('data-suggestion-id') === 'explain-top-finding',
     );
-    expect(citationChip).toBeDefined();
-    expect(citationChip).not.toBeDisabled();
+    expect(explainChip).toBeDefined();
+    expect(explainChip).not.toBeDisabled();
   });
 
   it("clicking an in-drawer suggestion chip seeds the composer with that chip's prompt", () => {
     // Sprint 27.1 — equivalent to the old "chip opens drawer with
-    // prefill" test, but the chip now lives inside the open drawer
-    // rather than in a separate popup menu.
-    // Sprint 29.4 — `understand-citation` lives in the post-scan
-    // chip set, so seed review_ready + activeLease.
+    // prefill" test, but the chip now lives inside the open drawer.
+    // Sprint 33.A — chip set is scan-agnostic Q&A; we exercise the
+    // 'compare-to-nj-law' chip whose prompt mentions NJ law verbatim.
     scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
     renderFab({
       activeLease: {
@@ -243,19 +255,35 @@ describe('AssistantFabClient', () => {
         clause_count: 1,
         pdfUrl: 'blob:test',
       },
+      initialEvents: [
+        {
+          tool_name: 'grade_clause_severity',
+          input: { clause_id: 'c-1' },
+          audit_id: undefined,
+          result: {
+            clause_id: 'c-1',
+            clause_type: 'security_deposit',
+            clause_index: 3,
+            severity: 'high',
+            chunk_id: 'chk-1',
+            statute_citation: 'NJ Stat 46:8-19',
+            reasoning: 'Test reasoning',
+          },
+        },
+      ],
     });
     fireEvent.click(screen.getByTestId('assistant-fab'));
-    const citationChip = screen
+    const compareChip = screen
       .getAllByTestId('chat-ui-mock-suggestion')
       .find(
-        (s) => s.getAttribute('data-suggestion-id') === 'understand-citation',
+        (s) => s.getAttribute('data-suggestion-id') === 'compare-to-nj-law',
       );
-    if (!citationChip) throw new Error('expected citation suggestion chip');
-    fireEvent.click(citationChip);
+    if (!compareChip) throw new Error('expected compare-to-nj-law chip');
+    fireEvent.click(compareChip);
     expect(screen.getByTestId('assistant-fab-drawer')).toBeInTheDocument();
     expect(
       screen.getByTestId('chat-ui-mock').getAttribute('data-prefill'),
-    ).toMatch(/citation/i);
+    ).toMatch(/nj law|search_corpus/i);
   });
 
   it('calling openWith from context jumps directly to the drawer with the supplied prompt', () => {
@@ -394,15 +422,16 @@ describe('AssistantFabClient', () => {
     ).toBe('First open prefill');
   });
 
-  it('disables the "Explain this clause" suggestion when no clause is selected', () => {
-    // Sprint 27.1 — same gating logic, new surface. The chip is now
-    // a suggestedPrompts entry inside the drawer; it's marked disabled
-    // when ChatStreamContext has no activeClauseId.
-    // Sprint 29.4 — `renderFab()` defaults to no lease + idle lifecycle,
-    // which switches the chip set to the onboarding three. Seed
-    // review_ready + an activeLease so the post-scan four-chip set
-    // is selected (`explain-clause` only exists there).
-    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+  it('disables the Q&A chips when no gradings have streamed yet (Sprint 33.A)', () => {
+    // Sprint 27.1 set the original "chip gating" pattern. Sprint 33.A's
+    // chip set is gated on hasGradings (any grade_clause_severity event
+    // in toolEvents) rather than on hasActiveClause. We seed an active
+    // lease with NO grading events and assert the three findings-
+    // dependent chips read as disabled. The fourth Q&A chip in this set
+    // (`compare-to-nj-law`) is intentionally also gated on hasGradings —
+    // its prompt references "the highest-severity finding" which doesn't
+    // exist before any grading lands.
+    scanLifecycleMock.mockReturnValue(MID_SCAN_SNAPSHOT);
     renderFab({
       activeLease: {
         lease_id: 'l-1',
@@ -411,98 +440,33 @@ describe('AssistantFabClient', () => {
         clause_count: 1,
         pdfUrl: 'blob:test',
       },
-      initialEvents: [
-        {
-          tool_name: 'grade_clause_severity',
-          input: { clause_id: 'c-1' },
-          audit_id: undefined,
-          result: {
-            clause_id: 'c-1',
-            clause_type: 'security_deposit',
-            clause_index: 3,
-            severity: 'high',
-            chunk_id: 'chk-1',
-            statute_citation: 'NJ Stat 46:8-19',
-            reasoning: 'Test reasoning',
-          },
-        },
-      ],
+      // No grading events → hasGradings === false → all Q&A chips disabled.
     });
     fireEvent.click(screen.getByTestId('assistant-fab'));
-    const explainChip = screen
-      .getAllByTestId('chat-ui-mock-suggestion')
-      .find((s) => s.getAttribute('data-suggestion-id') === 'explain-clause');
-    expect(explainChip).toBeDefined();
-    expect(explainChip).toBeDisabled();
+    const chips = screen.getAllByTestId('chat-ui-mock-suggestion');
+    for (const chip of chips) {
+      expect(chip).toBeDisabled();
+    }
   });
 
-  // Sprint 29.4 — job-aware chip set. The chip row shown inside the
-  // drawer depends on the parser's current stage so the assistant
-  // never offers a clause-specific suggestion the user can't act on:
+  // Sprint 33.A — chip set is now a binary choice (onboarding vs Q&A),
+  // not a three-way lifecycle-driven split. Supersedes Sprint 29.4's
+  // mid-scan + review-ready distinction.
+  //
   //   - no lease     → onboarding chips ("how does LeaseLens work?" …)
-  //   - mid-scan     → mid-scan chips    ("what is it checking?" …)
-  //   - scan complete → the prior four chips (explain / draft / summarise / citation)
-  describe('Sprint 29.4 — job-aware chip set', () => {
+  //   - lease active (any stage) → scan-agnostic Q&A set:
+  //       explain-top-finding / draft-biggest-concern-email /
+  //       compare-to-nj-law / what-to-fix-first
+  //
+  // Rationale: the chat is no longer narrating the scan (the right
+  // pane owns that). The chip set is therefore the same whether the
+  // scan is mid-flight or complete — they're all Q&A-shaped.
+  describe('Sprint 33.A — scan-agnostic Q&A chip set', () => {
     function suggestionIds(): string[] {
       return screen
         .getAllByTestId('chat-ui-mock-suggestion')
         .map((s) => s.getAttribute('data-suggestion-id') ?? '');
     }
-
-    it('renders the onboarding chip set when there is no lease', () => {
-      // beforeEach already returns IDLE_SNAPSHOT (no lease, no scan).
-      renderFab();
-      fireEvent.click(screen.getByTestId('assistant-fab'));
-      const ids = suggestionIds();
-      expect(ids).toEqual(['how-it-works', 'what-it-checks', 'after-upload']);
-    });
-
-    it('renders the mid-scan chip set while a lease is being processed', () => {
-      scanLifecycleMock.mockReturnValue(MID_SCAN_SNAPSHOT);
-      renderFab({
-        activeLease: {
-          lease_id: 'l-mid',
-          filename: 'mid-scan.pdf',
-          page_count: 1,
-          clause_count: 5,
-          pdfUrl: 'blob:test',
-        },
-      });
-      fireEvent.click(screen.getByTestId('assistant-fab'));
-      const ids = suggestionIds();
-      expect(ids).toEqual([
-        'what-checking',
-        'how-read-flags',
-        'after-scanning',
-      ]);
-    });
-
-    it('renders the scan-complete chip set once the scan reaches review_ready', () => {
-      scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
-      renderFab({
-        activeLease: {
-          lease_id: 'l-done',
-          filename: 'done.pdf',
-          page_count: 2,
-          clause_count: 1,
-          pdfUrl: 'blob:test',
-        },
-      });
-      fireEvent.click(screen.getByTestId('assistant-fab'));
-      const ids = suggestionIds();
-      expect(ids).toEqual([
-        'explain-clause',
-        'draft-email',
-        'summarize-risks',
-        'understand-citation',
-      ]);
-    });
-
-    // Empty-state subhead mirrors the chip set; the FAB owns the copy
-    // and passes it to ChatUI as a prop. Asserting via the ChatUI mock
-    // keeps the test focused on the FAB-side logic instead of the
-    // scan-narrative + transcript merge path that the integration
-    // suite already covers.
     function subhead(): string {
       return (
         screen
@@ -511,13 +475,17 @@ describe('AssistantFabClient', () => {
       );
     }
 
-    it('no lease → "No lease attached yet…" subhead is passed to ChatUI', () => {
+    it('renders the onboarding chip set when there is no lease (unchanged)', () => {
       renderFab();
       fireEvent.click(screen.getByTestId('assistant-fab'));
-      expect(subhead()).toMatch(/no lease attached yet/i);
+      expect(suggestionIds()).toEqual([
+        'how-it-works',
+        'what-it-checks',
+        'after-upload',
+      ]);
     });
 
-    it('mid-scan → "Scanning your lease…" subhead is passed to ChatUI', () => {
+    it('renders the scan-agnostic Q&A chip set when a lease is active mid-scan', () => {
       scanLifecycleMock.mockReturnValue(MID_SCAN_SNAPSHOT);
       renderFab({
         activeLease: {
@@ -529,10 +497,15 @@ describe('AssistantFabClient', () => {
         },
       });
       fireEvent.click(screen.getByTestId('assistant-fab'));
-      expect(subhead()).toMatch(/scanning your lease/i);
+      expect(suggestionIds()).toEqual([
+        'explain-top-finding',
+        'draft-biggest-concern-email',
+        'compare-to-nj-law',
+        'what-to-fix-first',
+      ]);
     });
 
-    it('scan complete → "Ask about this lease…" subhead is passed to ChatUI', () => {
+    it('renders the same Q&A chip set once the scan reaches review_ready', () => {
       scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
       renderFab({
         activeLease: {
@@ -544,7 +517,35 @@ describe('AssistantFabClient', () => {
         },
       });
       fireEvent.click(screen.getByTestId('assistant-fab'));
-      expect(subhead()).toMatch(/ask about this lease/i);
+      expect(suggestionIds()).toEqual([
+        'explain-top-finding',
+        'draft-biggest-concern-email',
+        'compare-to-nj-law',
+        'what-to-fix-first',
+      ]);
+    });
+
+    it('no lease → "No lease attached yet…" subhead is passed to ChatUI', () => {
+      renderFab();
+      fireEvent.click(screen.getByTestId('assistant-fab'));
+      expect(subhead()).toMatch(/no lease attached yet/i);
+    });
+
+    it('lease active → "Ask about any clause, citation, finding…" subhead', () => {
+      scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+      renderFab({
+        activeLease: {
+          lease_id: 'l-done',
+          filename: 'done.pdf',
+          page_count: 2,
+          clause_count: 1,
+          pdfUrl: 'blob:test',
+        },
+      });
+      fireEvent.click(screen.getByTestId('assistant-fab'));
+      expect(subhead()).toMatch(
+        /ask about any (clause|finding|citation)|ask about a clause/i,
+      );
     });
   });
 

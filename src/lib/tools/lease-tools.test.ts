@@ -261,6 +261,106 @@ describe('grade_clause_severity tool', () => {
     ).rejects.toThrow();
   });
 
+  // Sprint 34.1 — citation-grounding robustness. The validator
+  // previously rejected (a) chunk_id-form citations (e.g.
+  // "late-fees-general#section:5") even when the model correctly
+  // identified the chunk via chunk_id, and (b) concatenated multi-
+  // statute citations where one part DID appear in the body. Both
+  // patterns are legitimate grounding — the model's wording is just
+  // off. Now we accept them (with canonicalisation) while STILL
+  // rejecting genuine fabrications.
+  describe('Sprint 34.1 — citation-grounding robustness', () => {
+    it('accepts a chunk_id-form citation when it matches the chunk_id, canonicalised to a humanised label', async () => {
+      // Seed a corpus chunk that resembles the dev fixture: chunk
+      // body talks about late fees but doesn't repeat the chunk_id
+      // string verbatim. Model passes the chunk_id literally as the
+      // statute_citation — this previously errored.
+      const docId = seedDocument(db, 'late-fees-general');
+      const chunkId = 'late-fees-general#section:5';
+      seedChunk(db, docId, {
+        id: chunkId,
+        content:
+          'Late fees over 5% of monthly rent are presumptively unconscionable under NJ tenant-law precedent. Marini v. Ireland establishes the warranty of habitability.',
+        index: 5,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          statute_citation: chunkId, // ← chunk_id as citation
+          chunk_id: chunkId,
+          reasoning: 'Late fee structure is unconscionable.',
+          recommended_action: 'Negotiate cap to 5% of monthly rent.',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      const result = (await tool.execute(
+        { clause_id: clauseId },
+        ctx('Tenant', TENANT_ID),
+      )) as { severity: string; chunk_id: string; statute_citation: string };
+      expect(result.severity).toBe('high');
+      expect(result.chunk_id).toBe(chunkId);
+      // Canonicalised citation: humanised slug, NOT the raw chunk_id.
+      expect(result.statute_citation).not.toBe(chunkId);
+      expect(result.statute_citation).toMatch(/Late fees/i);
+      expect(result.statute_citation).toContain('§5');
+    });
+
+    it('accepts a concatenated multi-statute citation when ANY part appears in the chunk body, canonicalising to the matching part', async () => {
+      const docId = seedDocument(db, 'late-fees-general');
+      const chunkId = 'late-fees-general#section:5';
+      seedChunk(db, docId, {
+        id: chunkId,
+        content:
+          'Under NJSA 56:8-1 et seq., unconscionable terms in residential leases are unenforceable. Late fees over 5% of monthly rent trigger this analysis.',
+        index: 5,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          // Model concatenates a heading-style header + a genuine
+          // statute. Only the latter appears in the chunk body.
+          statute_citation:
+            'Late Fees on Rent — Marini v. Ireland, 56 N.J. 130 (1970); NJSA 56:8-1 et seq.',
+          chunk_id: chunkId,
+          reasoning: 'Late fee is unconscionable.',
+          recommended_action: 'Reduce to a reasonable cap.',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      const result = (await tool.execute(
+        { clause_id: clauseId },
+        ctx('Tenant', TENANT_ID),
+      )) as { severity: string; statute_citation: string };
+      expect(result.severity).toBe('high');
+      // Canonicalised to the matching part (NJSA 56:8-1 et seq.).
+      expect(result.statute_citation).toMatch(/NJSA 56:8-1/i);
+      expect(result.statute_citation).not.toMatch(/Marini/);
+    });
+
+    it('still rejects a genuinely fabricated citation that is not in body and not a chunk_id (regression guard)', async () => {
+      const chunkId = seedTenantLawCorpusChunk(db);
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          // Not the chunk_id; not in the body; not a known statute.
+          statute_citation: 'NJSA 99:99-99 (totally invented)',
+          chunk_id: chunkId,
+          reasoning: 'reasoning',
+          recommended_action: 'action',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      await expect(
+        tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
+      ).rejects.toThrow(/statute|citation|grounded/i);
+    });
+  });
+
   it('throws when Tenant tries to grade a clause on a lease they did not upload', async () => {
     seedTenantLawCorpusChunk(db);
     const { clauseId } = seedSampleLease(db, REVIEWER_ID);

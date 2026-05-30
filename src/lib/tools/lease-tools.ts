@@ -172,24 +172,110 @@ RELEVANT NJ TENANT LAW (cite by the bracketed chunk_id):
 ${chunkBlock}`;
 }
 
+/*
+ * Sprint 34.1 — humanise a corpus chunk-pointer into a domain-readable
+ * label. The corpus convention is `slug-with-dashes#section:N` (e.g.
+ * `late-fees-general#section:5`). We:
+ *   - drop the `-general` suffix (top-level chunk marker, not a name);
+ *   - capitalise the first word; keep the rest lower-case;
+ *   - append the section number as `§N` so the user sees the source.
+ * Examples:
+ *   late-fees-general#section:5      → "Late fees (NJ tenant-law corpus, §5)"
+ *   early-termination-general#section:4 → "Early termination (NJ tenant-law corpus, §4)"
+ *   parking-and-storage#section:5    → "Parking and storage (NJ tenant-law corpus, §5)"
+ * If the input doesn't match the canonical chunk-pointer pattern, return
+ * it unchanged (defensive: future shapes shouldn't be silently mangled).
+ */
+const CHUNK_POINTER_RE = /^([a-z0-9-]+)#section:(\d+)$/;
+function humaniseChunkPointer(chunkId: string): string {
+  const match = CHUNK_POINTER_RE.exec(chunkId);
+  if (!match) return chunkId;
+  const slug = match[1];
+  const section = match[2];
+  const cleanSlug = slug.replace(/-general$/, '');
+  const words = cleanSlug.split('-').filter(Boolean);
+  if (words.length === 0) return chunkId;
+  const phrase = words
+    .map((w, i) => (i === 0 ? (w[0]?.toUpperCase() ?? '') + w.slice(1) : w))
+    .join(' ');
+  return `${phrase} (NJ tenant-law corpus, §${section})`;
+}
+
 function validateGrading(
   raw: GradingPayload,
   retrieved: RetrievedChunk[],
 ): GradingPayload {
   const cited = retrieved.find((c) => c.chunkId === raw.chunk_id);
+  // Sprint 34.0 — enrichment for the route-level `[chat-diag s32.2]`
+  // log. The route catch site only sees the thrown error message; it
+  // can't see the rejected citation, the cited chunk's heading, or a
+  // peek at the chunk body. Emit a sibling `[chat-diag s32.2-reject]`
+  // line here, gated on NODE_ENV like the route diagnostic, so the
+  // grading-rejection failure mode is debuggable without rerunning.
   if (!cited) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(
+        '[chat-diag s32.2-reject]',
+        JSON.stringify({
+          rejected_citation: raw.statute_citation,
+          cited_chunk_id: raw.chunk_id,
+          chunk_heading: null,
+          chunk_body_head: null,
+          rejection_reason: 'chunk_id_not_retrieved',
+        }),
+      );
+    }
     throw new Error(
       `grade_clause_severity: cited chunk_id "${raw.chunk_id}" was not in the retrieved set — citation not grounded in corpus.`,
     );
   }
+
+  // Sprint 34.1 — chunk-pointer canonicalisation. The Sprint 34.0
+  // diagnostic showed ~75% of rejections are this pattern: the model
+  // passes the chunk_id literally as `statute_citation`. The chunk_id
+  // is already validated against the retrieved set above, so this IS
+  // a grounded reference — just in the wrong form. Accept and rewrite
+  // the citation to a humanised, domain-readable label so the right-
+  // pane card surfaces something meaningful (e.g. "Late fees (NJ
+  // tenant-law corpus, §5)") instead of the raw chunk identifier.
+  if (raw.statute_citation === raw.chunk_id) {
+    return { ...raw, statute_citation: humaniseChunkPointer(raw.chunk_id) };
+  }
+
+  // Sprint 34.1 — concatenated multi-statute citation. When the model
+  // joins multiple statute strings with `;`, ` & `, or ` and `, accept
+  // if ANY part appears verbatim in the chunk body. Canonicalise the
+  // stored citation to the first matching part so the card shows the
+  // grounded portion, not the concatenated soup.
   const haystack = cited.content.toLowerCase().replace(/\s+/g, ' ');
-  const needle = raw.statute_citation.toLowerCase().replace(/\s+/g, ' ');
-  if (!haystack.includes(needle)) {
-    throw new Error(
-      `grade_clause_severity: statute_citation "${raw.statute_citation}" does not appear in the cited chunk's text — citation not grounded.`,
+  const parts = raw.statute_citation
+    .split(/\s*[;&]\s*|\s+and\s+/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const part of parts) {
+    const needle = part.toLowerCase().replace(/\s+/g, ' ');
+    if (haystack.includes(needle)) {
+      // Single-part match → existing behaviour (return unchanged).
+      // Multi-part match → canonicalise to the matched part.
+      return parts.length === 1 ? raw : { ...raw, statute_citation: part };
+    }
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(
+      '[chat-diag s32.2-reject]',
+      JSON.stringify({
+        rejected_citation: raw.statute_citation,
+        cited_chunk_id: raw.chunk_id,
+        chunk_heading: cited.heading ?? null,
+        chunk_body_head: cited.content.slice(0, 120),
+        rejection_reason: 'citation_not_in_body',
+      }),
     );
   }
-  return raw;
+  throw new Error(
+    `grade_clause_severity: statute_citation "${raw.statute_citation}" does not appear in the cited chunk's text — citation not grounded.`,
+  );
 }
 
 export function createGradeClauseSeverityTool(

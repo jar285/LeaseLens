@@ -31,7 +31,10 @@ import { TypingIndicator } from './TypingIndicator';
  * meaningful as a visible action card to the tenant (a drafted email
  * SHOULD be visible inline; that's the user's deliverable).
  */
-const SCAN_TOOL_NAMES = new Set(['extract_clauses', 'grade_clause_severity']);
+export const SCAN_TOOL_NAMES = new Set([
+  'extract_clauses',
+  'grade_clause_severity',
+]);
 
 export interface ToolInvocation {
   id: string;
@@ -62,6 +65,13 @@ export interface ChatMessageProps {
    *  text intentionally stops mid-thought. */
   truncated?: boolean;
   truncatedReason?: 'max_tokens';
+  /** Sprint 33.A.2 — set by ChatUI (via markAutoScanTurn) on the auto-scan
+   *  conversation's FIRST scan-bearing assistant turn. The right-pane
+   *  ScanTimeline staircase is canonical for scan progress, so the chat
+   *  turn suppresses its redundant inline ScanTimeline (Tenant only). A
+   *  user-initiated "scan again" turn is not the first scan turn, so it
+   *  leaves this unset and still renders the timeline. */
+  isAutoScanTurn?: boolean;
 }
 
 export function ChatMessage({
@@ -72,6 +82,7 @@ export function ChatMessage({
   onSelectPrompt,
   isStreaming,
   truncated,
+  isAutoScanTurn,
 }: ChatMessageProps) {
   const { viewerRole } = useChatStream();
   const isUser = role === 'user';
@@ -140,6 +151,7 @@ export function ChatMessage({
           <ToolInvocationsBlock
             viewerRole={viewerRole}
             invocations={toolInvocations}
+            isAutoScanTurn={isAutoScanTurn}
           />
         )}
         {/* Message content — or TypingIndicator under the four-clause
@@ -287,9 +299,11 @@ function resolveClauseContext(
 function ToolInvocationsBlock({
   viewerRole,
   invocations,
+  isAutoScanTurn,
 }: {
   viewerRole: Role;
   invocations: ToolInvocation[];
+  isAutoScanTurn?: boolean;
 }): React.JSX.Element {
   const { toolEvents } = useLeaseParser();
   const scanInvocations = invocations.filter((inv) =>
@@ -298,14 +312,21 @@ function ToolInvocationsBlock({
   const nonScanInvocations = invocations.filter(
     (inv) => !SCAN_TOOL_NAMES.has(inv.name),
   );
-  const showTimeline = viewerRole === 'Tenant' && scanInvocations.length > 0;
   const isTenant = viewerRole === 'Tenant';
+  const showTimeline =
+    isTenant && scanInvocations.length > 0 && !isAutoScanTurn;
+  // Sprint 33.A.2 — on the Tenant auto-scan turn the right-pane staircase
+  // owns scan progress, so suppress BOTH the timeline AND the raw
+  // tool-card fallback (the else branch). Rendering the developer-trace
+  // cards here would be worse than the timeline we're hiding. Reviewers/
+  // Admins are unaffected — the trace stays for auditors.
+  const suppressScanCards = isTenant && Boolean(isAutoScanTurn);
 
   return (
     <div className="my-2">
       {showTimeline ? (
         <ScanTimeline invocations={scanInvocations} />
-      ) : (
+      ) : suppressScanCards ? null : (
         scanInvocations.map((invocation) => (
           <ToolCard key={invocation.id} invocation={invocation} />
         ))

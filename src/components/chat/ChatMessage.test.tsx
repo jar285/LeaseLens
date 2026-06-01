@@ -434,3 +434,125 @@ describe('ChatMessage — Sprint 18 §5 ScanTimeline role gate', () => {
     expect(chip.className).toMatch(/\bmin-h-11\b/);
   });
 });
+
+// Sprint 33.A.2 — the auto-scan turn no longer renders the conversational
+// ScanTimeline: the right-pane staircase is canonical for scan progress,
+// so duplicating it inside the chat turn is redundant noise (Steve Krug /
+// Dieter Rams). The gate is per-turn (auto-scan first turn only) — a
+// user-initiated "scan again" turn STILL shows the timeline.
+describe('ChatMessage — Sprint 33.A.2 auto-scan turn gate', () => {
+  beforeEach(() => {
+    useReducedMotionMock.mockReset();
+    useReducedMotionMock.mockReturnValue(true);
+  });
+  afterEach(cleanup);
+
+  const scanInvocations = [
+    {
+      id: 't-extract',
+      name: 'extract_clauses',
+      input: {},
+      result: {
+        clauses: [{ clause_id: 'c1', clause_type: 'security_deposit' }],
+      },
+    },
+    {
+      id: 't-grade-1',
+      name: 'grade_clause_severity',
+      input: { clause_id: 'c1' },
+      result: { clause_id: 'c1', severity: 'high', statute_citation: 'NJSA 1' },
+    },
+  ];
+
+  const initialEvents = scanInvocations.map((inv) => ({
+    tool_name: inv.name,
+    input: inv.input,
+    result: inv.result,
+    audit_id: undefined,
+  }));
+
+  it('Tenant auto-scan turn suppresses BOTH the ScanTimeline and the raw scan tool cards', () => {
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content="Done — see the findings on the right."
+          toolInvocations={scanInvocations}
+          isAutoScanTurn
+        />,
+        { viewerRole: 'Tenant', initialEvents },
+      ),
+    );
+    // No conversational timeline…
+    expect(screen.queryByTestId('scan-timeline')).not.toBeInTheDocument();
+    // …and NOT the raw tool-card fallback either (that would leak
+    // developer trace into the tenant view — worse than the timeline).
+    expect(screen.queryByText('extract_clauses')).not.toBeInTheDocument();
+    expect(screen.queryByText('grade_clause_severity')).not.toBeInTheDocument();
+  });
+
+  it('Tenant auto-scan turn still renders a non-scan deliverable (NegotiationEmailCard)', () => {
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content="Done."
+          toolInvocations={[
+            ...scanInvocations,
+            {
+              id: 't-draft',
+              name: 'draft_negotiation_email',
+              input: { clause_id: 'c1' },
+              result: {
+                email_id: 'email-1',
+                clause_id: 'c1',
+                subject: 'Request to Revise',
+                body: 'Hi…',
+              },
+            },
+          ]}
+          isAutoScanTurn
+        />,
+        { viewerRole: 'Tenant', initialEvents },
+      ),
+    );
+    // Scan UI gone, but the drafted email (the user's deliverable) stays.
+    expect(screen.queryByTestId('scan-timeline')).not.toBeInTheDocument();
+    expect(screen.getByTestId('negotiation-email-card')).toBeInTheDocument();
+  });
+
+  it('Tenant scan turn that is NOT the auto-scan turn still renders the ScanTimeline', () => {
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content=""
+          toolInvocations={scanInvocations}
+        />,
+        { viewerRole: 'Tenant', initialEvents },
+      ),
+    );
+    expect(screen.getByTestId('scan-timeline')).toBeInTheDocument();
+  });
+
+  it('Reviewer auto-scan turn keeps the inline tool cards (trace fidelity unaffected by the gate)', () => {
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content=""
+          toolInvocations={scanInvocations}
+          isAutoScanTurn
+        />,
+        { viewerRole: 'Reviewer' },
+      ),
+    );
+    expect(screen.queryByTestId('scan-timeline')).not.toBeInTheDocument();
+    expect(screen.getByText('extract_clauses')).toBeInTheDocument();
+    expect(screen.getByText('grade_clause_severity')).toBeInTheDocument();
+  });
+});

@@ -2,12 +2,13 @@
 
 import { AlertCircle, RotateCcw, SquarePen, X } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { useScanLifecycle } from '@/components/lease/scan-lifecycle';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
 import { SPRING_SNAPPY } from '@/lib/motion/presets';
 import { useAssistantFab } from './AssistantFabContext';
+import { markAutoScanTurn } from './auto-scan-turn';
 import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps, ToolInvocation } from './ChatMessage';
 import { useChatStream } from './ChatStreamContext';
@@ -161,6 +162,16 @@ export function ChatUI({
   // there is nothing to restore on the parser side.
   const { activeLease } = useLeaseParser();
   const { autoScanConversationId } = useChatStream();
+  // Sprint 33.A.2 — annotate the auto-scan's scan turn (the first
+  // scan-bearing assistant message) so its redundant inline ScanTimeline
+  // is suppressed; the right-pane staircase is canonical. A user-initiated
+  // "scan again" is a later scan turn and keeps its timeline. Survives a
+  // reload because it keys on message position, not the live-only
+  // autoScanConversationId.
+  const transcriptMessages = useMemo(
+    () => markAutoScanTurn(messages),
+    [messages],
+  );
   // Sprint 28.8 — FAB context drop on "New conversation". ChatUI may
   // be mounted standalone (not inside the FAB), so we guard against a
   // missing provider by accessing via a wrapped hook; useAssistantFab
@@ -692,7 +703,7 @@ export function ChatUI({
             </div>
           ) : null}
           <ChatTranscript
-            messages={messages}
+            messages={transcriptMessages}
             isStreaming={status === 'streaming'}
             onSelectPrompt={handleSubmit}
             workspaceName={workspaceName}

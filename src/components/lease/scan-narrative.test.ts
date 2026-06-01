@@ -151,7 +151,7 @@ describe('computeScanNarrative — scan-complete summary', () => {
     expect(out.summary).toBeNull();
   });
 
-  it('produces a summary with severity tally once every clause has been attempted', () => {
+  it('produces a minimal scan-complete receipt with the red-flag count once every clause has been attempted (Sprint 33.A.2)', () => {
     const events: ToolEvent[] = [
       extractEvent({
         clauseTypes: [
@@ -194,15 +194,18 @@ describe('computeScanNarrative — scan-complete summary', () => {
     expect(out.summary?.source).toBe('scan-complete');
     expect(out.summary?.followUpPrompts).toHaveLength(4);
     const c = out.summary?.content ?? '';
+    // Sprint 33.A.2 — minimal receipt that POINTS to the right pane; it
+    // carries the red-flag count (5 high + 1 medium + 1 low = 7) but no
+    // longer reprints the per-severity tally (the right-pane verdict +
+    // count strip own that now).
+    expect(c.toLowerCase()).toContain('scan complete');
     expect(c).toContain('7');
-    expect(c).toContain('5'); // high count
-    expect(c).toContain('1'); // medium AND low (both 1)
-    expect(c.toLowerCase()).toContain('high');
-    expect(c.toLowerCase()).toContain('medium');
-    expect(c.toLowerCase()).toContain('low');
+    expect(c.toLowerCase()).toMatch(/findings? on the right/);
+    expect(c.toLowerCase()).toContain('ask me');
+    expect(c.toLowerCase()).not.toMatch(/high severity|medium severity/);
   });
 
-  it('ok-severity clauses are NOT counted as red flags in the tally', () => {
+  it('the receipt count excludes ok-severity clauses (they are not red flags) (Sprint 33.A.2)', () => {
     const events: ToolEvent[] = [
       extractEvent({ clauseTypes: ['security_deposit', 'late_fee'] }),
       gradeEvent({
@@ -213,12 +216,14 @@ describe('computeScanNarrative — scan-complete summary', () => {
       gradeEvent({ clause_id: 'c2', severity: 'ok', clause_type: 'late_fee' }),
     ];
     const out = computeScanNarrative({ events, lease: LEASE });
-    // "I found 1 red flag" — singular, ok-graded clauses excluded.
-    expect(out.summary?.content).toMatch(/found\s+\**1\**\s+red flag\b/i);
-    expect(out.summary?.content).not.toMatch(/2\**\s+red flags/i);
+    // "1 finding" — singular, ok-graded clauses excluded. The receipt's
+    // N matches the right-pane red-flag card count, not the card total
+    // (which would include the OK card).
+    expect(out.summary?.content).toMatch(/\b1 finding\b/i);
+    expect(out.summary?.content).not.toMatch(/\b2 findings?\b/i);
   });
 
-  it('mentions the top clause categories the user should focus on', () => {
+  it('the minimal receipt does NOT reprint clause categories — the right pane is canonical (Sprint 33.A.2)', () => {
     const events: ToolEvent[] = [
       extractEvent({
         clauseTypes: [
@@ -249,10 +254,12 @@ describe('computeScanNarrative — scan-complete summary', () => {
     ];
     const out = computeScanNarrative({ events, lease: LEASE });
     const c = out.summary?.content ?? '';
-    // Top categories sorted by severity then count — high-severity
-    // clauses surface first. Tenant-facing label, not raw clause_type.
-    expect(c).toMatch(/security deposit/i);
-    expect(c).toMatch(/attorneys' fees/i);
+    expect(c.toLowerCase()).toContain('scan complete');
+    // Categories used to be enumerated in chat ("…involve the security
+    // deposit, attorneys' fees…"). Sprint 33.A moved that to the right
+    // pane; the chat receipt must not reprint them.
+    expect(c).not.toMatch(/security deposit/i);
+    expect(c).not.toMatch(/attorneys/i);
   });
 
   it('summary id is keyed to the latest extract so a re-scan replaces it', () => {
@@ -423,23 +430,29 @@ describe('computeScanNarrative — scan-partial variant', () => {
     expect(out.summary?.source).toBe('scan-fatal');
   });
 
-  it('the partial-success summary contains the recommended phrase about manual review', () => {
+  it('the partial-success summary uses the minimal scan-complete receipt (right pane owns the ungraded nuance) (Sprint 33.A.2)', () => {
     const out = computeScanNarrative({
       events: buildEvents({ successes: 9, errors: 1 }),
       lease: LEASE,
     });
-    expect(out.summary?.content.toLowerCase()).toContain(
-      'may need manual review',
+    expect(out.summary?.source).toBe('scan-partial');
+    expect(out.summary?.content.toLowerCase()).toContain('scan complete');
+    expect(out.summary?.content.toLowerCase()).toMatch(
+      /findings? on the right/,
     );
+    // The "may need manual review" wording moved to the right-pane
+    // ungraded line (Sprint 33.B3); the chat receipt no longer carries it.
+    expect(out.summary?.content.toLowerCase()).not.toContain('manual review');
   });
 
-  it('the partial-success summary references the skipped-clause count', () => {
+  it('the partial-success receipt counts only graded red flags, not the skipped clauses (Sprint 33.A.2)', () => {
     const out = computeScanNarrative({
       events: buildEvents({ successes: 7, errors: 3 }),
       lease: LEASE,
     });
-    // The body should mention "3" (skipped count) somewhere.
-    expect(out.summary?.content).toMatch(/\b3\b/);
+    // 7 graded high-severity red flags; the 3 skipped clauses live on the
+    // right-pane ungraded line, not in the chat receipt.
+    expect(out.summary?.content).toMatch(/\b7 findings\b/i);
   });
 
   it('the partial-success summary offers 4 follow-up prompts including a "review skipped" action', () => {

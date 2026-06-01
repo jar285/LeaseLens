@@ -113,23 +113,30 @@ export function ChatTranscript({
 
   const { intro, summary } = useScanNarrative();
   const { activeLease } = useLeaseParser();
-  // S20.7 + S20.8 — when the model has already produced a substantive
-  // closing assistant message, the synthetic summary is at best
-  // redundant and at worst contradicts the model (e.g. model writes a
-  // detailed "Red-Flag Scan Complete" + findings, synthetic appends
-  // "I had trouble completing the scan"). Defer to the model's voice
-  // when it exists; the synthetic remains as the safety net for the
-  // out-of-tokens case where the model produces no closing text.
+  // S20.8 — hold the synthetic back WHILE the assistant is streaming so
+  // it doesn't flicker in between "scan events finished" and the model's
+  // closing text arriving (flash-and-swap).
   //
-  // S20.8 — additionally hold the synthetic back WHILE the assistant
-  // is streaming. Without this guard, the synthetic flickers in for a
-  // moment between "scan events finished" and "assistant text reaches
-  // 80 chars", producing a flash-and-swap. The synthetic only renders
-  // after the stream finishes, by which point we know whether the
-  // model wrote a substantive reply or fell silent.
+  // Sprint 33.A.2 — the complete/partial summary is now a MINIMAL,
+  // deterministic receipt ("Scan complete. N findings on the right…").
+  // Because it points to the right pane instead of reprinting a tally,
+  // it can't contradict the cards, so it is the single source of truth
+  // and renders regardless of the model's ack length. This retires the
+  // Sprint 20 SUBSTANTIVE_REPLY_MIN_CHARS heuristic for those states —
+  // it was the drift vector (a short post-Sprint-33.A ack < 80 chars let
+  // the OLD verbose tally re-appear). The 'scan-fatal' copy ("I had
+  // trouble completing the scan") CAN still contradict a model that
+  // wrongly claims success, so it keeps the S20.7 guard: defer to a
+  // substantive model close.
   const effectiveSummary = useMemo(() => {
     if (isStreaming) return null;
-    if (modelProducedClosingReply(messages)) return null;
+    if (!summary) return null;
+    if (
+      summary.source === 'scan-fatal' &&
+      modelProducedClosingReply(messages)
+    ) {
+      return null;
+    }
     return summary;
   }, [messages, summary, isStreaming]);
   const merged = useMemo(

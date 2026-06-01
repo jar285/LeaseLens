@@ -373,12 +373,12 @@ describe('ChatTranscript', () => {
         ),
       );
 
-      // Summary message body — "I finished scanning your lease" plus
-      // a "1 red flag" tally.
-      expect(
-        screen.getByText(/I finished scanning your lease/i),
-      ).toBeInTheDocument();
-      // Summary suggested-action chips appear under the summary.
+      // Sprint 33.A.2 — minimal scan-complete receipt that points to the
+      // right pane (1 graded high-severity clause → "1 finding"), not the
+      // old verbose tally.
+      expect(screen.getByText(/scan complete/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 finding on the right/i)).toBeInTheDocument();
+      // Summary suggested-action chips still appear under the receipt.
       expect(
         screen.getByRole('button', { name: /explain highest-risk issue/i }),
       ).toBeInTheDocument();
@@ -556,6 +556,60 @@ describe('ChatTranscript', () => {
       expect(
         screen.getByText(/may need manual review|I had trouble/i),
       ).toBeInTheDocument();
+    });
+  });
+
+  // Sprint 33.A.2 — the minimal scan-complete receipt is the chat's
+  // single, deterministic "scan complete" signal for a normal
+  // (complete/partial) scan. Unlike the old verbose tally it can't
+  // contradict the cards, so it renders regardless of the model's ack
+  // length — retiring the Sprint 20 SUBSTANTIVE_REPLY_MIN_CHARS heuristic
+  // for these states (the fatal copy keeps its S20.7 guard, tested above).
+  describe('Sprint 33.A.2 — deterministic receipt not suppressed by a long ack', () => {
+    const LEASE = { lease_id: 'lease-s33a2', filename: 'lease.pdf' };
+    const extractEvent = {
+      tool_name: 'extract_clauses',
+      input: { lease_id: LEASE.lease_id },
+      result: {
+        clauses: [{ clause_id: 'c1', clause_type: 'security_deposit' }],
+      },
+      audit_id: 'ex-1',
+    };
+    const gradeHigh = {
+      tool_name: 'grade_clause_severity',
+      input: { clause_id: 'c1' },
+      result: {
+        clause_id: 'c1',
+        severity: 'high' as const,
+        statute_citation: 'NJSA 46:8-19',
+        chunk_id: 'k',
+        reasoning: 'r',
+        recommended_action: 'a',
+        clause_type: 'security_deposit',
+      },
+      audit_id: undefined,
+    };
+
+    it('renders the minimal receipt even when the last assistant message is long (complete scan)', () => {
+      const messages: ChatMessageProps[] = [
+        { id: 'u-1', role: 'user', content: 'Run a standard scan.' },
+        {
+          id: 'a-1',
+          role: 'assistant',
+          // A long (>80 char) closing reply — pre-33.A.2 this suppressed
+          // the synthetic summary entirely.
+          content:
+            'I went through every clause in your lease and graded each one against the relevant NJ tenant-law sources; the results are now on the right.',
+        },
+      ];
+      render(
+        withChatStream(
+          <ChatTranscript messages={messages} workspaceName="Test" />,
+          { activeLease: LEASE, initialEvents: [extractEvent, gradeHigh] },
+        ),
+      );
+      expect(screen.getByText(/scan complete/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 finding on the right/i)).toBeInTheDocument();
     });
   });
 });

@@ -17,7 +17,7 @@ import {
   SCAN_INTRO_PROMPTS,
   SCAN_PARTIAL_PROMPTS,
 } from '@/lib/chat/follow-up-prompts';
-import { CLAUSE_TYPE_LABEL, isGradingResult, type Severity } from './grading';
+import { isGradingResult, type Severity } from './grading';
 import { partitionByLatestExtract } from './use-scan-progress';
 
 export interface NarrativeLease {
@@ -185,49 +185,6 @@ function tallySeverities(outcomes: Iterable<GradeOutcome>): {
   return { high, medium, low, total: high + medium + low };
 }
 
-/*
- * Pick the top distinct clause categories by severity-weighted ranking
- * so the summary reads "...involve the security deposit, attorneys' fees,
- * and subletting" rather than enumerating every category. High-severity
- * clauses outrank medium and low; within a severity tier, by count.
- */
-function topClauseCategories(
-  outcomes: Iterable<GradeOutcome>,
-  limit: number,
-): string[] {
-  const counts = new Map<string, { weight: number; clause_type: string }>();
-  for (const o of outcomes) {
-    if (o.errored || !o.severity || o.severity === 'ok' || !o.clause_type) {
-      continue;
-    }
-    const weight =
-      o.severity === 'high' ? 1000 : o.severity === 'medium' ? 100 : 1;
-    const prev = counts.get(o.clause_type);
-    counts.set(o.clause_type, {
-      weight: (prev?.weight ?? 0) + weight,
-      clause_type: o.clause_type,
-    });
-  }
-  return [...counts.values()]
-    .sort((a, b) => b.weight - a.weight)
-    .slice(0, limit)
-    .map((c) => CLAUSE_TYPE_LABEL[c.clause_type] ?? CLAUSE_TYPE_LABEL.unknown);
-}
-
-function joinCategories(labels: string[]): string {
-  if (labels.length === 0) return '';
-  if (labels.length === 1) return labels[0].toLowerCase();
-  if (labels.length === 2) {
-    return `${labels[0].toLowerCase()} and ${labels[1].toLowerCase()}`;
-  }
-  const head = labels
-    .slice(0, -1)
-    .map((l) => l.toLowerCase())
-    .join(', ');
-  const tail = labels[labels.length - 1].toLowerCase();
-  return `${head}, and ${tail}`;
-}
-
 function buildSummary(
   lease: NarrativeLease,
   extractIndex: number,
@@ -264,28 +221,27 @@ function buildSummary(
   }
 
   const tally = tallySeverities(outcomes.values());
-  const categories = topClauseCategories(outcomes.values(), 5);
-  const categoriesLine = categories.length
-    ? ` The most important issues involve the ${joinCategories(categories)}.`
-    : '';
-
-  const flagWord = tally.total === 1 ? 'red flag' : 'red flags';
+  const findingWord = tally.total === 1 ? 'finding' : 'findings';
+  // Sprint 33.A.2 — minimal, deterministic receipt that POINTS to the
+  // right pane (the canonical verdict headline + red-flag cards). It no
+  // longer reprints the per-severity tally or the clause categories —
+  // that chat-vs-cards reprint was the drift surface Sprint 33.A retired.
+  // N = red-flag count (high+medium+low), matching the right-pane count
+  // strip; ok-graded clauses (reviewed-and-fine) and ungraded clauses
+  // (the right-pane "couldn't be graded" line) are not findings.
+  const receipt = `Scan complete. ${tally.total} ${findingWord} on the right — ask me about any of them.`;
 
   if (partial) {
-    // S20.5 — partial-success copy follows the spec verbatim. The
-    // tally + manual-review caveat sit together so the user reads
-    // "what was found" and "what was skipped" in one beat.
-    const skippedNoun = errorCount === 1 ? 'clause' : 'clauses';
+    // The partial vs complete distinction now only selects the follow-up
+    // chips (partial keeps the "review skipped" action). The skipped
+    // count itself lives on the right-pane ungraded line (Sprint 33.B3),
+    // not in the chat receipt.
     return {
       id,
       role: 'assistant',
       synthetic: true,
       source: 'scan-partial',
-      content:
-        `Scan complete. I reviewed the lease and surfaced the red flags I could verify. ` +
-        `**${tally.total}** ${flagWord} found: **${tally.high}** high · **${tally.medium}** medium · **${tally.low}** low.` +
-        categoriesLine +
-        ` **${errorCount}** ${skippedNoun} couldn't be graded automatically and may need manual review.`,
+      content: receipt,
       followUpPrompts: SCAN_PARTIAL_PROMPTS,
     };
   }
@@ -295,10 +251,7 @@ function buildSummary(
     role: 'assistant',
     synthetic: true,
     source: 'scan-complete',
-    content:
-      `I finished scanning your lease. I found **${tally.total}** ${flagWord}: ` +
-      `**${tally.high}** high severity, **${tally.medium}** medium severity, and **${tally.low}** low severity.` +
-      categoriesLine,
+    content: receipt,
     followUpPrompts: SCAN_COMPLETE_PROMPTS,
   };
 }

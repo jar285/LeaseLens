@@ -1,6 +1,8 @@
 # Sprint 23c — Conversation Workspace (Center Pane Redesign)
 
-**Status:** Draft, awaiting human QA per charter §7 step 1.
+> **STATUS: SHELVED** — Designed on the `feature/ui` branch and never merged. Chat moved into the floating `AssistantFab` drawer in Sprint 26c; the three-pane "center pane" no longer exists. Kept here as historical design exploration; do not implement.
+
+**Status:** Shelved (not merged; superseded by Sprint 26c).
 **Date:** 2026-05-13.
 **Branch:** `feature/ui`.
 **Parent handoff:** [handoff.md](../../../handoff.md) §13 (center pane direction), §15 (composer), §16 (scan activity), §18 (copy + tone).

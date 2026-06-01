@@ -1,5 +1,7 @@
 # LeaseLens UI/UX Audit — Sprint 16A
 
+> **STATUS: SUPERSEDED (2026-05-29).** This audit was written against the pre-Sprint-26 three-pane workspace shell (`LeaseLensWorkspaceShell` — PDF / Chat / RedFlagReport in one grid). That shell is now dead production code. Sprint 26 pivoted to the parser-first router (`WorkspaceRouterShell` → `ParserLandingShell` / `ParserResultsShell`) with chat in a floating `AssistantFab` drawer. Most of the P0/P1 items below shipped in Sprints 17–18; the rest were either superseded by the Sprint 26 pivot or moved to a fresh post-Sprint-33 audit. **The risk-ranking framework remains a reusable model; the specific findings do not describe the current UI.** When you need a current audit, write one against the live shells in [`src/components/lease/`](../src/components/lease/) and [`src/components/chat/AssistantFab.tsx`](../src/components/chat/AssistantFab.tsx).
+
 **Status:** Sprint 16A documentation, post-Sprint-16B codebase (six shared primitives shipped).
 **Cross-references:** [`design-system/MASTER.md`](../design-system/MASTER.md), [`design-system/pages/*`](../design-system/pages/), [`docs/ui-ux-modernization-plan.md`](ui-ux-modernization-plan.md).
 

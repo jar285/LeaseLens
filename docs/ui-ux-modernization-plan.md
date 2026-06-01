@@ -1,5 +1,7 @@
 # LeaseLens UI/UX Modernization — Sprint Roadmap
 
+> **STATUS: CLOSED ROADMAP (2026-05-29).** This roadmap covers Sprints 16A–19. Sprints 16A–18 shipped; Sprint 19 (paste-text fallback) was deferred. The project has since executed Sprints 23, 26–33, including the parser-first pivot (Sprint 26 → `WorkspaceRouterShell` + `AssistantFab`) and the FAB chat refactor (Sprint 29). For the current forward-looking direction, read [`docs/_specs/sprint-29-fab-refactor/spec.md`](_specs/sprint-29-fab-refactor/spec.md) and the in-progress sprint folder. **The sections below are historical record of the Sprint 16–19 plan, kept for traceability — they are not the current roadmap.**
+
 **Status:** Sprint 16A documentation, ready for Sprint 16B kickoff.
 **Cross-references:** [`design-system/MASTER.md`](../design-system/MASTER.md), [`design-system/pages/*`](../design-system/pages/), [`docs/ui-ux-audit.md`](ui-ux-audit.md).
 

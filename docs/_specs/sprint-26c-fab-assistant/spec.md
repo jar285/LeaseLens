@@ -1,6 +1,6 @@
 # Sprint 26c — Assistant FAB Extraction
 
-**Status:** Draft, awaiting human QA.
+**Status:** Shipped on main (Sprint 26c, 2026-05-17).
 **Date:** 2026-05-17.
 **Branch:** `feature/cockpit` (continuation from Sprint 26b).
 **Parent plan:** [agile-hugging-forest plan in ~/.claude/plans/](../../../) — LeaseLens UI Pivot.

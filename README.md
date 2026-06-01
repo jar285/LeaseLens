@@ -393,9 +393,12 @@ ContentOps/
 │   │   ├── cockpit/                      # /cockpit dashboard (Reviewer + Admin)
 │   │   └── page.tsx                      # Home — parser-first workspace shell (Mode A→B router)
 │   ├── components/
-│   │   ├── chat/                         # ChatUI, ChatMessage, ToolCard, MermaidDiagram
+│   │   ├── chat/                         # AssistantFab + drawer, ChatUI, ChatTranscript,
+│   │   │                                 # ChatMessage, ToolCard, MermaidDiagram
 │   │   ├── cockpit/                      # AuditFeed, Schedule, Spend, EvalHealth panels
-│   │   ├── lease/                        # PdfViewer, RedFlagReport, CitationChip, dropzone
+│   │   ├── lease/                        # WorkspaceRouterShell, ParserLandingShell,
+│   │   │                                 # ParserResultsShell, PdfViewer, RedFlagReport,
+│   │   │                                 # ClausesList, AutoScanRunner, CitationChip
 │   │   └── workspaces/                   # workspace switcher + onboarding
 │   ├── corpus/
 │   │   ├── nj-tenant-law/                # 28 NJ tenant-law markdown sources
@@ -431,7 +434,7 @@ ContentOps/
 
 LeaseLens is built sprint-by-sprint with a spec → QA → sprint plan → implementation → QA loop. All artifacts live in [`docs/_specs/`](docs/_specs/).
 
-Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases while preserving every architectural invariant. Sprint 14 hardened the eval harness with Tier 2 lease grading. Sprints 15–22 built out the design system (Tailwind v4 tokens, MASTER.md, Source Serif 4), the tenant-friendly conversational scan UX, and PDF reading controls. The Sprint 23 series modernised the three-pane workspace pane by pane — UI foundation tokens (23a), document dock (23b), conversation workspace (23c), risk-radar rail (23d), chat memory (23e), negotiation-email card (23f) — and 23g–k landed an Open-Design-inspired editorial brand refresh: cream-paper + terracotta palette in both modes, Source Serif 4 weight 700 + italic for the display-serif hero, ink-blue citation token, motion-preset module, accessible PDF page navigation (Prev/Next buttons + ArrowLeft/Right keyboard), and an `animate-ping` ripple on the LIVE status indicator. Vercel deployment and the Loom walkthrough remain the closeout work.
+Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases while preserving every architectural invariant. Sprint 14 hardened the eval harness with Tier 2 lease grading. Sprints 15–22 built out the design system (Tailwind v4 tokens, MASTER.md, Source Serif 4), the tenant-friendly conversational scan UX, and PDF reading controls. The Sprint 23 series modernised what was then a three-pane workspace pane by pane (23a–23f), then 23g–k landed an Open-Design-inspired editorial brand refresh: cream-paper + terracotta palette, Source Serif 4 weight 700 + italic, ink-blue citation token, motion-preset module, accessible PDF page navigation, and an `animate-ping` ripple on the LIVE status indicator. **Sprints 26a–26c pivoted the workspace from the three-pane shell to the parser-first router (`WorkspaceRouterShell` → `ParserLandingShell` for Mode A / `ParserResultsShell` for Mode B), with chat extracted into a floating `AssistantFab` drawer.** Sprints 27–28 hardened FAB persistence, added the tenant-only production header, and ran a bug-triage round. Sprint 29 (29.1–29.13) refactored the FAB + chat assistant production UX. Sprint 30 switched the theme flip to the View Transitions API with a double-rAF fallback. Sprint 31 disambiguated lease metadata in the system prompt to stop the "scan already done" hallucination. Sprint 32 forced `tool_choice` on auto-scan and added a dev-only per-call diagnostic. Sprint 33 (in progress on `feature/fab-menu`) iterates on the FAB chat surface. Vercel deployment and the Loom walkthrough remain the closeout work.
 
 | Sprint | Scope | Status |
 |--------|-------|--------|
@@ -468,6 +471,11 @@ Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG 
 | 26c | Floating AssistantFab — FAB context + card/row action prompts (Explain, Draft email) | Complete |
 | 27 | FAB persistence (draft + conversation survive close→open), tenant-only header, six-stage scan loading | Complete |
 | 28 | Bug triage — scan animation lifecycle (Bug 2), parser/assistant state split into `LeaseParserContext` (Bug 3), `ParserResultsShell` layout restructure (Bug 1), aria-live announcement on "New conversation", confirmation gate on Replace | Complete |
+| 29 | FAB + chat assistant production UX refactor (29.1–29.13) — focus management, drawer transitions, composer behavior, accessibility polish | Complete |
+| 30 | Smoother theme flip via View Transitions API + double-rAF fallback for browsers without support | Complete |
+| 31 | Disambiguate lease metadata in the system prompt to stop the "scan already done" hallucination | Complete |
+| 32 | Force `tool_choice` on auto-scan turns + dev-only per-call diagnostic | Complete |
+| 33 | FAB chat pivot — currently in progress on `feature/fab-menu` | In progress |
 
 ---
 

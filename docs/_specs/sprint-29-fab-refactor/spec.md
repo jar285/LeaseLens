@@ -1,6 +1,6 @@
 # Sprint 29 — FAB + Chat Assistant Production UX Refactor
 
-**Status:** In progress on `feature/fab-menu`. Sprint 29.1 landed (this commit); 29.2–29.7 queued per the parent plan.
+**Status:** Shipped on main through Sprint 29.13 (b2f7d8c). See recent commits for the full 29.1–29.13 sequence.
 **Date range:** 2026-05-26 → (open).
 **Branch:** `feature/fab-menu` (forked from `feature/cockpit` after Sprint 28 closed).
 **Parent plan:** [`~/.claude/plans/please-review-my-current-fizzy-lampson.md`](../../../).

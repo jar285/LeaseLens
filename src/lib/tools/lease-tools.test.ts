@@ -525,6 +525,143 @@ describe('grade_clause_severity tool', () => {
     });
   });
 
+  // Sprint 34.3 — markdown-aware + cross-chunk grounding. The corpus
+  // bolds/italicises citations inconsistently, so a verbatim substring
+  // check fails when an emphasis marker lands mid-citation (e.g. the
+  // body has "*Marini v. Ireland*, 56 N.J. 130 (1970)"). And the model
+  // may label one chunk while the citation is verbatim in a DIFFERENT
+  // retrieved chunk. Both are grounded in the retrieved context; recover
+  // them. A citation in NO retrieved chunk still rejects.
+  describe('Sprint 34.3 — markdown-aware + cross-chunk grounding', () => {
+    it('E.1 — accepts a citation broken by markdown italics in the chunk body', async () => {
+      const docId = seedDocument(db, 'repair-and-deduct');
+      const chunkId = 'repair-and-deduct#section:1';
+      seedChunk(db, docId, {
+        id: chunkId,
+        // Italic markers wrap just the case NAME, so "Marini v. Ireland,"
+        // is broken by the `*` before the comma — verbatim includes fails.
+        content:
+          'When a landlord fails to make repairs, the tenant may repair and deduct the cost from rent. The remedy was established in *Marini v. Ireland*, 56 N.J. 130 (1970).',
+        index: 1,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          statute_citation: 'Marini v. Ireland, 56 N.J. 130 (1970)',
+          chunk_id: chunkId,
+          reasoning: 'Disclaims the warranty of habitability.',
+          recommended_action: 'Strike the AS-IS disclaimer.',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      const result = (await tool.execute(
+        { clause_id: clauseId },
+        ctx('Tenant', TENANT_ID),
+      )) as { severity: string; statute_citation: string; chunk_id: string };
+      expect(result.severity).toBe('high');
+      expect(result.statute_citation).toMatch(/Marini v\. Ireland/);
+      expect(result.chunk_id).toBe(chunkId);
+    });
+
+    it('E.1 — a bold whole-citation still matches (no regression from stripping)', async () => {
+      const docId = seedDocument(db, 'habitability-warranty');
+      const chunkId = 'habitability-warranty#section:1';
+      seedChunk(db, docId, {
+        id: chunkId,
+        content:
+          'A clause that disclaims the warranty is unenforceable per **Marini v. Ireland, 56 N.J. 130 (1970)**.',
+        index: 1,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          statute_citation: 'Marini v. Ireland, 56 N.J. 130 (1970)',
+          chunk_id: chunkId,
+          reasoning: 'r',
+          recommended_action: 'a',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      const result = (await tool.execute(
+        { clause_id: clauseId },
+        ctx('Tenant', TENANT_ID),
+      )) as { severity: string };
+      expect(result.severity).toBe('high');
+    });
+
+    it('E.2 — accepts a citation verbatim in a DIFFERENT retrieved chunk and re-points chunk_id', async () => {
+      const repairDoc = seedDocument(db, 'repair-and-deduct');
+      const citedChunkId = 'repair-and-deduct#section:1';
+      seedChunk(db, repairDoc, {
+        id: citedChunkId,
+        content:
+          'Repair-and-deduct lets a tenant deduct the reasonable cost of repairs from the next month rent.',
+        index: 1,
+        level: 'section',
+      });
+      const habDoc = seedDocument(db, 'habitability-warranty');
+      const otherChunkId = 'habitability-warranty#section:1';
+      seedChunk(db, habDoc, {
+        id: otherChunkId,
+        content:
+          'The implied warranty of habitability was announced in Marini v. Ireland, 56 N.J. 130 (1970).',
+        index: 1,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          // Verbatim in the habitability chunk, but the model labeled the
+          // repair-and-deduct chunk.
+          statute_citation: 'Marini v. Ireland, 56 N.J. 130 (1970)',
+          chunk_id: citedChunkId,
+          reasoning: 'r',
+          recommended_action: 'a',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      const result = (await tool.execute(
+        { clause_id: clauseId },
+        ctx('Tenant', TENANT_ID),
+      )) as { statute_citation: string; chunk_id: string };
+      expect(result.statute_citation).toMatch(/Marini v\. Ireland/);
+      // Re-pointed to the chunk where the citation actually lives.
+      expect(result.chunk_id).toBe(otherChunkId);
+    });
+
+    it('P3c boundary — a citation in NO retrieved chunk still rejects (even after emphasis-stripping)', async () => {
+      const docId = seedDocument(db, 'repair-and-deduct');
+      const chunkId = 'repair-and-deduct#section:1';
+      seedChunk(db, docId, {
+        id: chunkId,
+        // No case named anywhere in the retrieved context.
+        content:
+          'Repair-and-deduct lets a tenant deduct the reasonable cost of repairs from the next month rent.',
+        index: 1,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          statute_citation: 'Marini v. Ireland, 56 N.J. 130 (1970)',
+          chunk_id: chunkId,
+          reasoning: 'r',
+          recommended_action: 'a',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      await expect(
+        tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
+      ).rejects.toThrow(/statute|citation|grounded/i);
+    });
+  });
+
   it('throws when Tenant tries to grade a clause on a lease they did not upload', async () => {
     seedTenantLawCorpusChunk(db);
     const { clauseId } = seedSampleLease(db, REVIEWER_ID);

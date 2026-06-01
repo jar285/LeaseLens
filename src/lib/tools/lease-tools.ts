@@ -210,6 +210,17 @@ function normaliseCitation(s: string): string {
     .trim();
 }
 
+// Sprint 34.3 (E.1) — normalise a chunk body / citation for the grounding
+// substring match: lowercase, strip markdown emphasis markers (*, _, `)
+// — they're presentation, not content, and the corpus emphasises citations
+// inconsistently (`**whole citation**` vs `*case name*,`) — then collapse
+// whitespace. Stripping only REMOVES characters, so a citation newly
+// matches ONLY when the sole difference was emphasis/whitespace; a citation
+// genuinely absent from the body still fails.
+function normaliseForGrounding(s: string): string {
+  return s.toLowerCase().replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 function humaniseChunkPointer(chunkId: string): string {
   const match = CHUNK_POINTER_RE.exec(chunkId);
   if (!match) return chunkId;
@@ -274,7 +285,6 @@ function validateGrading(
   // if ANY part appears verbatim in the chunk body. Canonicalise the
   // stored citation to the first matching part so the card shows the
   // grounded portion, not the concatenated soup.
-  const haystack = cited.content.toLowerCase().replace(/\s+/g, ' ');
   // Sprint 34.2 (D.3) — also split on a whitespace-bounded dash (em `—`,
   // en `–`, or spaced hyphen ` - `), so a "Label — NJSA …" concatenation
   // isolates the grounded statute part. Spaces on BOTH sides are required
@@ -283,12 +293,27 @@ function validateGrading(
     .split(/\s*[;&]\s*|\s+(?:and|[—–-])\s+/i)
     .map((s) => s.trim())
     .filter(Boolean);
-  for (const part of parts) {
-    const needle = part.toLowerCase().replace(/\s+/g, ' ');
-    if (haystack.includes(needle)) {
-      // Single-part match → existing behaviour (return unchanged).
-      // Multi-part match → canonicalise to the matched part.
-      return parts.length === 1 ? raw : { ...raw, statute_citation: part };
+  // Sprint 34.3 — the citation is grounded if a part appears (modulo
+  // markdown emphasis + whitespace, per normaliseForGrounding — E.1) in the
+  // body of ANY chunk the model was shown (E.2), not only the labeled one.
+  // Try the cited chunk first (preferred attribution), then the rest; on a
+  // cross-chunk hit, re-point chunk_id to where the evidence actually lives.
+  const orderedChunks = [
+    cited,
+    ...retrieved.filter((c) => c.chunkId !== cited.chunkId),
+  ];
+  for (const chunk of orderedChunks) {
+    const haystack = normaliseForGrounding(chunk.content);
+    for (const part of parts) {
+      const needle = normaliseForGrounding(part);
+      // `needle &&` guards against a part that is only emphasis/whitespace
+      // normalising to '' (includes('') is always true) — a false accept.
+      if (needle && haystack.includes(needle)) {
+        // Single-part match → citation unchanged; multi-part → canonicalise
+        // to the matched part; cross-chunk → re-point chunk_id.
+        const citation = parts.length === 1 ? raw.statute_citation : part;
+        return { ...raw, statute_citation: citation, chunk_id: chunk.chunkId };
+      }
     }
   }
 

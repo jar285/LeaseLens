@@ -361,6 +361,170 @@ describe('grade_clause_severity tool', () => {
     });
   });
 
+  // Sprint 34.2 — chunk-identity citation forms. Extends 34.1: the model
+  // sometimes cites a chunk by its IDENTITY rather than verbatim statute
+  // text — either the chunk pointer wrapped in a label (D.1) or the
+  // de-slugged chunk title (D.2). Both refer to the already-validated
+  // cited chunk, so accept + canonicalise. A citation asserting EXTERNAL
+  // authority absent from the chunk (e.g. a real case not in the body)
+  // still rejects — that boundary is load-bearing for source-grounding.
+  describe('Sprint 34.2 — chunk-identity citation forms', () => {
+    it('D.1 — accepts a label-prefixed chunk pointer (chunk_id embedded in the citation)', async () => {
+      const docId = seedDocument(db, 'early-termination-general');
+      const chunkId = 'early-termination-general#section:1';
+      seedChunk(db, docId, {
+        id: chunkId,
+        content:
+          'In a typical New Jersey residential tenancy, early termination is governed by the lease and reasonableness limits apply to any fee.',
+        index: 1,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          // chunk_id embedded after a humanised label + em-dash.
+          statute_citation: `Early Termination — ${chunkId}`,
+          chunk_id: chunkId,
+          reasoning: 'Three months rent exceeds the enforceable cap.',
+          recommended_action: 'Negotiate the early-termination fee down.',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      const result = (await tool.execute(
+        { clause_id: clauseId },
+        ctx('Tenant', TENANT_ID),
+      )) as { severity: string; statute_citation: string };
+      expect(result.severity).toBe('high');
+      // Canonicalised to the humanised label, not the raw pointer string.
+      expect(result.statute_citation).toMatch(/Early termination/i);
+      expect(result.statute_citation).toContain('§1');
+      expect(result.statute_citation).not.toContain('#section:');
+    });
+
+    it('D.2 — accepts the de-slugged chunk title as the citation', async () => {
+      const docId = seedDocument(db, 'attorneys-fees-clauses');
+      const chunkId = 'attorneys-fees-clauses#section:1';
+      seedChunk(db, docId, {
+        id: chunkId,
+        // Body does NOT contain the literal title phrase, and avoids the
+        // word "fees" so the substring (A.2) path cannot match.
+        content:
+          "Many NJ residential leases shift the landlord's legal costs onto the tenant regardless of who prevails; one-way cost-shifting is disfavored.",
+        index: 1,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'medium',
+          // The de-slugged chunk name (with an added apostrophe), not a statute.
+          statute_citation: "Attorneys' Fees Clauses",
+          chunk_id: chunkId,
+          reasoning: 'One-way attorney cost-shifting is disfavored.',
+          recommended_action: 'Make the clause reciprocal.',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      const result = (await tool.execute(
+        { clause_id: clauseId },
+        ctx('Tenant', TENANT_ID),
+      )) as { severity: string; statute_citation: string };
+      expect(result.severity).toBe('medium');
+      expect(result.statute_citation).toMatch(/Attorneys fees clauses/i);
+      expect(result.statute_citation).toContain('§1');
+    });
+
+    it('D.2 tightness — a PARTIAL title is not enough (still rejects)', async () => {
+      const docId = seedDocument(db, 'attorneys-fees-clauses');
+      const chunkId = 'attorneys-fees-clauses#section:1';
+      seedChunk(db, docId, {
+        id: chunkId,
+        content:
+          "Many NJ residential leases shift the landlord's legal costs onto the tenant regardless of who prevails; one-way cost-shifting is disfavored.",
+        index: 1,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'low',
+          statute_citation: 'Clauses', // partial — not the full de-slugged title
+          chunk_id: chunkId,
+          reasoning: 'r',
+          recommended_action: 'a',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      await expect(
+        tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
+      ).rejects.toThrow(/statute|citation|grounded/i);
+    });
+
+    it('D.3 — accepts an em-dash label+statute concatenation when the statute part is in the body', async () => {
+      const docId = seedDocument(db, 'late-fees-general');
+      const chunkId = 'late-fees-general#section:5';
+      seedChunk(db, docId, {
+        id: chunkId,
+        // The statute "NJSA 56:8-1 et seq." IS verbatim in the body; the
+        // model just joins it to a label with an em-dash (no semicolon).
+        content:
+          'Late fees over 5% of monthly rent are presumptively unconscionable under NJSA 56:8-1 et seq.',
+        index: 5,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          // Label — statute joined by an em-dash (A.2 previously split
+          // only on ;/&/and, so it never isolated the grounded part).
+          statute_citation: 'Late Fees on Rent — NJSA 56:8-1 et seq.',
+          chunk_id: chunkId,
+          reasoning: 'Late fee structure is unconscionable.',
+          recommended_action: 'Negotiate a reasonable cap.',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      const result = (await tool.execute(
+        { clause_id: clauseId },
+        ctx('Tenant', TENANT_ID),
+      )) as { statute_citation: string };
+      // Canonicalised to the grounded statute part; the label is dropped.
+      expect(result.statute_citation).toMatch(/NJSA 56:8-1/i);
+      expect(result.statute_citation).not.toMatch(/Late Fees on Rent/i);
+    });
+
+    it('P3 boundary — external authority absent from the cited chunk still rejects', async () => {
+      const docId = seedDocument(db, 'repair-and-deduct');
+      const chunkId = 'repair-and-deduct#section:1';
+      seedChunk(db, docId, {
+        id: chunkId,
+        // Body about the repair-and-deduct remedy; does NOT contain "Marini".
+        content:
+          "When a landlord fails to make repairs that are the landlord's responsibility, the tenant may in some circumstances repair the condition and deduct the reasonable cost from rent.",
+        index: 1,
+        level: 'section',
+      });
+      const { clauseId } = seedSampleLease(db);
+      const anthropic = buildAnthropicMock(
+        JSON.stringify({
+          severity: 'high',
+          // A real case the model attached to a chunk that doesn't contain
+          // it — neither the chunk's identity nor in its body.
+          statute_citation: 'Marini v. Ireland, 56 N.J. 130 (1970)',
+          chunk_id: chunkId,
+          reasoning: 'r',
+          recommended_action: 'a',
+        }),
+      );
+      const tool = createGradeClauseSeverityTool(db, anthropic);
+      await expect(
+        tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
+      ).rejects.toThrow(/statute|citation|grounded/i);
+    });
+  });
+
   it('throws when Tenant tries to grade a clause on a lease they did not upload', async () => {
     seedTenantLawCorpusChunk(db);
     const { clauseId } = seedSampleLease(db, REVIEWER_ID);

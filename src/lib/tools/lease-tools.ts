@@ -187,18 +187,38 @@ ${chunkBlock}`;
  * it unchanged (defensive: future shapes shouldn't be silently mangled).
  */
 const CHUNK_POINTER_RE = /^([a-z0-9-]+)#section:(\d+)$/;
+
+// Sprint 34.2 — the slug words behind a chunk pointer, e.g.
+// "attorneys-fees-clauses#section:1" → ["attorneys", "fees", "clauses"].
+// Shared by humaniseChunkPointer (label form) and the D.2 title match so
+// the slug→words rule lives in one place.
+function chunkSlugWords(chunkId: string): string[] {
+  const match = CHUNK_POINTER_RE.exec(chunkId);
+  if (!match) return [];
+  return match[1]
+    .replace(/-general$/, '')
+    .split('-')
+    .filter(Boolean);
+}
+
+// Sprint 34.2 — normalise a citation/title to a comparable token stream:
+// lowercase, collapse any non-alphanumeric run to a single space, trim.
+function normaliseCitation(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 function humaniseChunkPointer(chunkId: string): string {
   const match = CHUNK_POINTER_RE.exec(chunkId);
   if (!match) return chunkId;
-  const slug = match[1];
-  const section = match[2];
-  const cleanSlug = slug.replace(/-general$/, '');
-  const words = cleanSlug.split('-').filter(Boolean);
+  const words = chunkSlugWords(chunkId);
   if (words.length === 0) return chunkId;
   const phrase = words
     .map((w, i) => (i === 0 ? (w[0]?.toUpperCase() ?? '') + w.slice(1) : w))
     .join(' ');
-  return `${phrase} (NJ tenant-law corpus, §${section})`;
+  return `${phrase} (NJ tenant-law corpus, §${match[2]})`;
 }
 
 function validateGrading(
@@ -238,7 +258,14 @@ function validateGrading(
   // the citation to a humanised, domain-readable label so the right-
   // pane card surfaces something meaningful (e.g. "Late fees (NJ
   // tenant-law corpus, §5)") instead of the raw chunk identifier.
-  if (raw.statute_citation === raw.chunk_id) {
+  //
+  // Sprint 34.2 (D.1) — generalised from `=== chunk_id` to
+  // `includes(chunk_id)`: the model also wraps the pointer in a label
+  // (e.g. "Early Termination — early-termination-general#section:1").
+  // The chunk_id (slug#section:N) won't occur coincidentally in a real
+  // statute string, so an includes-match is still a grounded chunk
+  // reference. Exact match is a subset → behaviour-preserving for 34.1.
+  if (raw.statute_citation.includes(raw.chunk_id)) {
     return { ...raw, statute_citation: humaniseChunkPointer(raw.chunk_id) };
   }
 
@@ -248,8 +275,12 @@ function validateGrading(
   // stored citation to the first matching part so the card shows the
   // grounded portion, not the concatenated soup.
   const haystack = cited.content.toLowerCase().replace(/\s+/g, ' ');
+  // Sprint 34.2 (D.3) — also split on a whitespace-bounded dash (em `—`,
+  // en `–`, or spaced hyphen ` - `), so a "Label — NJSA …" concatenation
+  // isolates the grounded statute part. Spaces on BOTH sides are required
+  // so intra-token hyphens (NJSA 56:8-1, repair-and-deduct) are untouched.
   const parts = raw.statute_citation
-    .split(/\s*[;&]\s*|\s+and\s+/i)
+    .split(/\s*[;&]\s*|\s+(?:and|[—–-])\s+/i)
     .map((s) => s.trim())
     .filter(Boolean);
   for (const part of parts) {
@@ -259,6 +290,21 @@ function validateGrading(
       // Multi-part match → canonicalise to the matched part.
       return parts.length === 1 ? raw : { ...raw, statute_citation: part };
     }
+  }
+
+  // Sprint 34.2 (D.2) — de-slugged chunk title. The model sometimes cites
+  // the chunk by its own NAME (the de-slugged chunk_id, e.g. "Attorneys'
+  // Fees Clauses") rather than verbatim statute text. That still refers to
+  // the already-validated cited chunk, so accept and canonicalise to the
+  // humanised label. EXACT normalised equality only — a partial or looser
+  // match falls through to rejection so a fabricated citation can't sneak
+  // in by coincidentally overlapping the slug words.
+  const slugPhrase = chunkSlugWords(raw.chunk_id).join(' ');
+  if (
+    slugPhrase &&
+    normaliseCitation(raw.statute_citation) === normaliseCitation(slugPhrase)
+  ) {
+    return { ...raw, statute_citation: humaniseChunkPointer(raw.chunk_id) };
   }
 
   if (process.env.NODE_ENV !== 'production') {

@@ -20,8 +20,14 @@ import {
   ChatStreamProvider,
   type ToolEvent,
 } from '@/components/chat/ChatStreamContext';
+import type { GradingResult } from './grading';
 import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
-import { RedFlagReport } from './RedFlagReport';
+import {
+  draftEmailPromptFor,
+  explainPromptFor,
+  plainEnglishPromptFor,
+  RedFlagReport,
+} from './RedFlagReport';
 
 afterEach(cleanup);
 
@@ -845,5 +851,113 @@ describe('Sprint 26c — RedFlagReport card actions wire into AssistantFabContex
     expect(ctx.fab?.selection.clauseId).toBe('c1');
     expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('draft');
     expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('email');
+  });
+});
+
+describe('Sprint 35 — Plain English card action', () => {
+  afterEach(cleanup);
+
+  function renderWithFab(events: ToolEvent[]): {
+    fab: ReturnType<typeof useAssistantFab> | null;
+  } {
+    const ref: { fab: ReturnType<typeof useAssistantFab> | null } = {
+      fab: null,
+    };
+    function Probe(): null {
+      ref.fab = useAssistantFab();
+      return null;
+    }
+    render(
+      <AssistantFabProvider>
+        <LeaseParserProvider initialEvents={events}>
+          <ChatStreamProvider>
+            <Probe />
+            <RedFlagReport />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
+      </AssistantFabProvider>,
+    );
+    return ref;
+  }
+
+  const g = grade().result as GradingResult;
+
+  // Wording pins — all three prompt helpers are centralized; lock them so the
+  // copy (and the grounding contract) cannot silently drift.
+  describe('prompt helpers stay centralized + grounded', () => {
+    it('plainEnglishPromptFor: jargon-free + tenant-facing, but keeps the verbatim citation', () => {
+      const p = plainEnglishPromptFor(g);
+      expect(p.toLowerCase()).toContain('plain english');
+      expect(p.toLowerCase()).toContain('jargon');
+      expect(p.toLowerCase()).toContain('tenant');
+      // Grounding anchor MUST survive into the prompt — simplify the language,
+      // not the law.
+      expect(p).toContain('NJ Stat 46:8-21.2');
+      expect(p.toLowerCase()).toMatch(
+        /do not change|do not soften|not.*soften/,
+      );
+      // Must NOT invite the model to loosen / waive the law.
+      expect(p).not.toMatch(
+        /\b(ignore|loosen|disregard|not enforceable|doesn'?t apply|you can waive)\b/i,
+      );
+    });
+
+    it('explainPromptFor: still the statute-verbatim walkthrough (unchanged by the relabel)', () => {
+      const p = explainPromptFor(g);
+      expect(p).toContain('NJ Stat 46:8-21.2');
+      expect(p.toLowerCase()).toContain('verbatim');
+      expect(p.toLowerCase()).toContain('statute');
+    });
+
+    it('draftEmailPromptFor: still drafts a citation-bearing negotiation email', () => {
+      const p = draftEmailPromptFor(g);
+      expect(p).toContain('NJ Stat 46:8-21.2');
+      expect(p.toLowerCase()).toContain('email');
+    });
+  });
+
+  it('renders a distinct "Plain English" pill that opens the drawer with a grounded plain-language prompt', () => {
+    const ctx = renderWithFab([grade()]);
+    fireEvent.click(screen.getByTestId('red-flag-card-toggle'));
+    const plain = screen.getByTestId('red-flag-explain-plain');
+    expect(plain.tagName).toBe('BUTTON');
+    expect(plain).toHaveAttribute('type', 'button');
+    // Accessible name carries the action (icon is aria-hidden), and is NOT a
+    // bare "Explain" duplicate.
+    const actions = screen.getByTestId('red-flag-card-actions');
+    expect(
+      within(actions).getByRole('button', { name: /plain english/i }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(plain);
+    expect(ctx.fab?.state).toBe('drawer');
+    expect(ctx.fab?.selection.clauseId).toBe('c1');
+    expect(ctx.fab?.selection.severity).toBe('high');
+    expect(ctx.fab?.selection.statuteCitation).toBe('NJ Stat 46:8-21.2');
+    expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('plain english');
+    // Source-grounding pin: the citation context survives into the seeded prompt.
+    expect(ctx.fab?.pendingPrompt).toContain('NJ Stat 46:8-21.2');
+  });
+
+  it('relabels the statute walkthrough to "What the law says" (distinct from Plain English) but keeps its testid + prompt', () => {
+    const ctx = renderWithFab([grade()]);
+    fireEvent.click(screen.getByTestId('red-flag-card-toggle'));
+    const actions = screen.getByTestId('red-flag-card-actions');
+
+    // Same node (stable testid red-flag-explain), new visible/accessible name.
+    const statute = screen.getByTestId('red-flag-explain');
+    expect(statute).toHaveAccessibleName(/what the law says/i);
+    // No bare "Explain" pill remains, and the two explanation pills are distinct.
+    expect(
+      within(actions).queryByRole('button', { name: /^explain$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(actions).getByRole('button', { name: /what the law says/i }),
+    ).not.toBe(within(actions).getByRole('button', { name: /plain english/i }));
+
+    // Prompt unchanged: still the statute walkthrough.
+    fireEvent.click(statute);
+    expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('statute');
+    expect(ctx.fab?.pendingPrompt).toContain('NJ Stat 46:8-21.2');
   });
 });

@@ -17,10 +17,11 @@
 'use client';
 
 import {
+  BookOpen,
   ChevronDown,
   ExternalLink,
+  Languages,
   Mail,
-  MessageSquare,
   Paperclip,
 } from 'lucide-react';
 import {
@@ -60,6 +61,17 @@ export function explainPromptFor(g: GradingResult): string {
 export function draftEmailPromptFor(g: GradingResult): string {
   const label = clauseLabel(g);
   return `Draft a polite negotiation email to the landlord about ${label}. Cite ${g.statute_citation} and propose a specific edit.`;
+}
+
+// Sprint 35 — plain-English explanation, the tenant-facing sibling of
+// explainPromptFor (which is a statute-verbatim walkthrough). The grounding
+// contract is load-bearing: keep the verbatim ${statute_citation} and instruct
+// the model to simplify the LANGUAGE, never to change or soften what the law
+// requires. A sibling test pins this wording so the source-grounding can't drift.
+export function plainEnglishPromptFor(g: GradingResult): string {
+  const label = clauseLabel(g);
+  const severityWord = SEVERITY_LABEL[g.severity].toLowerCase();
+  return `Explain the ${severityWord} concern with ${label} in plain English, without legal jargon, as if to a tenant with no legal background. Stay grounded in ${g.statute_citation}: do not change or soften what the law actually requires — just make the meaning easy to understand. Tell me in everyday terms what this means for me as a tenant and what I can do about it.`;
 }
 
 import { computeScanVerdict } from '@/lib/lease/scan-verdict';
@@ -614,6 +626,14 @@ export function RedFlagReport(): React.JSX.Element {
                           <CardActions
                             grading={g}
                             onJumpToPage={jumpToClausePage}
+                            onExplainPlain={() =>
+                              fab.openWith({
+                                initialPrompt: plainEnglishPromptFor(g),
+                                clauseId: g.clause_id,
+                                severity: g.severity,
+                                statuteCitation: g.statute_citation,
+                              })
+                            }
                             onExplain={() =>
                               fab.openWith({
                                 initialPrompt: explainPromptFor(g),
@@ -650,6 +670,14 @@ export function RedFlagReport(): React.JSX.Element {
                     <CardActions
                       grading={g}
                       onJumpToPage={jumpToClausePage}
+                      onExplainPlain={() =>
+                        fab.openWith({
+                          initialPrompt: plainEnglishPromptFor(g),
+                          clauseId: g.clause_id,
+                          severity: g.severity,
+                          statuteCitation: g.statute_citation,
+                        })
+                      }
                       onExplain={() =>
                         fab.openWith({
                           initialPrompt: explainPromptFor(g),
@@ -786,14 +814,19 @@ export function RedFlagReport(): React.JSX.Element {
  * activeClauseId; once cleared, AnimatePresence runs the exit transition.
  */
 /*
- * Sprint 26c — expanded-card action row.
+ * Sprint 26c / 35 — expanded-card action row.
  *
- * Renders three buttons under the recommended-action paragraph:
- *   1. View on page N — preserved from prior sprints, calls scrollToPage
- *      on the PDF viewer ref.
- *   2. Explain — opens the FAB drawer with a clause-aware prompt
- *      explaining the severity + statute citation.
- *   3. Draft email — opens the FAB drawer with a draft-email prompt.
+ * Renders four buttons under the recommended-action paragraph, ordered by the
+ * tenant's decision flow (orient -> understand simply -> go to source -> act):
+ *   1. View on page N — preserved from prior sprints, calls scrollToPage.
+ *   2. Plain English (Sprint 35) — opens the FAB drawer with a jargon-free,
+ *      tenant-facing prompt (plainEnglishPromptFor). Parser-first / jargon-last,
+ *      so it sits first among the explanation pills.
+ *   3. What the law says — opens the FAB drawer with the statute-verbatim
+ *      walkthrough (explainPromptFor). Sprint 35 relabeled this from "Explain"
+ *      (+ BookOpen icon) to disambiguate it from Plain English; its testid
+ *      (red-flag-explain) + prompt are unchanged so unit + e2e selectors hold.
+ *   4. Draft email — opens the FAB drawer with a draft-email prompt.
  *
  * All buttons stopPropagation so they don't also collapse the card
  * (the parent toggle button covers the header + summary row, and the
@@ -802,11 +835,13 @@ export function RedFlagReport(): React.JSX.Element {
 function CardActions({
   grading,
   onJumpToPage,
+  onExplainPlain,
   onExplain,
   onDraftEmail,
 }: {
   grading: GradingResult;
   onJumpToPage: (g: GradingResult) => void;
+  onExplainPlain: () => void;
   onExplain: () => void;
   onDraftEmail: () => void;
 }): React.JSX.Element {
@@ -831,6 +866,25 @@ function CardActions({
           View on page {grading.page_number}
         </button>
       ) : null}
+      {/* Sprint 35 — plain-English first (parser-first / jargon-last). Distinct
+          Languages glyph + label so it never reads as a twin of the statute
+          pill below. */}
+      <button
+        type="button"
+        data-testid="red-flag-explain-plain"
+        onClick={(e) => {
+          e.stopPropagation();
+          onExplainPlain();
+        }}
+        className={pillClass}
+      >
+        <Languages className="h-3 w-3" aria-hidden="true" />
+        Plain English
+      </button>
+      {/* Sprint 35 — the original "Explain" pill is a statute-verbatim
+          walkthrough, so it's relabeled "What the law says" with a BookOpen
+          (source/statute) glyph to disambiguate from Plain English. Testid +
+          prompt are unchanged so unit + e2e selectors stay green. */}
       <button
         type="button"
         data-testid="red-flag-explain"
@@ -840,8 +894,8 @@ function CardActions({
         }}
         className={pillClass}
       >
-        <MessageSquare className="h-3 w-3" aria-hidden="true" />
-        Explain
+        <BookOpen className="h-3 w-3" aria-hidden="true" />
+        What the law says
       </button>
       <button
         type="button"

@@ -100,6 +100,12 @@ A portfolio piece targeting Forward Deployed, AI Product, and Applied AI enginee
 
 **Custom MCP server** at [`mcp/leaselens-server.ts`](mcp/leaselens-server.ts) exposes the registry over stdio for Claude Desktop, Cursor, or any MCP client.
 
+<img width="1439" height="717" alt="Screenshot 2026-06-02 at 1 11 51 AM" src="https://github.com/user-attachments/assets/30f53823-8a1d-49db-b55c-3a51c49332b0" />
+
+<img width="2048" height="1014" alt="image" src="https://github.com/user-attachments/assets/6480d62c-4e2c-4742-8c74-ac4598598d23" />
+
+
+
 ---
 
 ## Tech Stack

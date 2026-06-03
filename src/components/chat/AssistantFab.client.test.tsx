@@ -722,3 +722,265 @@ describe('AssistantFabClient', () => {
     });
   });
 });
+
+describe('Sprint 36 — context-sized display modes', () => {
+  const ACTIVE_LEASE = {
+    lease_id: 'L1',
+    filename: 'sample.pdf',
+    clause_count: 15,
+  };
+
+  function openDrawer(refs: ReturnType<typeof renderFab>): HTMLElement {
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    return screen.getByTestId('assistant-fab-drawer');
+  }
+
+  it('no lease → opens in compact-help mode (small panel)', () => {
+    const refs = renderFab(); // default IDLE, no lease
+    const drawer = openDrawer(refs);
+    expect(drawer.getAttribute('data-display-mode')).toBe('compact-help');
+    expect(drawer.className).toContain('w-[min(420px,calc(100vw-3rem))]');
+    expect(drawer.className).toContain('h-[min(480px,70vh)]');
+  });
+
+  it('lease attached → opens in workspace-drawer mode at the existing size (no regression)', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: ACTIVE_LEASE });
+    const drawer = openDrawer(refs);
+    expect(drawer.getAttribute('data-display-mode')).toBe('workspace-drawer');
+    expect(drawer.className).toContain('w-[min(560px,calc(100vw-3rem))]');
+    expect(drawer.className).toContain('lg:w-[min(620px,calc(100vw-3rem))]');
+    expect(drawer.className).toContain('h-[min(720px,80vh)]');
+  });
+
+  it('clicking Expand grows the drawer into expanded-reading mode', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: ACTIVE_LEASE });
+    const drawer = openDrawer(refs);
+    fireEvent.click(screen.getByTestId('assistant-fab-expand'));
+    expect(drawer.getAttribute('data-display-mode')).toBe('expanded-reading');
+    expect(drawer.className).toContain('w-[min(720px,calc(100vw-3rem))]');
+    expect(drawer.className).toContain('lg:w-[min(820px,calc(100vw-3rem))]');
+    // Sprint 36.1 — height is bounded by the space above the bottom-28 anchor
+    // (7rem) + a 2rem top inset, NOT a raw 92vh. A 92vh panel anchored 112px
+    // off the bottom pushes its header (Collapse/Close) above the viewport on
+    // any screen shorter than ~1400px, trapping the user in expanded mode.
+    expect(drawer.className).toContain('h-[min(900px,calc(100vh-9rem))]');
+    expect(drawer.className).not.toContain('h-[min(900px,92vh)]');
+  });
+
+  it('expanding does NOT reset the composer draft / prefill', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: ACTIVE_LEASE });
+    act(() => {
+      refs.fab?.openWith({ initialPrompt: 'Seed clause question' });
+    });
+    expect(
+      screen.getByTestId('chat-ui-mock').getAttribute('data-prefill'),
+    ).toBe('Seed clause question');
+    fireEvent.click(screen.getByTestId('assistant-fab-expand'));
+    // Same ChatUI instance, prefill untouched by the size toggle.
+    expect(
+      screen.getByTestId('chat-ui-mock').getAttribute('data-prefill'),
+    ).toBe('Seed clause question');
+    expect(refs.fab?.selection.clauseId ?? null).toBe(null);
+  });
+
+  it('no lease → the Expand button is not rendered (compact-help has nothing to expand)', () => {
+    const refs = renderFab();
+    openDrawer(refs);
+    expect(
+      screen.queryByTestId('assistant-fab-expand'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('Expand button is a ≥44px toggle with an accessible name + aria-pressed', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: ACTIVE_LEASE });
+    openDrawer(refs);
+    const expand = screen.getByTestId('assistant-fab-expand');
+    expect(expand.className).toContain('h-11');
+    expect(expand.className).toContain('w-11');
+    expect(expand.getAttribute('aria-label') ?? '').toMatch(/expand|collapse/i);
+    expect(expand.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(expand);
+    expect(expand.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('focus returns to the pill after expanding then closing; reopening is workspace size again', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: ACTIVE_LEASE });
+    const pill = screen.getByTestId('assistant-fab');
+    fireEvent.click(pill); // open via click so focus path is real
+    fireEvent.click(screen.getByTestId('assistant-fab-expand'));
+    act(() => {
+      refs.fab?.close();
+    });
+    expect(refs.fab?.state).toBe('closed');
+    expect(document.activeElement).toBe(pill);
+    // Reopen: expanded was reset on close, so we're back to workspace size.
+    fireEvent.click(pill);
+    expect(
+      screen
+        .getByTestId('assistant-fab-drawer')
+        .getAttribute('data-display-mode'),
+    ).toBe('workspace-drawer');
+  });
+
+  it('Escape still closes the drawer after expanding', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: ACTIVE_LEASE });
+    const drawer = openDrawer(refs);
+    fireEvent.click(screen.getByTestId('assistant-fab-expand'));
+    fireEvent.keyDown(drawer, { key: 'Escape' });
+    expect(refs.fab?.state).toBe('closed');
+    expect(drawer).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('carries a mobile-safe size class so small viewports never overflow', () => {
+    const refs = renderFab();
+    const drawer = openDrawer(refs);
+    expect(drawer.className).toContain('max-sm:w-[calc(100vw-2rem)]');
+    expect(drawer.className).toContain('max-sm:h-[min(85vh,calc(100vh-7rem))]');
+  });
+
+  it('uses the lighter hairline border + soft shadow instead of the heavy border (Refactoring UI / Rams)', () => {
+    const refs = renderFab();
+    const drawer = openDrawer(refs);
+    // Lighter: hairline-token border (auto-flips dark) + soft shadow-lg.
+    expect(drawer.className).toContain('border-border-hairline');
+    expect(drawer.className).toContain('shadow-lg');
+    // Heavier old treatment gone.
+    expect(drawer.className).not.toContain('border border-neutral-200');
+    expect(drawer.className).not.toContain('shadow-xl');
+  });
+});
+
+describe('Sprint 36.2 — drawer header typography', () => {
+  const LEASE = { lease_id: 'L1', filename: 'sample.pdf', clause_count: 15 };
+
+  it('titles the panel in the editorial serif with an italic emphasis word', () => {
+    const refs = renderFab();
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    const h2 = screen.getByRole('heading', { name: /leaselens assistant/i });
+    // Brand editorial register (Source Serif 4), not the prototype sans label.
+    expect(h2.className).toContain('font-serif');
+    expect(h2.className).toContain('font-bold');
+    expect(h2.className).not.toContain('text-[13px]');
+    // "assistant" is the italic emphasis word (the brand's one-italic signature).
+    const emphasis = h2.querySelector('.italic');
+    expect(emphasis?.textContent?.trim()).toBe('assistant');
+  });
+
+  it('renders the lease filename as a mono identifier in the Using bar, with muted metadata', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: LEASE });
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    const bar = screen.getByTestId('assistant-context-bar');
+    // Filename is a technical identifier → Geist Mono (MASTER.md).
+    const mono = bar.querySelector('.font-mono');
+    expect(mono?.textContent).toContain('sample.pdf');
+    // Visible text unchanged: metric + status still present (just muted).
+    expect(bar.textContent).toContain('15 clauses');
+    expect(bar.textContent).toContain('Scan complete');
+  });
+
+  it('keeps the "No lease attached" Using copy when no lease is present', () => {
+    const refs = renderFab();
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    const bar = screen.getByTestId('assistant-context-bar');
+    expect(bar.textContent).toContain('No lease attached');
+    // No mono filename token when there's no file.
+    expect(bar.querySelector('.font-mono')).toBeNull();
+  });
+});
+
+describe('Sprint 36.3 — USING metadata (tabular count + status dot)', () => {
+  const LEASE = { lease_id: 'L1', filename: 'sample.pdf', clause_count: 15 };
+
+  it('renders the clause count with tabular-nums (a designed metric, not flat text)', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: LEASE });
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    const bar = screen.getByTestId('assistant-context-bar');
+    const tabular = bar.querySelector('.tabular-nums');
+    expect(tabular?.textContent).toContain('15 clauses');
+  });
+
+  it('renders an animated radar status dot (nav LIVE style), success-tinted, before the status', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: LEASE });
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    const bar = screen.getByTestId('assistant-context-bar');
+    const dot = bar.querySelector('[data-testid="assistant-using-status-dot"]');
+    expect(dot).not.toBeNull();
+    // Text carries the meaning; the dot is decorative reinforcement (colour +
+    // motion never the only signal).
+    expect(dot).toHaveAttribute('aria-hidden', 'true');
+    // Two-layer radar ping like the masthead LIVE indicator, reduced-motion gated.
+    expect(dot?.innerHTML).toContain('motion-safe:animate-ping');
+    expect(dot?.innerHTML).toContain('bg-success-600'); // complete → success tone
+    expect(bar.textContent).toContain('Scan complete');
+    // The middle-dot separator after "clauses" is gone — the status now sits on
+    // its own, set apart by spacing, not another "·".
+    expect(bar.textContent).not.toContain('clauses · Scan');
+  });
+});
+
+describe('Sprint 36.4 — drawer open/close + resize motion', () => {
+  const LEASE = { lease_id: 'L1', filename: 'sample.pdf', clause_count: 15 };
+
+  it('animates with a fade + scale instead of an instant display toggle', () => {
+    const refs = renderFab();
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    const drawer = screen.getByTestId('assistant-fab-drawer');
+    // Transition covers fade (opacity), open/close (scale) AND the expand
+    // resize (width/height); scales from the pill corner; reduced-motion off.
+    expect(drawer.className).toContain(
+      'transition-[opacity,scale,width,height]',
+    );
+    expect(drawer.className).toContain('origin-bottom-right');
+    expect(drawer.className).toContain('motion-reduce:transition-none');
+    // First-mount enter (the drawer mounts straight into the open state, so it
+    // needs a @starting-style value to ease out of).
+    expect(drawer.className).toContain('starting:opacity-0');
+    // Open = settled.
+    expect(drawer.className).toContain('opacity-100');
+    expect(drawer.className).toContain('scale-100');
+    // No longer an instant display:none pop.
+    expect(drawer.className).not.toContain('pointer-events-none hidden');
+  });
+
+  it('eases OUT on close (opacity-0 + scale-95 + pointer-events-none), not display:none', () => {
+    const refs = renderFab({ activeLease: LEASE });
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    act(() => {
+      refs.fab?.close();
+    });
+    const drawer = screen.getByTestId('assistant-fab-drawer');
+    expect(drawer.className).toContain('opacity-0');
+    expect(drawer.className).toContain('scale-95');
+    expect(drawer.className).toContain('pointer-events-none');
+    // The bare display:none `hidden` is gone (it killed the exit transition);
+    // `overflow-hidden` legitimately remains, so match the standalone token.
+    expect(drawer.className).not.toMatch(/(?:^|\s)hidden(?:\s|$)/);
+    // Behaviour unchanged: still aria-hidden + mounted (draft survives).
+    expect(drawer).toHaveAttribute('aria-hidden', 'true');
+  });
+});

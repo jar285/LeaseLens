@@ -93,6 +93,10 @@ re-point the already-open drawer, or the drawer should pass through pointer even
 
 No drift.
 
+## Sprint 35.1 — verdict headline typography (follow-up polish)
+
+The red-flag verdict line (*"Low risk — 3 findings reviewed."*, [`red-flag-verdict`](../../../src/components/lease/RedFlagReport.tsx)) was typeset as body text (`text-sm font-medium`, Geist Sans) — flat for the load-bearing "is this lease bad?" answer. Promoted it to the brand's editorial-headline face per [MASTER.md](../../../design-system/MASTER.md) §typography (Source Serif 4 = headlines only): `text-balance font-serif text-lg font-bold tracking-tight`. Pure className change, no verdict logic touched. **+1 regression test** pins the editorial treatment (font-serif + font-bold + tracking-tight, not `text-sm`) so it can't silently revert to body sans. Suite **1144 → 1145**; gates green. Live-verified: computed `Source Serif 4 / 700 / 18px / -0.45px tracking` — [`screenshots/s35.1-verdict-editorial-serif.png`](screenshots/s35.1-verdict-editorial-serif.png).
+
 ## Carries / out of scope
 
 - **Sub-44px touch target** (D2): pre-existing pattern (shared `pillClass` + duplicate in

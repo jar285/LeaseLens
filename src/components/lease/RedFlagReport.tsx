@@ -391,7 +391,11 @@ export function RedFlagReport(): React.JSX.Element {
         {verdict.tier !== 'idle' ? (
           <p
             data-testid="red-flag-verdict"
-            className="text-sm font-medium text-fg-default leading-snug"
+            // Sprint 35.1 — the verdict is the load-bearing "is this lease bad?"
+            // answer, so it earns the brand's editorial-headline face (Source
+            // Serif 4 bold, tracking-tight) per MASTER.md — not body sans. Text
+            // is balanced so the em-dash clause doesn't orphan on wrap.
+            className="text-balance font-serif text-lg font-bold tracking-tight text-fg-default leading-snug"
           >
             {verdict.headline}
           </p>

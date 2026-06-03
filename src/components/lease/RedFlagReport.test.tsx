@@ -715,6 +715,25 @@ describe('RedFlagReport', () => {
       expect(verdict.textContent ?? '').toMatch(/Indemnification/i);
     });
 
+    it('typesets the verdict as an editorial headline (Source Serif), not body sans', () => {
+      // The verdict is the load-bearing "is this lease bad?" answer — it should
+      // read as a designed headline in the brand's editorial face (MASTER.md:
+      // font-serif = headlines only), not the old body-style text-sm sans.
+      render(
+        <ProviderWithEvents
+          events={[gradeWith({ severity: 'low', clause_index: 5 }, 'c1')]}
+        >
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const verdict = screen.getByTestId('red-flag-verdict');
+      expect(verdict.className).toMatch(/\bfont-serif\b/);
+      expect(verdict.className).toMatch(/\bfont-bold\b/);
+      expect(verdict.className).toMatch(/\btracking-tight\b/);
+      // No longer typeset as body text.
+      expect(verdict.className).not.toMatch(/\btext-sm\b/);
+    });
+
     it('renders a "balanced" verdict when no findings exceed ok severity', () => {
       render(
         <ProviderWithEvents

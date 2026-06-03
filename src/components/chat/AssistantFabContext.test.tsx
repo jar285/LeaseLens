@@ -36,6 +36,18 @@ function spyContext(): {
 }
 
 describe('AssistantFabContext', () => {
+  it('Sprint 36 — does NOT expose drawer-size state (compact/expanded lives local to the FAB)', () => {
+    // The context owns the open/close lifecycle + selection only. Drawer
+    // display-mode / expansion is pure presentation and stays as local state
+    // in AssistantFab.client — keep it OUT of the context so the open/close
+    // machinery and the parser/chat boundary stay clean.
+    const ctx = spyContext();
+    const keys = Object.keys(ctx.current ?? {});
+    expect(keys).not.toContain('expanded');
+    expect(keys).not.toContain('setExpanded');
+    expect(keys).not.toContain('displayMode');
+  });
+
   it('starts in the closed state with no pending prompt or selection', () => {
     const ctx = spyContext();
     expect(ctx.current).not.toBeNull();

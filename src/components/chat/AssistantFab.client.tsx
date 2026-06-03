@@ -10,8 +10,15 @@
 
 'use client';
 
-import { MessageCircle, X } from 'lucide-react';
-import { type KeyboardEvent, useEffect, useId, useMemo, useRef } from 'react';
+import { Maximize2, MessageCircle, Minimize2, X } from 'lucide-react';
+import {
+  type KeyboardEvent,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { clauseLabel, isGradingResult } from '@/components/lease/grading';
 import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { useScanLifecycle } from '@/components/lease/scan-lifecycle';
@@ -123,6 +130,46 @@ const QA_CHIPS: Chip[] = [
   },
 ];
 
+// Sprint 36 — context-sized drawer. The display mode is DERIVED (not a new
+// AssistantFabState): no lease → compact-help; user-expanded → expanded-reading;
+// else workspace-drawer (today's size, unchanged). Each maps to width/height
+// classes; a shared `max-sm:` suffix keeps every mode a safe near-fullscreen
+// sheet on phones. Reuses the existing min(…, calc(100vw-3rem)) clamp idiom.
+type DisplayMode = 'compact-help' | 'workspace-drawer' | 'expanded-reading';
+
+const SIZE_BY_MODE: Record<DisplayMode, string> = {
+  'compact-help': 'w-[min(420px,calc(100vw-3rem))] h-[min(480px,70vh)]',
+  'workspace-drawer':
+    'w-[min(560px,calc(100vw-3rem))] lg:w-[min(620px,calc(100vw-3rem))] h-[min(720px,80vh)]',
+  // Sprint 36.1 — height is clamped to the space ABOVE the bottom-28 anchor
+  // (7rem) plus a 2rem top inset → calc(100vh-9rem). A raw 92vh panel anchored
+  // 112px off the bottom pushes its top (the header with Collapse/Close) above
+  // the viewport on any screen shorter than ~1400px, leaving the user no way to
+  // collapse except closing the whole drawer. This keeps the header in view at
+  // every viewport while still using the full 900px on tall screens.
+  'expanded-reading':
+    'w-[min(720px,calc(100vw-3rem))] lg:w-[min(820px,calc(100vw-3rem))] h-[min(900px,calc(100vh-9rem))]',
+};
+
+const MOBILE_SAFE_SIZE =
+  'max-sm:w-[calc(100vw-2rem)] max-sm:h-[min(85vh,calc(100vh-7rem))]';
+
+// Sprint 36.4 — open/close + resize motion. The drawer stays mounted (drafts
+// persist), so a class-toggle CSS transition animates BOTH directions; the
+// `starting:` values ease the very first open (the drawer mounts straight into
+// the open state). Scales from the pill corner; reduced-motion disables it.
+const DRAWER_MOTION =
+  'origin-bottom-right transition-[opacity,scale,width,height] duration-200 ease-out starting:opacity-0 starting:scale-95 motion-reduce:transition-none';
+
+// Sprint 36.3 — scan-status dot, reusing the masthead "● LIVE" vocabulary.
+// Always paired with the status word, so colour is never the only signal.
+type StatusTone = 'complete' | 'scanning' | 'ready';
+const STATUS_DOT: Record<StatusTone, string> = {
+  complete: 'bg-success-600',
+  scanning: 'bg-accent-500',
+  ready: 'bg-neutral-400 dark:bg-neutral-500',
+};
+
 export function AssistantFabClient({
   workspaceName,
   conversationId,
@@ -138,6 +185,12 @@ export function AssistantFabClient({
   // and the drawer never closes via keyboard.
   const drawerRef = useRef<HTMLDivElement>(null);
   const headingId = useId();
+  // Sprint 36 — user-controlled "reading" expansion. Local state, NOT a
+  // context field: it's pure presentation (only changes the drawer's size
+  // classes). The drawer DOM + ChatUI instance persist across re-render, so
+  // toggling never resets messages/draft/selection. Reset on close (below) so
+  // reopening starts at the natural per-context size.
+  const [expanded, setExpanded] = useState(false);
 
   const chipContext: ChipContext = {
     hasActiveClause: parser.activeClauseId !== null,
@@ -153,28 +206,48 @@ export function AssistantFabClient({
   // a clause-specific affordance the user can't yet act on, and the
   // empty-state copy stays in lockstep with the chip row.
   //
-  // `usingLabel` answers "what is the assistant attached to?" — the
+  // `usingParts` answers "what is the assistant attached to?" — the
   // filename + clause count + scan-stage label, or a plain "No lease
   // attached" sentence when nothing is mounted. `focusLabel` answers
   // "is the assistant focused on a specific clause?" — it's null when
   // `fab.selection.clauseId` is unset, so the focus row disappears.
   const lifecycle = useScanLifecycle();
-  const usingLabel = useMemo(() => {
-    if (!parser.activeLease) return 'No lease attached';
-    const parts: string[] = [parser.activeLease.filename];
-    if (typeof parser.activeLease.clause_count === 'number') {
-      parts.push(
-        `${parser.activeLease.clause_count} ${parser.activeLease.clause_count === 1 ? 'clause' : 'clauses'}`,
-      );
+  // Sprint 36.2 — split into a mono filename (a technical identifier per
+  // MASTER.md) + muted metadata (clause count · scan stage), so the bar reads
+  // identity → metadata instead of one flat prototype-y run. `filename` is null
+  // when no lease, in which case `meta` carries the "No lease attached"
+  // sentence. Visible text is unchanged (textContent still joins on " · ").
+  const usingParts = useMemo((): {
+    filename: string | null;
+    clauseLabel: string | null;
+    status: string;
+    statusTone: StatusTone;
+  } => {
+    if (!parser.activeLease) {
+      return {
+        filename: null,
+        clauseLabel: null,
+        status: 'No lease attached',
+        statusTone: 'ready',
+      };
     }
-    const stageLabel =
+    const count = parser.activeLease.clause_count;
+    const clauseLabel =
+      typeof count === 'number'
+        ? `${count} ${count === 1 ? 'clause' : 'clauses'}`
+        : null;
+    const [status, statusTone]: [string, StatusTone] =
       lifecycle.stage === 'review_ready'
-        ? 'Scan complete'
+        ? ['Scan complete', 'complete']
         : lifecycle.stage === 'idle'
-          ? 'Ready'
-          : 'Scanning…';
-    parts.push(stageLabel);
-    return parts.join(' · ');
+          ? ['Ready', 'ready']
+          : ['Scanning…', 'scanning'];
+    return {
+      filename: parser.activeLease.filename,
+      clauseLabel,
+      status,
+      statusTone,
+    };
   }, [parser.activeLease, lifecycle.stage]);
   const focusLabel = useMemo(() => {
     if (!fab.selection.clauseId) return null;
@@ -210,6 +283,16 @@ export function AssistantFabClient({
     ? 'No lease attached yet. Upload a lease to get clause-specific explanations, red-flag summaries, and negotiation help.'
     : 'Ask about any clause, citation, finding, or what to negotiate.';
 
+  // Sprint 36 — right-size the drawer to context. No lease → compact help
+  // (don't compete with the upload CTA); lease + user-expanded → reading mode;
+  // else the workspace drawer. The expand toggle only renders with a lease, so
+  // `expanded` can't strand the no-lease panel large.
+  const displayMode: DisplayMode = !parser.activeLease
+    ? 'compact-help'
+    : expanded
+      ? 'expanded-reading'
+      : 'workspace-drawer';
+
   // Sprint 29.6 — FAB pill state label (lg+). Same three-way split
   // as the chip set / empty-state subhead so the user sees a
   // matching cue at the pill, in the context bar, and in the
@@ -241,6 +324,10 @@ export function AssistantFabClient({
     const next = fab.state;
     if (prev !== 'closed' && next === 'closed') {
       pillRef.current?.focus();
+      // Sprint 36 — collapse the reading expansion on close so the next open
+      // starts at the natural per-context size. Pure size reset; the persisted
+      // ChatUI draft/thread is untouched (it lives in the still-mounted DOM).
+      setExpanded(false);
     }
     if (prev !== 'drawer' && next === 'drawer') {
       drawerRef.current?.focus();
@@ -331,6 +418,7 @@ export function AssistantFabClient({
           ref={drawerRef}
           data-testid="assistant-fab-drawer"
           data-state={fab.state}
+          data-display-mode={displayMode}
           role="dialog"
           aria-modal="true"
           aria-labelledby={headingId}
@@ -348,35 +436,71 @@ export function AssistantFabClient({
           {...({ inert: drawerOpen ? undefined : true } as any)}
           tabIndex={-1}
           onKeyDown={handleDrawerKeyDown}
-          // Sprint 27.1 — drawer widened so legal-paragraph answers
-          // breathe. Was h-[min(640px,70vh)] w-[min(480px,calc(100vw-3rem))]
-          // which read cramped against the parser column on desktop
-          // (Wathan/Schoger: wider = better paragraph rhythm). Mobile
-          // still collapses gracefully via the `calc(100vw-3rem)` guard.
-          className={`fixed right-6 bottom-28 z-overlay flex h-[min(720px,80vh)] w-[min(560px,calc(100vw-3rem))] flex-col overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-xl dark:border-neutral-800 dark:bg-neutral-900 lg:w-[min(620px,calc(100vw-3rem))] ${
-            drawerOpen ? '' : 'pointer-events-none hidden'
+          // Sprint 36 — size is now derived per displayMode (SIZE_BY_MODE) +
+          // a shared mobile-safe suffix; the invariant prefix keeps anchor /
+          // layout / overflow unchanged so focus + persistence are untouched.
+          // Visual lightening (Refactoring UI / Rams): the heavy
+          // `border border-neutral-200` + `shadow-xl` became the hairline
+          // token border + a soft `shadow-lg` — a calm support layer, not a
+          // debug modal. `border-border-hairline` auto-flips at :root.dark, so
+          // no per-class dark border. (Two `shadow-*` utilities can't stack —
+          // they share box-shadow — so the hairline is a border, not a shadow.)
+          className={`fixed right-6 bottom-28 z-overlay flex flex-col overflow-hidden rounded-lg border border-border-hairline bg-surface-card shadow-lg dark:bg-neutral-900 ${DRAWER_MOTION} ${SIZE_BY_MODE[displayMode]} ${MOBILE_SAFE_SIZE} ${
+            drawerOpen
+              ? 'scale-100 opacity-100'
+              : 'pointer-events-none scale-95 opacity-0'
           }`}
         >
           <header className="flex shrink-0 items-center justify-between gap-2 border-b border-neutral-100 bg-surface-card px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+            {/* Sprint 36.2 — editorial title (Source Serif 4), matching the
+                wordmark + verdict headline register. "assistant" is the brand's
+                one-italic-emphasis word — turns a prototype-y sans label into a
+                designed panel header without adding chrome. */}
             <h2
               id={headingId}
-              className="text-[13px] font-semibold text-fg-default"
+              className="font-serif text-[15px] font-bold tracking-tight text-fg-default"
             >
-              LeaseLens assistant
+              LeaseLens <span className="font-normal italic">assistant</span>
             </h2>
-            <button
-              type="button"
-              data-testid="assistant-fab-close"
-              aria-label="Close assistant"
-              onClick={() => fab.close()}
-              // Sprint 29.7 — 28×28 → 44×44 touch target (WCAG 2.5.5
-              // AAA, iOS HIG). The X icon stays h-4 w-4 so the visual
-              // weight is unchanged; the button just gives the cursor
-              // a larger landing zone (Schoger/Wathan: hit-area > glyph).
-              className="inline-flex h-11 w-11 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:hover:bg-neutral-800"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
+            {/* Sprint 36 — expand/collapse the drawer into reading mode for
+                long answers. Lease-only (compact-help has nothing to expand).
+                Reuses the close button's exact 44px recipe so the touch-target
+                + focus-ring contract holds. onClick flips ONLY local state, so
+                the persisted draft/thread is untouched. Grouped with close so
+                justify-between keeps the heading left, controls right. */}
+            <div className="flex items-center gap-1">
+              {parser.activeLease ? (
+                <button
+                  type="button"
+                  data-testid="assistant-fab-expand"
+                  aria-label={
+                    expanded ? 'Collapse assistant' : 'Expand assistant'
+                  }
+                  aria-pressed={expanded}
+                  onClick={() => setExpanded((v) => !v)}
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 motion-reduce:transition-none dark:hover:bg-neutral-800"
+                >
+                  {expanded ? (
+                    <Minimize2 className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Maximize2 className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                data-testid="assistant-fab-close"
+                aria-label="Close assistant"
+                onClick={() => fab.close()}
+                // Sprint 29.7 — 28×28 → 44×44 touch target (WCAG 2.5.5
+                // AAA, iOS HIG). The X icon stays h-4 w-4 so the visual
+                // weight is unchanged; the button just gives the cursor
+                // a larger landing zone (Schoger/Wathan: hit-area > glyph).
+                className="inline-flex h-11 w-11 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:hover:bg-neutral-800"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
           </header>
           {/* Sprint 29.3 — assistant context bar. Names what the
               assistant is attached to (filename + clause count + scan
@@ -392,7 +516,43 @@ export function AssistantFabClient({
               <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
                 Using:
               </span>
-              <span className="truncate text-fg-default">{usingLabel}</span>
+              {usingParts.filename ? (
+                <span className="truncate">
+                  <span className="font-mono text-fg-default">
+                    {usingParts.filename}
+                  </span>
+                  {usingParts.clauseLabel ? (
+                    <span className="text-fg-muted tabular-nums">
+                      {' '}
+                      · {usingParts.clauseLabel}
+                    </span>
+                  ) : null}
+                  {/* Sprint 36.5 — status sits on its own (no "·" separator),
+                      set apart by spacing; the dot is the masthead radar-ping
+                      (two-layer animate-ping), tinted by tone, motion-safe so
+                      reduced-motion users see only the static dot. The text is
+                      the real signal — colour + motion are reinforcement. */}
+                  <span className="ml-2 inline-flex items-center gap-1.5 text-fg-muted">
+                    <span
+                      data-testid="assistant-using-status-dot"
+                      aria-hidden="true"
+                      className="relative inline-flex h-1.5 w-1.5"
+                    >
+                      <span
+                        className={`absolute inline-flex h-full w-full rounded-full opacity-75 motion-safe:animate-ping ${STATUS_DOT[usingParts.statusTone]}`}
+                      />
+                      <span
+                        className={`relative inline-flex h-1.5 w-1.5 rounded-full ${STATUS_DOT[usingParts.statusTone]}`}
+                      />
+                    </span>
+                    {usingParts.status}
+                  </span>
+                </span>
+              ) : (
+                <span className="truncate text-fg-muted">
+                  {usingParts.status}
+                </span>
+              )}
             </div>
             {focusLabel ? (
               <div

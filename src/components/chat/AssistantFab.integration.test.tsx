@@ -240,8 +240,11 @@ describe('AssistantFab integration', () => {
       await screen.findByTestId('assistant-fab-drawer');
 
       const bar = await screen.findByTestId('assistant-context-bar');
-      expect(bar.textContent ?? '').toMatch(/using:/i);
+      // Sprint 38.2 — the debug-like "USING:" eyebrow is gone; the no-lease
+      // state reads as a human status + a dropzone hint (text, no control).
+      expect(bar.textContent ?? '').not.toMatch(/using:/i);
       expect(bar.textContent ?? '').toMatch(/no lease attached/i);
+      expect(bar.textContent ?? '').toMatch(/dropzone/i);
       // No focused-clause row when there's no selection.
       expect(
         screen.queryByTestId('assistant-context-bar-focus'),
@@ -481,7 +484,9 @@ describe('AssistantFab integration', () => {
     );
     fireEvent.click(screen.getByTestId('assistant-fab'));
     const header = await screen.findByTestId('assistant-drawer-empty-header');
-    expect(header.textContent ?? '').toMatch(/no lease attached yet/i);
+    expect(header.textContent ?? '').toMatch(
+      /upload your nj residential lease/i,
+    );
   });
 
   // Sprint 29.2 — the drawer shouldn't feel like a second homepage.
@@ -511,11 +516,14 @@ describe('AssistantFab integration', () => {
     expect(screen.queryByTestId('chat-empty-state')).not.toBeInTheDocument();
     // …a compact header is rendered in its place.
     const header = await screen.findByTestId('assistant-drawer-empty-header');
-    expect(header.textContent ?? '').toMatch(/leaselens assistant/i);
-    // Subhead content varies by parser stage (Sprint 29.4 pins each
-    // case in its own dedicated test). Here we just assert that *a*
-    // subhead is present and that the suppression of the homepage
-    // hero is in place.
+    // Sprint 37.1 — the compact empty state shows ONLY the orienting
+    // subhead; the duplicate "LeaseLens Assistant" title was removed
+    // (the drawer chrome header already carries the wordmark). Assert
+    // the orienting copy is present and the body renders no title heading.
+    expect(header.textContent ?? '').toMatch(
+      /upload your nj residential lease/i,
+    );
+    expect(within(header).queryByRole('heading')).not.toBeInTheDocument();
   });
 
   it('openWith seeds the composer + submitting posts the prompt to /api/chat', async () => {
@@ -843,6 +851,247 @@ describe('AssistantFab integration', () => {
       expect(
         screen.queryByTestId('assistant-scan-complete-banner'),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  // Sprint 36.6 — unified footer card. The compact-help footer used to
+  // stack two separately-bordered bands (chips, then composer), which
+  // read cramped + prototype-y once the panel was small (user feedback
+  // on the landing FAB). The chips now carry a "Try asking" eyebrow and
+  // share ONE enclosure with the composer: a single top divider above
+  // the eyebrow, and the composer drops its own divider so the block
+  // reads as one calm footer (Refactoring UI: group with spacing + a
+  // single separator; Dieter Rams: drop the redundant second line).
+  describe('Sprint 36.6 — unified footer card', () => {
+    it('no lease → a "Try asking" eyebrow sits above the chips, grouped with the composer', async () => {
+      render(
+        <AssistantFabProvider>
+          <LeaseParserProvider>
+            <ChatStreamProvider viewerRole="Tenant">
+              <AssistantFabClient
+                workspaceName="Demo workspace"
+                conversationId={null}
+                initialMessages={[]}
+              />
+            </ChatStreamProvider>
+          </LeaseParserProvider>
+        </AssistantFabProvider>,
+      );
+
+      fireEvent.click(screen.getByTestId('assistant-fab'));
+      await screen.findByTestId('assistant-fab-drawer');
+
+      // Eyebrow labels the suggestions as conversation-starters.
+      const eyebrow = await screen.findByTestId(
+        'chat-suggested-prompts-eyebrow',
+      );
+      expect(eyebrow.textContent ?? '').toMatch(/try asking/i);
+
+      // The composer is grouped → no internal divider, so chips + input
+      // read as one footer card.
+      expect(screen.getByTestId('chat-composer')).toHaveAttribute(
+        'data-grouped',
+        'true',
+      );
+
+      // Sprint 37.1 → 38.7 — elegant pill scale, trimmed to py-1.5 so the
+      // short-label triad packs compactly (not the oversized py-2.5 from 36.6).
+      const chips = screen.getAllByTestId('chat-suggested-prompt');
+      expect(chips.length).toBeGreaterThan(0);
+      expect(chips[0].className).toContain('py-1.5');
+      expect(chips[0].className).not.toContain('py-2.5');
+    });
+
+    it('with an active thread → no eyebrow + the composer keeps its own divider (not grouped)', async () => {
+      render(
+        <AssistantFabProvider>
+          <LeaseParserProvider>
+            <ChatStreamProvider viewerRole="Tenant">
+              <AssistantFabClient
+                workspaceName="Demo workspace"
+                conversationId="conv-1"
+                initialMessages={[
+                  { id: 'm-1', role: 'user', content: 'A prior question' },
+                ]}
+              />
+            </ChatStreamProvider>
+          </LeaseParserProvider>
+        </AssistantFabProvider>,
+      );
+
+      fireEvent.click(screen.getByTestId('assistant-fab'));
+      await screen.findByTestId('assistant-fab-drawer');
+
+      // Chips + eyebrow are suppressed once a thread exists.
+      expect(
+        screen.queryByTestId('chat-suggested-prompts-eyebrow'),
+      ).not.toBeInTheDocument();
+      // Composer falls back to owning the transcript↔composer divider.
+      expect(screen.getByTestId('chat-composer')).not.toHaveAttribute(
+        'data-grouped',
+      );
+    });
+  });
+
+  // Sprint 37.1 — state-aware composer placeholder. Before a lease is
+  // attached the clause/rewrite default doesn't apply, so the FAB passes
+  // a general-help placeholder through ChatUI → ChatComposer.
+  describe('Sprint 37.1 — state-aware composer placeholder', () => {
+    it('no lease → composer uses the general-help placeholder (not the clause/rewrite default)', async () => {
+      render(
+        <AssistantFabProvider>
+          <LeaseParserProvider>
+            <ChatStreamProvider viewerRole="Tenant">
+              <AssistantFabClient
+                workspaceName="Demo workspace"
+                conversationId={null}
+                initialMessages={[]}
+              />
+            </ChatStreamProvider>
+          </LeaseParserProvider>
+        </AssistantFabProvider>,
+      );
+
+      fireEvent.click(screen.getByTestId('assistant-fab'));
+      await screen.findByTestId('assistant-fab-drawer');
+
+      const textarea = (await screen.findByLabelText(
+        'Type a message',
+      )) as HTMLTextAreaElement;
+      expect(textarea.placeholder).toMatch(/general question/i);
+      expect(textarea.placeholder).not.toMatch(/clause/i);
+    });
+
+    it('lease attached → composer keeps the lease-context default placeholder', async () => {
+      render(
+        <AssistantFabProvider>
+          <LeaseParserProvider
+            activeLease={{
+              lease_id: 'l-1',
+              filename: 'sample.pdf',
+              page_count: 2,
+              clause_count: 15,
+              pdfUrl: 'blob:test',
+            }}
+          >
+            <ChatStreamProvider viewerRole="Tenant">
+              <AssistantFabClient
+                workspaceName="Demo workspace"
+                conversationId={null}
+                initialMessages={[]}
+              />
+            </ChatStreamProvider>
+          </LeaseParserProvider>
+        </AssistantFabProvider>,
+      );
+
+      fireEvent.click(screen.getByTestId('assistant-fab'));
+      await screen.findByTestId('assistant-fab-drawer');
+
+      const textarea = (await screen.findByLabelText(
+        'Type a message',
+      )) as HTMLTextAreaElement;
+      expect(textarea.placeholder).toMatch(/clause/i);
+    });
+  });
+
+  // Sprint 37.3 — landing-chat growth + "Read in full view" expanded reading.
+  // Before upload the popover is compact-help; once the user has asked a
+  // question it grows to landing-chat and unlocks the expand toggle; a long
+  // answer offers "Read in full view" → expanded-reading.
+  describe('Sprint 37.3 — landing-chat + expanded reading', () => {
+    it('no lease + a thread → grows to landing-chat and shows the Expand toggle', async () => {
+      render(
+        <AssistantFabProvider>
+          <LeaseParserProvider>
+            <ChatStreamProvider viewerRole="Tenant">
+              <AssistantFabClient
+                workspaceName="Demo workspace"
+                conversationId={null}
+                initialMessages={[
+                  { id: 'u1', role: 'user', content: 'How does this work?' },
+                ]}
+              />
+            </ChatStreamProvider>
+          </LeaseParserProvider>
+        </AssistantFabProvider>,
+      );
+
+      fireEvent.click(screen.getByTestId('assistant-fab'));
+      const drawer = await screen.findByTestId('assistant-fab-drawer');
+      // ChatUI reports hasMessages → FAB derives landing-chat (not compact-help).
+      await waitFor(() =>
+        expect(drawer.getAttribute('data-display-mode')).toBe('landing-chat'),
+      );
+      // Expand toggle is now available pre-upload (was lease-only).
+      expect(screen.getByTestId('assistant-fab-expand')).toBeInTheDocument();
+    });
+
+    it('a long answer offers "Read in full view" → switches to expanded-reading and hides the affordance', async () => {
+      const longAnswer = `Here is how LeaseLens works. ${'Lots of detail. '.repeat(50)}`;
+      render(
+        <AssistantFabProvider>
+          <LeaseParserProvider>
+            <ChatStreamProvider viewerRole="Tenant">
+              <AssistantFabClient
+                workspaceName="Demo workspace"
+                conversationId={null}
+                initialMessages={[
+                  { id: 'u1', role: 'user', content: 'How does this work?' },
+                  { id: 'a1', role: 'assistant', content: longAnswer },
+                ]}
+              />
+            </ChatStreamProvider>
+          </LeaseParserProvider>
+        </AssistantFabProvider>,
+      );
+
+      fireEvent.click(screen.getByTestId('assistant-fab'));
+      const drawer = await screen.findByTestId('assistant-fab-drawer');
+
+      const readInFull = await screen.findByTestId('message-read-in-full');
+      fireEvent.click(readInFull);
+
+      // Drawer switches to the reading mode…
+      await waitFor(() =>
+        expect(drawer.getAttribute('data-display-mode')).toBe(
+          'expanded-reading',
+        ),
+      );
+      // …and the affordance hides (FAB stops passing onRequestExpand once
+      // expanded — no point offering "read in full" while already in it).
+      expect(
+        screen.queryByTestId('message-read-in-full'),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  // Sprint 37.5 — motion + a11y. The suggestion chips reveal with a subtle
+  // stagger, but reduced-motion users must get them instantly. This file
+  // mocks useReducedMotion → true, so the chip container takes the static
+  // path (data-motion="off").
+  describe('Sprint 37.5 — reduced-motion chip reveal', () => {
+    it('reduced-motion → chips render instantly (no stagger)', async () => {
+      render(
+        <AssistantFabProvider>
+          <LeaseParserProvider>
+            <ChatStreamProvider viewerRole="Tenant">
+              <AssistantFabClient
+                workspaceName="Demo workspace"
+                conversationId={null}
+                initialMessages={[]}
+              />
+            </ChatStreamProvider>
+          </LeaseParserProvider>
+        </AssistantFabProvider>,
+      );
+
+      fireEvent.click(screen.getByTestId('assistant-fab'));
+      await screen.findByTestId('assistant-fab-drawer');
+
+      const chips = await screen.findAllByTestId('chat-suggested-prompt');
+      const chipGroup = chips[0].parentElement as HTMLElement;
+      expect(chipGroup).toHaveAttribute('data-motion', 'off');
     });
   });
 });

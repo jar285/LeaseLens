@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { useScanLifecycle } from '@/components/lease/scan-lifecycle';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
-import { SPRING_SNAPPY } from '@/lib/motion/presets';
+import { EASE_OUT_SOFT, SPRING_SNAPPY } from '@/lib/motion/presets';
 import { useAssistantFab } from './AssistantFabContext';
 import { markAutoScanTurn } from './auto-scan-turn';
 import { ChatComposer } from './ChatComposer';
@@ -34,6 +34,23 @@ const NEW_CONVERSATION_ANNOUNCEMENT =
 const CLEAR_CHAT_HELPER_TEXT =
   'Your lease, clauses, and red flags will stay here.';
 const CLEAR_CHAT_HELPER_ID = 'clear-assistant-chat-helper';
+
+// Sprint 37.5 — subtle staggered reveal for the suggestion chips when the
+// help popover opens (mirrors the ChatEmptyState pattern: 60ms stagger, soft
+// ease, small rise). Calm + premium, never bouncy (Dieter Rams). Gated on
+// reduced-motion at the call site so motion-averse users get the chips
+// instantly.
+const CHIP_STAGGER_CONTAINER = {
+  visible: { transition: { staggerChildren: 0.06 } },
+};
+const CHIP_STAGGER_ITEM = {
+  hidden: { opacity: 0, y: 8 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.25, ease: EASE_OUT_SOFT },
+  },
+};
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to generate response';
@@ -109,6 +126,26 @@ export interface ChatUIProps {
    * the chip set. Ignored when `emptyStateVariant !== 'compact'`.
    */
   emptyStateSubhead?: string;
+  /**
+   * Sprint 37.1 — state-aware composer placeholder. Forwarded to
+   * ChatComposer. The FAB passes a general-help string before a lease
+   * is attached and leaves it undefined (lease-context default) after.
+   */
+  composerPlaceholder?: string;
+  /**
+   * Sprint 37.3 — fired whenever the committed-message count crosses
+   * empty↔non-empty. The FAB uses it to derive its `landing-chat`
+   * display mode (no lease + the user has asked a question → grow the
+   * popover slightly). Message state stays owned here; only a boolean
+   * leaves the component (no parser/chat-context coupling).
+   */
+  onHasMessagesChange?: (hasMessages: boolean) => void;
+  /**
+   * Sprint 37.3 — forwarded to ChatTranscript → ChatMessage so a long
+   * answer can offer "Read in full view". The FAB wires this to expand
+   * the drawer, and passes it only when not already expanded.
+   */
+  onRequestExpandedReading?: () => void;
 }
 
 export function ChatUI({
@@ -121,6 +158,9 @@ export function ChatUI({
   onSelectSuggestion,
   emptyStateVariant = 'hero',
   emptyStateSubhead,
+  composerPlaceholder,
+  onHasMessagesChange,
+  onRequestExpandedReading,
 }: ChatUIProps) {
   const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
@@ -518,6 +558,12 @@ export function ChatUI({
   };
 
   const hasMessages = messages.length > 0;
+  // Sprint 37.3 — report empty↔non-empty transitions up to the FAB so it can
+  // derive `landing-chat` (no lease + the user has asked something → grow the
+  // popover). Only a boolean crosses the boundary; messages stay owned here.
+  useEffect(() => {
+    onHasMessagesChange?.(hasMessages);
+  }, [hasMessages, onHasMessagesChange]);
   // Sprint 24.7 — undo affordance now activates on a stashed lease too
   // (not just a stashed chat thread). Without this, a user who uploads
   // a lease, runs a scan, then misclicks "New conversation" before
@@ -527,6 +573,15 @@ export function ChatUI({
     previousConversationId !== null || previousMessages.length > 0;
   const showContinuePrevious = !hasMessages && hasPreviousStash && !activeLease;
   const showToolbar = hasMessages || hasPreviousStash;
+  // Sprint 36.6 — suggestion chips render as conversation-starters only
+  // while the transcript is empty. When they show, they share one footer
+  // enclosure with the composer (single divider above the eyebrow), so
+  // the composer is told to drop its own divider (`grouped`).
+  const showSuggestions =
+    !hasMessages &&
+    !!suggestedPrompts &&
+    suggestedPrompts.length > 0 &&
+    !!onSelectSuggestion;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -552,8 +607,15 @@ export function ChatUI({
           // Sprint 29.1 — added `gap-2` so the new helper text sits a
           // small distance left of the Clear button (instead of butting
           // up against it). `justify-end` keeps the cluster right-anchored.
+          // Sprint 38.6 — when there's no thread, use `hidden` (display:none),
+          // not `invisible`: `invisible` still reserved ~50px, which in the
+          // empty no-lease popover became a dead void above the subhead (and
+          // squeezed/clipped it). Removing the row from layout reclaims that
+          // space for the transcript. The toolbar only appears once a thread
+          // exists, which is already a full empty→thread re-layout, so there's
+          // no jarring single-element shift.
           className={`flex shrink-0 items-center justify-end gap-2 border-b border-gray-100 px-4 py-1.5 ${
-            showToolbar ? '' : 'invisible'
+            showToolbar ? '' : 'hidden'
           }`}
         >
           {showContinuePrevious ? (
@@ -709,6 +771,7 @@ export function ChatUI({
             workspaceName={workspaceName}
             emptyStateVariant={emptyStateVariant}
             emptyStateSubhead={emptyStateSubhead}
+            onRequestExpand={onRequestExpandedReading}
           />
         </div>
 
@@ -732,35 +795,63 @@ export function ChatUI({
             </div>
           )}
 
-          {/* Sprint 27.1 — suggested-prompts row.
-              Visible only when the transcript is empty (no committed
-              messages yet) AND the caller supplied at least one chip.
-              Clicking a chip fires `onSelectSuggestion(prompt)` which
-              the FAB routes through `fab.openWith` so ChatComposer's
-              existing prefill effect re-seeds the textarea. Hidden
-              once the user starts a thread so the chips don't compete
-              with the composer once chat has begun. */}
-          {!hasMessages &&
-          suggestedPrompts &&
-          suggestedPrompts.length > 0 &&
-          onSelectSuggestion ? (
+          {/* Sprint 27.1 — suggested-prompts, rendered only while the
+              transcript is empty (no committed messages) AND the caller
+              supplied at least one chip. Clicking a chip fires
+              `onSelectSuggestion(prompt)` which the FAB routes through
+              `fab.openWith` so ChatComposer's prefill effect re-seeds
+              the textarea. Hidden once a thread begins so the chips
+              don't compete with the composer.
+              Sprint 36.6 — unified footer card: a single `border-t`
+              lives here (above the "Try asking" eyebrow), and the
+              composer below is `grouped` (drops its own divider), so
+              chips + input read as one calm footer block instead of two
+              separately-fenced bands. The eyebrow uses the same mono-ish
+              eyebrow register as the context bar's "Using:" label, and
+              the chips get a comfier ~36px tap target (py-2.5). */}
+          {showSuggestions ? (
             <div
               data-testid="chat-suggested-prompts"
-              className="flex shrink-0 flex-wrap gap-1.5 border-t border-neutral-100 px-6 pb-2 pt-3 dark:border-neutral-800"
+              // Sprint 38.6 — tightened the TRY ASKING card a touch (eyebrow↔chips
+              // gap-2→gap-1.5, pt-3→pt-2.5) so the section reads more compact and
+              // its top edge sits a little lower toward the composer.
+              className="flex shrink-0 flex-col gap-1.5 border-t border-neutral-100 bg-surface-card px-6 pb-2 pt-2.5 dark:border-neutral-800 dark:bg-neutral-900"
             >
-              {suggestedPrompts.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  data-testid="chat-suggested-prompt"
-                  data-suggestion-id={s.id}
-                  disabled={s.disabled}
-                  onClick={() => onSelectSuggestion(s.prompt)}
-                  className="inline-flex items-center rounded-full border border-accent-200 bg-surface-card px-3 py-1.5 text-xs font-medium text-accent-700 transition-colors hover:border-accent-300 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-transparent disabled:text-fg-subtle disabled:hover:bg-transparent dark:border-accent-500/30 dark:bg-neutral-900 dark:text-accent-300 dark:hover:border-accent-400/50 dark:hover:bg-accent-500/10"
-                >
-                  {s.label}
-                </button>
-              ))}
+              <span
+                data-testid="chat-suggested-prompts-eyebrow"
+                className="text-[10px] font-semibold uppercase tracking-wider text-fg-subtle"
+              >
+                Try asking
+              </span>
+              {/* Sprint 37.5 — chips reveal with a subtle 60ms stagger when
+                  the popover opens. Reduced-motion users get them instantly
+                  (`initial={false}` + no per-item variants); `data-motion`
+                  records which path ran for tests. */}
+              <motion.div
+                data-motion={reducedMotion ? 'off' : 'on'}
+                className="flex flex-wrap gap-1.5"
+                variants={CHIP_STAGGER_CONTAINER}
+                initial={reducedMotion ? false : 'hidden'}
+                animate={reducedMotion ? false : 'visible'}
+              >
+                {suggestedPrompts?.map((s) => (
+                  <motion.button
+                    key={s.id}
+                    type="button"
+                    data-testid="chat-suggested-prompt"
+                    data-suggestion-id={s.id}
+                    disabled={s.disabled}
+                    onClick={() => onSelectSuggestion?.(s.prompt)}
+                    variants={reducedMotion ? undefined : CHIP_STAGGER_ITEM}
+                    // Sprint 38.2 — soft-fill pill (warm accent wash) with a
+                    // subtle hover lift (enabled + motion-safe only), not a bare
+                    // outline. Disabled chips ghost to transparent.
+                    className="inline-flex items-center rounded-full border border-accent-200/70 bg-accent-50/70 px-3.5 py-1.5 text-xs font-medium text-accent-700 transition-[color,background-color,border-color,translate] duration-150 ease-out hover:border-accent-300 enabled:hover:bg-accent-100 motion-safe:enabled:hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-transparent disabled:text-fg-subtle dark:border-accent-500/30 dark:bg-accent-500/10 dark:text-accent-300 dark:hover:border-accent-400/50 dark:enabled:hover:bg-accent-500/15"
+                  >
+                    {s.label}
+                  </motion.button>
+                ))}
+              </motion.div>
             </div>
           ) : null}
 
@@ -768,6 +859,8 @@ export function ChatUI({
             onSubmit={handleSubmit}
             isLocked={status === 'streaming'}
             initialText={initialComposerText}
+            grouped={showSuggestions}
+            placeholder={composerPlaceholder}
           />
         </div>
       </div>

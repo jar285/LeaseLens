@@ -161,6 +161,17 @@
   /* Shadows — hairline 1px stroke and a subtle 2px lift. No bloom. */
   --shadow-hairline: 0 0 0 1px var(--color-border-hairline);
   --shadow-lift: 0 2px 8px rgb(0 0 0 / 0.06);
+  /* Sprint 37.1 — warm, layered popover shadow for floating premium
+     surfaces (the FAB assistant drawer). Three stacked layers — a tight
+     contact shadow, a soft ambient bloom, and a directional lift — all
+     tinted with the palette's warm brown (40 28 16) instead of neutral
+     black, so the card feels like it belongs to the cream/terracotta
+     system rather than a generic debug modal. Paired with the hairline
+     border (which auto-flips dark for edge definition); the warm shadow
+     reads softly on light and recedes appropriately on dark. */
+  --shadow-popover:
+    0 1px 2px rgb(40 28 16 / 0.05), 0 12px 28px -8px rgb(40 28 16 / 0.18),
+    0 4px 10px -4px rgb(40 28 16 / 0.1);
 
   /* Motion durations */
   --duration-90: 90ms;

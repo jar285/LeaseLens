@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, PenTool, User } from 'lucide-react';
+import { AlertTriangle, Maximize2, PenTool, User } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
@@ -72,7 +72,18 @@ export interface ChatMessageProps {
    *  user-initiated "scan again" turn is not the first scan turn, so it
    *  leaves this unset and still renders the timeline. */
   isAutoScanTurn?: boolean;
+  /** Sprint 37.3 — when provided AND this is a long assistant answer,
+   *  render a "Read in full view" affordance that switches the FAB drawer
+   *  to expanded-reading mode (progressive disclosure for dense answers in
+   *  the small popover). The FAB passes this only when the drawer is not
+   *  already expanded, so the button hides once expanded. */
+  onRequestExpand?: () => void;
 }
+
+// Sprint 37.3 — char threshold past which an assistant answer is "long"
+// enough to offer expanded reading in the compact popover. Tuned to roughly
+// a screenful of the 14.5px/1.7 body text in a ~420px-wide drawer.
+const LONG_ANSWER_CHARS = 600;
 
 export function ChatMessage({
   role,
@@ -83,6 +94,7 @@ export function ChatMessage({
   isStreaming,
   truncated,
   isAutoScanTurn,
+  onRequestExpand,
 }: ChatMessageProps) {
   const { viewerRole } = useChatStream();
   const isUser = role === 'user';
@@ -168,6 +180,26 @@ export function ChatMessage({
             </div>
           )
         )}
+        {/* Sprint 37.3 — "Read in full view" for long assistant answers in
+            the compact popover: progressive disclosure (Don Norman) — the
+            small panel shows the answer, and dense ones offer a one-click
+            jump to expanded-reading instead of cramming. The FAB only passes
+            onRequestExpand when the drawer isn't already expanded, so this
+            hides once expanded. */}
+        {!isUser &&
+          onRequestExpand &&
+          !isStreaming &&
+          content.length > LONG_ANSWER_CHARS && (
+            <button
+              type="button"
+              data-testid="message-read-in-full"
+              onClick={onRequestExpand}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md text-[12px] font-medium text-accent-700 transition-colors hover:text-accent-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-accent-300 dark:hover:text-accent-200"
+            >
+              <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+              Read in full view
+            </button>
+          )}
         {/* Sprint 27.1 — follow-up chips moved here (was above the
             body). Chips suggest the *next* question, so the user
             should read the answer first and then see the chips.

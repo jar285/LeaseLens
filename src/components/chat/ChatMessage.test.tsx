@@ -556,3 +556,73 @@ describe('ChatMessage — Sprint 33.A.2 auto-scan turn gate', () => {
     expect(screen.getByText('grade_clause_severity')).toBeInTheDocument();
   });
 });
+
+describe('ChatMessage — Sprint 37.3 "Read in full view"', () => {
+  beforeEach(() => {
+    useReducedMotionMock.mockReset();
+    useReducedMotionMock.mockReturnValue(true);
+  });
+  afterEach(cleanup);
+
+  const LONG = 'x'.repeat(601);
+  const SHORT = 'A short answer.';
+
+  it('renders "Read in full view" for a long assistant answer when onRequestExpand is provided', () => {
+    const onRequestExpand = vi.fn();
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content={LONG}
+          onRequestExpand={onRequestExpand}
+        />,
+      ),
+    );
+    const btn = screen.getByTestId('message-read-in-full');
+    expect(btn).toBeInTheDocument();
+    btn.click();
+    expect(onRequestExpand).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT render for a short assistant answer', () => {
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="assistant"
+          content={SHORT}
+          onRequestExpand={vi.fn()}
+        />,
+      ),
+    );
+    expect(
+      screen.queryByTestId('message-read-in-full'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does NOT render when onRequestExpand is absent (e.g. already expanded / non-FAB)', () => {
+    render(
+      withChatStream(<ChatMessage id="m1" role="assistant" content={LONG} />),
+    );
+    expect(
+      screen.queryByTestId('message-read-in-full'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does NOT render on a long USER message (assistant answers only)', () => {
+    render(
+      withChatStream(
+        <ChatMessage
+          id="m1"
+          role="user"
+          content={LONG}
+          onRequestExpand={vi.fn()}
+        />,
+      ),
+    );
+    expect(
+      screen.queryByTestId('message-read-in-full'),
+    ).not.toBeInTheDocument();
+  });
+});

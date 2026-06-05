@@ -1,6 +1,12 @@
 import '@testing-library/jest-dom/vitest';
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessageProps } from './ChatMessage';
 import { ChatTranscript } from './ChatTranscript';
@@ -181,7 +187,7 @@ describe('ChatTranscript', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('"compact" variant suppresses the hero and renders the compact assistant header', () => {
+    it('"compact" variant suppresses the hero and renders just the orienting subhead (no duplicate title)', () => {
       render(
         withChatStream(
           <ChatTranscript
@@ -193,14 +199,17 @@ describe('ChatTranscript', () => {
       );
       // The big landing hero is gone…
       expect(screen.queryByTestId('chat-empty-state')).not.toBeInTheDocument();
-      // …replaced by a small in-drawer header with the assistant's
-      // heading + one-line subhead.
+      // …replaced by a small in-drawer header that shows only the
+      // one-line orienting subhead.
       const header = screen.getByTestId('assistant-drawer-empty-header');
       expect(header).toBeInTheDocument();
-      expect(header.textContent ?? '').toMatch(/leaselens assistant/i);
       expect(header.textContent ?? '').toMatch(
         /ask about your lease, clauses, red flags, or citations/i,
       );
+      // Sprint 37.1 — the duplicate "LeaseLens Assistant" heading was
+      // removed (the drawer chrome header carries the wordmark). The
+      // compact empty state must not render its own title heading.
+      expect(within(header).queryByRole('heading')).not.toBeInTheDocument();
     });
   });
 

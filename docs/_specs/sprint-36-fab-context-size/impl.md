@@ -160,6 +160,37 @@ dot an **animated radar** like the masthead LIVE indicator.
   bar text `…pdf · 15 clauses  Scan complete` (no middle dot after clauses). 0 console errors.
   Screenshot: [`s36.5-radar-status-dot.png`](screenshots/s36.5-radar-status-dot.png).
 
+## Sprint 36.6 — unified footer card (chips + composer) + compact-help height fix
+
+User feedback on the landing FAB: the suggestion chips sat **too close** to the composer once the
+compact chat opened. Root cause (read from code, not the screenshot): the footer was two
+**separately-bordered** bands — the chip row (`border-t … gap-1.5 pt-3 pb-2`, chips `py-1.5` ≈ 28px) and
+the composer (its own `border-t … pt-3.5`). Net: chips ~8px above a hairline, then another hairline,
+then the input — a cramped double-divider sandwich, and in the narrow 420px panel the three wide chips
+wrap to their own lines so the whole cluster bunched together. Refactoring UI (spacing isn't doing
+enough grouping work) + Dieter Rams (a redundant second divider line is noise) + WCAG (28px < the 44px
+tap-target baseline). **Decision locked at the gate: "Unified footer card."**
+
+- **One enclosure, one divider.** The chip row now carries a `Try asking` eyebrow (same 10px uppercase
+  `tracking-wider text-fg-subtle` register as the context bar's "Using:") and owns the single
+  `border-t`. The composer gets a new `grouped` prop ([ChatComposer.tsx](../../../src/components/chat/ChatComposer.tsx))
+  that drops its own `border-t` + softens its top padding (`pt-3.5`→`pt-2`) and reflects `data-grouped`.
+  ChatUI passes `grouped={showSuggestions}` so chips + input read as one calm footer block.
+- **Comfier chips:** `gap-1.5`→`gap-2`, `py-1.5`→`py-2.5` (≈ 38px tap target, live-measured).
+- **Compact-help height 480→580 (70vh→80vh).** The taller footer card (eyebrow + 3 stacked chips ≈
+  175px) starved the 480px panel's transcript to ~32px and **clipped the "LeaseLens Assistant"
+  empty-state hero** (a latent issue pre-36.6 — the shorter footer left only ~87px; 36.6 made it
+  obvious). 580px restores the hero in full above the footer; still clearly < the 720px workspace.
+- **TDD:** +2 `ChatComposer` (ungrouped keeps `border-t`; grouped drops it + sets `data-grouped`),
+  +2 `AssistantFab.integration` (no-lease → `Try asking` eyebrow + composer grouped + chip `py-2.5`;
+  active thread → no eyebrow + composer not grouped). Updated the 36-base compact-size assertion to
+  `h-[min(580px,80vh)]`. Suite **1163 → 1167** (+4).
+- **Live (Playwright, no-lease compact panel):** `data-display-mode="compact-help"`, drawer 580px tall,
+  transcript scroll region 132px with hero `scrollHeight 132 ≤ clientHeight 132` (**no clip**); footer
+  card `border-top 1px`, composer `border-top 0px` + `data-grouped="true"`; chips 38px, 25px gap to the
+  input. Header/close reachable (drawer top 108px). 0 console errors.
+  Screenshot: [`s36.6-unified-footer-card.png`](screenshots/s36.6-unified-footer-card.png).
+
 ## Carries / out of scope (not regressions)
 - **Pre-existing 16px horizontal overflow on the Mode-A landing page at ~390px** comes from
   `parser-landing-editorial-frame` (the decorative frame, `inset-x-4`), **not** the FAB drawer

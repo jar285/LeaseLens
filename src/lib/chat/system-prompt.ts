@@ -139,6 +139,18 @@ export function buildSystemPrompt(
   const scanProgressAwarenessSection =
     'SCAN PROGRESS AWARENESS: If the conversation history shows an extract_clauses tool_result and SOME (but not all) grade_clause_severity tool_results, an auto-scan is in progress — the remaining gradings stream in within ~10-30 seconds. If the user asks about findings during this state, acknowledge what is already graded (e.g. "I see 7 of 15 clauses graded — the highest-severity finding so far is …") rather than denying that any scan is visible. Likewise, if ANY grade_clause_severity tool_result is present in conversation history, never tell the user "no scan is visible" or "please upload a lease" — the scan is real and you can see it. Wait until the user has results to discuss before suggesting they re-upload or restart.';
 
+  // Sprint 37.4 — answer-style guidance scoped to the NO-LEASE state only.
+  // Before a lease is attached the assistant is shown in a compact help
+  // popover, so orientation answers ("how does it work?") should be tight +
+  // scannable (summary → steps → a text CTA), and the CTA must point at the
+  // PAGE's dropzone — never imply uploading inside the chat (the chat is for
+  // questions; the lease is never dropped into the conversation). This is
+  // null (omitted) once a lease is loaded, so it can't perturb the tuned
+  // scan / draft-email / citation behavior in lease-bound conversations.
+  const noLeaseAnswerStyleSection = activeLease
+    ? null
+    : 'ANSWER STYLE — NO LEASE LOADED: This conversation has no lease attached and is shown in a compact help popover. For orientation questions (how LeaseLens works, what it checks, what happens after upload), keep answers tight and scannable: open with a one-sentence summary, then a short numbered list of the key steps, then close with a single line inviting the user to upload their lease using the dropzone on the page to begin. Do NOT suggest uploading "here" or inside this chat — uploads happen in the page\'s dropzone, not the conversation. Aim for ~8 lines or fewer; the UI offers a "Read in full view" expansion for genuinely longer explanations, so be concise without apologizing for length. This styling applies ONLY while no lease is loaded — it does not change how you grade clauses, cite statutes, or draft emails once a lease is attached.';
+
   // Sprint 23e Phase 2b → Sprint 23f Phase 4 — draft_negotiation_email
   // post-tool-call summary. Originally (s23e.3) this section forced
   // VERBATIM rendering of each email because the tool result was
@@ -175,6 +187,9 @@ export function buildSystemPrompt(
 
     // 2.5 — active lease awareness (Phase 10.8.2).
     leaseAwarenessSection,
+
+    // 2.55 — Sprint 37.4: no-lease answer styling (omitted once a lease loads).
+    noLeaseAnswerStyleSection,
 
     // 2.6 — Sprint 23e: prefer prior tool results on follow-up turns.
     reusePriorResultsSection,
@@ -217,7 +232,9 @@ export function buildSystemPrompt(
     'Be concise and practical. End every assistant message that grades a clause with the disclaimer above, rendered exactly as shown (with **double-asterisk bold markers**, NOT single-asterisk italics).',
   ];
 
-  const base = sections.join('\n\n');
+  // Sprint 37.4 — filter out null sections (e.g. the no-lease answer-style
+  // section once a lease is loaded) so the join never emits a stray "null".
+  const base = sections.filter((s): s is string => s !== null).join('\n\n');
 
   if (!ragChunks || ragChunks.length === 0) return base;
 

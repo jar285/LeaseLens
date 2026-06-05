@@ -10,6 +10,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LeaseParserProvider } from '@/components/lease/LeaseParserContext';
@@ -525,10 +526,10 @@ describe('AssistantFabClient', () => {
       ]);
     });
 
-    it('no lease → "No lease attached yet…" subhead is passed to ChatUI', () => {
+    it('no lease → the premium upload-orientation subhead is passed to ChatUI', () => {
       renderFab();
       fireEvent.click(screen.getByTestId('assistant-fab'));
-      expect(subhead()).toMatch(/no lease attached yet/i);
+      expect(subhead()).toMatch(/upload your nj residential lease/i);
     });
 
     it('lease active → "Ask about any clause, citation, finding…" subhead', () => {
@@ -742,7 +743,10 @@ describe('Sprint 36 — context-sized display modes', () => {
     const drawer = openDrawer(refs);
     expect(drawer.getAttribute('data-display-mode')).toBe('compact-help');
     expect(drawer.className).toContain('w-[min(420px,calc(100vw-3rem))]');
-    expect(drawer.className).toContain('h-[min(480px,70vh)]');
+    // Sprint 38.7 — 390px: the panel tracks the now-compact no-lease content
+    // (subhead + one-row chips + composer) so the composer sits ~flush at the
+    // bottom (no dead space). Still well under the 720px workspace.
+    expect(drawer.className).toContain('h-[min(390px,70vh)]');
   });
 
   it('lease attached → opens in workspace-drawer mode at the existing size (no regression)', () => {
@@ -846,22 +850,46 @@ describe('Sprint 36 — context-sized display modes', () => {
     expect(drawer.className).toContain('max-sm:h-[min(85vh,calc(100vh-7rem))]');
   });
 
-  it('uses the lighter hairline border + soft shadow instead of the heavy border (Refactoring UI / Rams)', () => {
+  it('uses the hairline border + warm popover shadow instead of the heavy/generic treatment (Refactoring UI / Rams)', () => {
     const refs = renderFab();
     const drawer = openDrawer(refs);
-    // Lighter: hairline-token border (auto-flips dark) + soft shadow-lg.
+    // Lighter: hairline-token border (auto-flips dark).
     expect(drawer.className).toContain('border-border-hairline');
-    expect(drawer.className).toContain('shadow-lg');
-    // Heavier old treatment gone.
-    expect(drawer.className).not.toContain('border border-neutral-200');
+    // Sprint 37.1 — warm, layered popover shadow (palette-tinted), not the
+    // generic black `shadow-lg`/`shadow-xl`.
+    expect(drawer.className).toContain('shadow-popover');
+    expect(drawer.className).not.toContain('shadow-lg');
     expect(drawer.className).not.toContain('shadow-xl');
+    // Heavier old border treatment gone.
+    expect(drawer.className).not.toContain('border border-neutral-200');
+  });
+
+  // Sprint 38.2 — the premium panel is divider-free: the status row carries
+  // NO hard border in either state (hierarchy via spacing + the parchment
+  // glass surface, not stacked lines). Supersedes the 37.1 "lease keeps the
+  // divider" behavior.
+  it('the context bar is divider-free in both no-lease and lease states', () => {
+    const noLease = renderFab(); // default IDLE, no lease
+    const noLeaseBar = within(openDrawer(noLease)).getByTestId(
+      'assistant-context-bar',
+    );
+    expect(noLeaseBar.className).not.toContain('border-b');
+
+    cleanup();
+
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const withLease = renderFab({ activeLease: ACTIVE_LEASE });
+    const withLeaseBar = within(openDrawer(withLease)).getByTestId(
+      'assistant-context-bar',
+    );
+    expect(withLeaseBar.className).not.toContain('border-b');
   });
 });
 
-describe('Sprint 36.2 — drawer header typography', () => {
+describe('Sprint 36.2 / 38.2 — drawer header typography + identity', () => {
   const LEASE = { lease_id: 'L1', filename: 'sample.pdf', clause_count: 15 };
 
-  it('titles the panel in the editorial serif with an italic emphasis word', () => {
+  it('titles the panel in the editorial serif with an italic emphasis word + a role subtitle', () => {
     const refs = renderFab();
     act(() => {
       refs.fab?.openDrawer();
@@ -871,12 +899,15 @@ describe('Sprint 36.2 — drawer header typography', () => {
     expect(h2.className).toContain('font-serif');
     expect(h2.className).toContain('font-bold');
     expect(h2.className).not.toContain('text-[13px]');
-    // "assistant" is the italic emphasis word (the brand's one-italic signature).
+    // Sprint 38.2 — "Assistant" is the italic emphasis word (brand signature).
     const emphasis = h2.querySelector('.italic');
-    expect(emphasis?.textContent?.trim()).toBe('assistant');
+    expect(emphasis?.textContent?.trim()).toBe('Assistant');
+    // Sprint 38.2 — concierge identity: a role subtitle under the name.
+    const drawer = screen.getByTestId('assistant-fab-drawer');
+    expect(drawer.textContent).toContain('NJ tenant-law guidance');
   });
 
-  it('renders the lease filename as a mono identifier in the Using bar, with muted metadata', () => {
+  it('renders the lease filename as a mono identifier in the status row, with muted metadata', () => {
     scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
     const refs = renderFab({ activeLease: LEASE });
     act(() => {
@@ -917,7 +948,7 @@ describe('Sprint 36.3 — USING metadata (tabular count + status dot)', () => {
     expect(tabular?.textContent).toContain('15 clauses');
   });
 
-  it('renders an animated radar status dot (nav LIVE style), success-tinted, before the status', () => {
+  it('leads the lease status with an animated radar dot (nav LIVE style), success-tinted, paired with text', () => {
     scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
     const refs = renderFab({ activeLease: LEASE });
     act(() => {
@@ -932,10 +963,10 @@ describe('Sprint 36.3 — USING metadata (tabular count + status dot)', () => {
     // Two-layer radar ping like the masthead LIVE indicator, reduced-motion gated.
     expect(dot?.innerHTML).toContain('motion-safe:animate-ping');
     expect(dot?.innerHTML).toContain('bg-success-600'); // complete → success tone
+    // Sprint 38.2 — reframed from the debug "USING:" to a human "Lease
+    // attached:" status; the scan stage is still surfaced as text (WCAG).
+    expect(bar.textContent).toContain('Lease attached:');
     expect(bar.textContent).toContain('Scan complete');
-    // The middle-dot separator after "clauses" is gone — the status now sits on
-    // its own, set apart by spacing, not another "·".
-    expect(bar.textContent).not.toContain('clauses · Scan');
   });
 });
 
@@ -948,19 +979,23 @@ describe('Sprint 36.4 — drawer open/close + resize motion', () => {
       refs.fab?.openDrawer();
     });
     const drawer = screen.getByTestId('assistant-fab-drawer');
-    // Transition covers fade (opacity), open/close (scale) AND the expand
-    // resize (width/height); scales from the pill corner; reduced-motion off.
+    // Sprint 38.3 — transition covers fade (opacity), open/close (scale), the
+    // 12px rise (translate) AND the expand resize (width/height); scales from
+    // the pill corner; reduced-motion off.
     expect(drawer.className).toContain(
-      'transition-[opacity,scale,width,height]',
+      'transition-[opacity,scale,translate,width,height]',
     );
     expect(drawer.className).toContain('origin-bottom-right');
+    expect(drawer.className).toContain('ease-out-soft');
     expect(drawer.className).toContain('motion-reduce:transition-none');
     // First-mount enter (the drawer mounts straight into the open state, so it
-    // needs a @starting-style value to ease out of).
+    // needs @starting-style values to ease out of — incl. the 12px rise).
     expect(drawer.className).toContain('starting:opacity-0');
+    expect(drawer.className).toContain('starting:translate-y-3');
     // Open = settled.
     expect(drawer.className).toContain('opacity-100');
     expect(drawer.className).toContain('scale-100');
+    expect(drawer.className).toContain('translate-y-0');
     // No longer an instant display:none pop.
     expect(drawer.className).not.toContain('pointer-events-none hidden');
   });
@@ -976,11 +1011,37 @@ describe('Sprint 36.4 — drawer open/close + resize motion', () => {
     const drawer = screen.getByTestId('assistant-fab-drawer');
     expect(drawer.className).toContain('opacity-0');
     expect(drawer.className).toContain('scale-95');
+    // Sprint 38.3 — eases back down by the 12px rise on close.
+    expect(drawer.className).toContain('translate-y-3');
     expect(drawer.className).toContain('pointer-events-none');
     // The bare display:none `hidden` is gone (it killed the exit transition);
     // `overflow-hidden` legitimately remains, so match the standalone token.
     expect(drawer.className).not.toMatch(/(?:^|\s)hidden(?:\s|$)/);
     // Behaviour unchanged: still aria-hidden + mounted (draft survives).
     expect(drawer).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
+describe('Sprint 38.3 — FAB pill premium polish', () => {
+  it('renders a warm gradient FAB with an inner highlight + motion-safe hover lift + pressed state', () => {
+    renderFab();
+    const pill = screen.getByTestId('assistant-fab');
+    // Warm coral gradient (not a flat solid).
+    expect(pill.className).toContain('bg-gradient-to-br');
+    expect(pill.className).toContain('from-accent-500');
+    expect(pill.className).toContain('to-accent-600');
+    // Inner top highlight is baked into the layered shadow (premium material).
+    expect(pill.className).toContain('inset_0_1px_0');
+    // Tactile but calm: lift only when motion is safe; press settles it.
+    expect(pill.className).toContain('motion-safe:hover:-translate-y-0.5');
+    expect(pill.className).toContain('active:scale-[0.98]');
+    // Sprint 38.5 — the transition MUST name the `translate` + `scale`
+    // properties (Tailwind v4 animates those, NOT `transform`), or the lift
+    // snaps instantly instead of easing. Regression guard for that bug.
+    expect(pill.className).toContain('transition-[translate,scale,');
+    expect(pill.className).not.toContain('transition-[transform,');
+    // Focus ring + reduced-motion guard retained.
+    expect(pill.className).toContain('focus-visible:ring-2');
+    expect(pill.className).toContain('motion-reduce:transition-none');
   });
 });

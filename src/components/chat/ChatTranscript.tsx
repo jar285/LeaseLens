@@ -34,6 +34,12 @@ export interface ChatTranscriptProps {
    * 'compact'`. Default is a generic fallback.
    */
   emptyStateSubhead?: string;
+  /**
+   * Sprint 37.3 — forwarded to each assistant `ChatMessage` so a long
+   * answer can offer "Read in full view" (→ the FAB's expanded-reading
+   * mode). Undefined for non-FAB consumers / when already expanded.
+   */
+  onRequestExpand?: () => void;
 }
 
 /*
@@ -107,6 +113,7 @@ export function ChatTranscript({
   workspaceName,
   emptyStateVariant = 'hero',
   emptyStateSubhead = 'Ask about your lease, clauses, red flags, or citations.',
+  onRequestExpand,
 }: ChatTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
@@ -201,18 +208,20 @@ export function ChatTranscript({
         {emptyStateVariant === 'compact' ? (
           // Sprint 29.2 — compact in-drawer header. No prompt cards
           // (the FAB's own `suggestedPrompts` chip row renders below
-          // the composer for that role). Just a heading + one-line
-          // subhead so the user knows what surface they're in.
+          // the composer for that role).
           // Sprint 29.4 — subhead is prop-driven so the FAB can swap
           // copy per parser stage (no-lease / mid-scan / scan-complete).
+          // Sprint 37.1 — dropped the "LeaseLens Assistant" heading: the
+          // drawer chrome header already shows the wordmark, so a second
+          // title here was a duplicate (Dieter Rams: less, but better).
+          // The orienting subhead now stands alone as the single line of
+          // empty-state copy; the Upload CTA + "Try asking" chips below
+          // carry the action.
           <header
             data-testid="assistant-drawer-empty-header"
-            className="flex flex-col gap-1 px-4 py-6 text-center"
+            className="flex flex-col gap-1 px-4 py-4 text-center"
           >
-            <h3 className="text-[15px] font-semibold text-fg-default">
-              LeaseLens Assistant
-            </h3>
-            <p className="text-[13px] leading-snug text-fg-muted">
+            <p className="text-[13px] leading-relaxed text-balance text-fg-muted">
               {emptyStateSubhead}
             </p>
           </header>
@@ -284,6 +293,7 @@ export function ChatTranscript({
                 isStreaming={
                   isStreaming && idx === lastIndex && lastIsRealAssistant
                 }
+                onRequestExpand={onRequestExpand}
               />
             );
           })}

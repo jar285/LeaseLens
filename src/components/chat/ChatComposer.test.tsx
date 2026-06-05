@@ -204,4 +204,82 @@ describe('ChatComposer', () => {
       expect(textarea.value).toBe('');
     });
   });
+
+  // Sprint 36.6 — unified footer card. When suggestion chips render
+  // directly above the composer (empty transcript in the FAB drawer),
+  // the composer drops its OWN top divider so chips + input read as one
+  // calm footer block instead of two separately-fenced bands. The
+  // divider then lives once, above the chip eyebrow (Refactoring UI:
+  // group with spacing + a single separator, not stacked borders).
+  describe('Sprint 36.6 — grouped (attached to suggestion chips)', () => {
+    it('ungrouped (default): keeps its own top divider', () => {
+      render(<ChatComposer isLocked={false} onSubmit={vi.fn()} />);
+      const root = screen.getByTestId('chat-composer');
+      expect(root.className).toContain('border-t border-neutral-100');
+      expect(root).not.toHaveAttribute('data-grouped');
+    });
+
+    it('grouped: drops the top divider so chips + input read as one card', () => {
+      render(<ChatComposer isLocked={false} onSubmit={vi.fn()} grouped />);
+      const root = screen.getByTestId('chat-composer');
+      expect(root.className).not.toContain('border-t');
+      expect(root).toHaveAttribute('data-grouped', 'true');
+    });
+  });
+
+  // Sprint 37.1 — state-aware placeholder. The clause/rewrite default only
+  // applies once a lease is attached; before upload the FAB passes a
+  // general-help string so the composer doesn't offer a clause-specific
+  // affordance the user can't act on.
+  describe('Sprint 37.1 — state-aware placeholder', () => {
+    it('falls back to the lease-context default when no placeholder is provided', () => {
+      render(<ChatComposer isLocked={false} onSubmit={vi.fn()} />);
+      const ta = screen.getByLabelText('Type a message') as HTMLTextAreaElement;
+      expect(ta.placeholder).toMatch(/clause/i);
+      expect(ta.placeholder).toMatch(/\/ for actions/i);
+    });
+
+    it('renders a custom (no-lease) placeholder when provided', () => {
+      render(
+        <ChatComposer
+          isLocked={false}
+          onSubmit={vi.fn()}
+          placeholder="Ask a general question…"
+        />,
+      );
+      const ta = screen.getByLabelText('Type a message') as HTMLTextAreaElement;
+      expect(ta.placeholder).toBe('Ask a general question…');
+      expect(ta.placeholder).not.toMatch(/clause/i);
+    });
+  });
+
+  // Sprint 38.1 — guard: the send button's disabled state must visibly track
+  // the input (empty → disabled; draft → enabled; locked → disabled). Material
+  // Design state discipline + a11y (the control communicates its own state).
+  // Locked here as a regression net BEFORE the 38.2 command-bar reskin.
+  describe('Sprint 38.1 — send button disabled-state guard', () => {
+    it('is disabled when the input is empty and enables once a draft is typed', () => {
+      render(<ChatComposer isLocked={false} onSubmit={vi.fn()} />);
+      const send = screen.getByRole('button', { name: 'Send message' });
+      expect(send).toBeDisabled();
+
+      fireEvent.change(screen.getByLabelText('Type a message'), {
+        target: { value: 'What does my deposit clause say?' },
+      });
+      expect(send).toBeEnabled();
+    });
+
+    it('is disabled while locked (sending) even with a draft present', () => {
+      render(
+        <ChatComposer
+          isLocked={true}
+          onSubmit={vi.fn()}
+          initialText="A pending question"
+        />,
+      );
+      expect(
+        screen.getByRole('button', { name: 'Send message' }),
+      ).toBeDisabled();
+    });
+  });
 });

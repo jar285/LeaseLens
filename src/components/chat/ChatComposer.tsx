@@ -24,7 +24,32 @@ export interface ChatComposerProps {
    * Explain clicks pick up the new prefill).
    */
   initialText?: string;
+  /**
+   * Sprint 36.6 — when suggestion chips render directly above the
+   * composer (empty transcript in the FAB drawer), the chips' enclosure
+   * owns the single footer divider and the composer drops its OWN
+   * `border-t` + softens its top padding, so chips + input read as one
+   * calm card instead of two separately-fenced bands. Default false
+   * (standalone composer keeps the transcript↔composer divider).
+   */
+  grouped?: boolean;
+  /**
+   * Sprint 37.1 — state-aware placeholder. The default "Ask about a
+   * clause, request a rewrite…" only makes sense once a lease is
+   * attached; before upload the FAB passes a general-help placeholder
+   * ("Ask a general question…") so the composer never offers a
+   * clause-specific affordance the user can't act on (Don Norman:
+   * signifiers match available actions). Defaults to the lease-context
+   * string so standalone mounts are unchanged.
+   */
+  placeholder?: string;
 }
+
+// Sprint 37.1 — the lease-context default. Kept as a named const so the
+// state-aware override in the FAB reads as an intentional swap, not a
+// magic string, and the Sprint 23c placeholder contract stays pinned.
+const DEFAULT_COMPOSER_PLACEHOLDER =
+  'Ask about a clause, request a rewrite, or type / for actions…';
 
 // Sprint 23c Phase 3 — bumped from 38 to 44 to clear the touch-target
 // floor for mobile + give the command bar more visual weight as a real
@@ -36,6 +61,8 @@ export function ChatComposer({
   onSubmit,
   isLocked,
   initialText,
+  grouped = false,
+  placeholder = DEFAULT_COMPOSER_PLACEHOLDER,
 }: ChatComposerProps) {
   const [text, setText] = useState(initialText ?? '');
   const lastPrefillRef = useRef<string | undefined>(initialText);
@@ -108,7 +135,17 @@ export function ChatComposer({
   // missing box-shadow, so the ring snapped on/off while the border
   // crossfaded — the source of the "not quite smooth" focus feel.
   return (
-    <div className="border-t border-neutral-100 bg-surface-card px-6 pb-4 pt-3.5 dark:border-neutral-800 dark:bg-neutral-900">
+    <div
+      data-testid="chat-composer"
+      // Sprint 36.6 — grouped: drop the own top divider + soften top
+      // padding so the chips' enclosure above reads as one footer card.
+      data-grouped={grouped ? 'true' : undefined}
+      className={
+        grouped
+          ? 'bg-surface-card px-6 pb-4 pt-2 dark:bg-neutral-900'
+          : 'border-t border-neutral-100 bg-surface-card px-6 pb-4 pt-3.5 dark:border-neutral-800 dark:bg-neutral-900'
+      }
+    >
       <div className="relative mx-auto flex max-w-2xl items-end gap-2.5 rounded-xl border border-neutral-200 bg-surface-card p-2 transition-[border-color,box-shadow] duration-150 ease-out-soft focus-within:border-accent-400 focus-within:ring-2 focus-within:ring-accent-100 dark:border-neutral-800 dark:bg-neutral-900 dark:focus-within:border-accent-500 dark:focus-within:ring-accent-500/15">
         <label htmlFor="chat-composer-input" className="sr-only">
           Type a message
@@ -127,7 +164,7 @@ export function ChatComposer({
           // composer as a command bar; the "/ for actions" cue paired
           // with the kbd hint below signals slash-commands without
           // wiring the picker (that lands later).
-          placeholder="Ask about a clause, request a rewrite, or type / for actions…"
+          placeholder={placeholder}
           aria-describedby="composer-hint"
           // Sprint 17 §5.4 — `inputMode="text"` so mobile keyboards
           // show the standard text layout (no numeric/decimal hint
@@ -157,7 +194,7 @@ export function ChatComposer({
             onClick={handleSubmit}
             disabled={sendDisabled}
             aria-label="Send message"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-600 text-white shadow-sm transition-colors hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:opacity-35 disabled:hover:bg-accent-600"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-600 text-white shadow-sm transition-colors hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:opacity-35 disabled:hover:bg-accent-600"
             whileHover={sendDisabled ? undefined : { scale: 1.05 }}
             whileTap={sendDisabled ? undefined : { scale: 0.97 }}
             transition={SPRING_SNAPPY}
@@ -170,7 +207,7 @@ export function ChatComposer({
             onClick={handleSubmit}
             disabled={sendDisabled}
             aria-label="Send message"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-600 text-white shadow-sm transition-colors hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:opacity-35 disabled:hover:bg-accent-600"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-600 text-white shadow-sm transition-colors hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 disabled:opacity-35 disabled:hover:bg-accent-600"
           >
             <ArrowUp className="h-4 w-4" aria-hidden="true" strokeWidth={2.5} />
           </button>

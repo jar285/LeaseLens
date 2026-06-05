@@ -74,7 +74,16 @@ export default function RootLayout({
         {/** biome-ignore lint/security/noDangerouslySetInnerHtml: trusted no-FOUC theme script — content is a static template literal, no user input. */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className="h-full">{children}</body>
+      {/* suppressHydrationWarning: browser extensions (Grammarly, etc.)
+          inject attributes onto <body> (data-gr-ext-installed,
+          data-new-gr-c-s-check-loaded, …) before React hydrates, which
+          otherwise trips a body-level hydration mismatch warning. This
+          suppresses the warning for the <body> element's own attributes
+          only — it does NOT propagate to children, so real mismatches
+          inside the app still surface. */}
+      <body className="h-full" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }

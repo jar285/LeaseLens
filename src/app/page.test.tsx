@@ -280,9 +280,11 @@ describe('Homepage Chat UI', () => {
   it('does not show the new conversation button on empty state', () => {
     render(withChatStream(<ChatUI workspaceName="Side Quest Syndicate" />));
     const toolbar = screen.getByTestId('conversation-toolbar');
-    // The toolbar is kept in the DOM (to reserve layout space) but hidden via
-    // the `invisible` class when there are no messages.
-    expect(toolbar).toHaveClass('invisible');
+    // Sprint 38.6 — with no thread the toolbar is removed from layout via
+    // `hidden` (display:none), not just `invisible`: reserving the row left a
+    // dead ~50px void above the empty-state copy in the compact FAB popover.
+    expect(toolbar).toHaveClass('hidden');
+    expect(toolbar).not.toHaveClass('invisible');
   });
 
   it('resets to empty state when new conversation is clicked', async () => {

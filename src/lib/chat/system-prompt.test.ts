@@ -412,4 +412,49 @@ describe('buildSystemPrompt', () => {
       expect(prompt).toMatch(/of \d+ clauses graded/i);
     });
   });
+
+  // Sprint 37.4 — structured-answer styling is scoped to the NO-LEASE state.
+  // It must guide concise summary→steps→CTA for orientation questions, point
+  // the upload at the page's dropzone (never the chat), and disappear once a
+  // lease is loaded so it can't perturb the tuned scan/draft/citation rules.
+  describe('Sprint 37.4 — no-lease answer-style scoping', () => {
+    const ACTIVE_LEASE = {
+      id: 'l-1',
+      filename: 'sample.pdf',
+      page_count: 4,
+      clause_count: 15,
+    };
+
+    it('no lease → includes the structured answer-style guidance', () => {
+      const prompt = buildSystemPrompt({ role: 'Tenant' });
+      expect(prompt).toContain('ANSWER STYLE — NO LEASE LOADED');
+      expect(prompt).toMatch(/numbered list of the key steps/i);
+      // CTA points at the page dropzone, never "upload here / in this chat".
+      expect(prompt).toMatch(/dropzone on the page/i);
+      expect(prompt).toMatch(/not the conversation/i);
+    });
+
+    it('lease attached → EXCLUDES the no-lease answer-style section', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: ACTIVE_LEASE,
+      });
+      expect(prompt).not.toContain('ANSWER STYLE — NO LEASE LOADED');
+      // No stray "null" from the filtered-out section.
+      expect(prompt).not.toContain('null');
+    });
+
+    it('the scan / draft / citation rules are present regardless of lease state (scoping did not break them)', () => {
+      const noLease = buildSystemPrompt({ role: 'Tenant' });
+      const withLease = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: ACTIVE_LEASE,
+      });
+      for (const prompt of [noLease, withLease]) {
+        expect(prompt).toContain('grade_clause_severity');
+        expect(prompt).toContain('draft_negotiation_email');
+        expect(prompt).toMatch(/citation/i);
+      }
+    });
+  });
 });

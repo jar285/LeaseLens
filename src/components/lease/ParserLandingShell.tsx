@@ -19,6 +19,7 @@ import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
 import { AssistantFab } from '@/components/chat/AssistantFab';
 import { AssistantFabProvider } from '@/components/chat/AssistantFabContext';
 import { ChatStreamProvider } from '@/components/chat/ChatStreamContext';
+import { SiteFooter } from '@/components/layout/SiteFooter';
 import type { Role } from '@/lib/auth/types';
 import { LEASELENS_DISCLAIMER } from '@/lib/lease/disclaimer';
 import {
@@ -134,8 +135,18 @@ function LeaseHeroAmbientBlob(): React.JSX.Element {
 const CAPABILITY_PILL_CLASS =
   'inline-flex cursor-default rounded-full border border-border-hairline bg-surface-elevated/55 px-3 py-1.5 text-xs font-medium text-fg-default shadow-hairline transition-[background-color,border-color,color,transform] duration-200 ease-out motion-safe:[@media(hover:hover)]:hover:scale-[1.02] motion-safe:[@media(hover:hover)]:hover:border-accent-400/70 motion-safe:[@media(hover:hover)]:hover:bg-accent-50/75 motion-safe:[@media(hover:hover)]:hover:text-accent-700 motion-reduce:transition-none motion-reduce:hover:scale-100 dark:bg-surface-elevated/25 dark:motion-safe:[@media(hover:hover)]:hover:border-accent-500/45 dark:motion-safe:[@media(hover:hover)]:hover:bg-accent-500/12 dark:motion-safe:[@media(hover:hover)]:hover:text-accent-200';
 
+// Sprint 41 — the trust-metric medallions are the landing's one glass
+// accent (the user's "numbers we use as signs"). Reuses the FAB drawer's
+// frosted recipe — translucent warm parchment + backdrop blur, with a
+// backdrop-filter-aware opacity step-down so non-supporting browsers get a
+// more opaque (readable) fallback. Depth comes from an inset top highlight
+// + a soft warm drop shadow (box-shadow rather than a `before:` line, which
+// reads cleaner on a circle). The hover lift transitions the `scale`
+// property — NOT `transform` — because Tailwind v4 sets `scale`/`translate`
+// as their own CSS properties; the old `transition-transform` never animated
+// the lift and it snapped.
 const TRUST_METRIC_CIRCLE_CLASS =
-  'flex h-14 w-14 items-center justify-center rounded-full border border-border-hairline bg-surface-elevated/50 font-mono text-lg text-accent-600 tabular-nums shadow-hairline transition-transform duration-200 ease-out motion-safe:[@media(hover:hover)]:hover:scale-105 motion-reduce:transition-none motion-reduce:hover:scale-100 dark:bg-surface-elevated/25 dark:text-accent-300';
+  'flex h-14 w-14 items-center justify-center rounded-full border border-border-hairline bg-surface-card/80 font-mono text-lg text-accent-700 tabular-nums shadow-[inset_0_1px_0_rgb(255_255_255/0.55),0_6px_16px_-8px_rgb(40_28_16/0.22)] backdrop-blur-md transition-[scale,box-shadow] duration-200 ease-out supports-[backdrop-filter]:bg-surface-card/65 motion-safe:[@media(hover:hover)]:hover:scale-105 motion-reduce:transition-none motion-reduce:hover:scale-100 dark:bg-neutral-900/70 dark:text-accent-300 dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.10),0_6px_16px_-8px_rgb(0_0_0/0.5)] dark:supports-[backdrop-filter]:bg-neutral-900/55';
 
 const HERO_ENTRANCE_ITEM = {
   hidden: { opacity: 0, y: 10 },
@@ -402,8 +413,11 @@ export function ParserLandingShell({
                   </LeaseHeroEntrance>
 
                   <div
+                    id="how-it-works"
                     data-testid="parser-landing-support"
-                    className="relative z-0 flex w-full max-w-2xl flex-col items-center gap-8 border-t border-border-hairline/70 pt-10"
+                    // Sprint 42 — anchor target for the footer "How it works"
+                    // link (/#how-it-works). scroll-mt clears the sticky header.
+                    className="relative z-0 flex w-full max-w-2xl scroll-mt-24 flex-col items-center gap-8 border-t border-border-hairline/70 pt-10"
                   >
                     <div className="flex w-full flex-col items-center gap-4">
                       <p
@@ -470,6 +484,12 @@ export function ParserLandingShell({
               </div>
             </div>
           </section>
+          {/* Sprint 41 — site footer (FAQ / Privacy / NJ sources). A sibling
+              of the hero section, not inside its scrollable content, so it
+              reads as page chrome below the fold and never competes with the
+              dropzone. Mode A only — WorkspaceRouterShell swaps to
+              ParserResultsShell post-upload. */}
+          <SiteFooter />
           <AssistantFab
             workspaceName={workspaceName}
             conversationId={conversationId ?? null}

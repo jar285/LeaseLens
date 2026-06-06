@@ -114,6 +114,34 @@ describe('ParserLandingShell', () => {
     }
   });
 
+  it('renders trust metric circles as frosted glass (Sprint 41)', () => {
+    render(<ParserLandingShell workspaceName="Demo" />);
+    const circles = screen.getAllByTestId('parser-trust-metric-circle');
+    expect(circles).toHaveLength(3);
+    for (const circle of circles) {
+      // Reuses the FAB glass recipe: translucent parchment + backdrop blur,
+      // with a backdrop-filter-aware opacity step-down.
+      expect(circle.className).toMatch(/backdrop-blur/);
+      expect(circle.className).toMatch(/supports-\[backdrop-filter\]/);
+      expect(circle.className).toMatch(/bg-surface-card\//);
+      // Sprint 41 — Tailwind v4: the hover scale animates the `scale`
+      // property, NOT `transform`. The transition must name `scale` or the
+      // lift snaps instantly (the old `transition-transform` bug).
+      expect(circle.className).toMatch(/transition-\[scale/);
+      expect(circle.className).not.toMatch(/transition-transform/);
+    }
+  });
+
+  it('renders the site footer as a sibling of the hero section (Sprint 41)', () => {
+    render(<ParserLandingShell workspaceName="Demo" />);
+    const footer = screen.getByTestId('site-footer');
+    expect(footer).toBeInTheDocument();
+    // The footer must sit outside the hero section, not inside the
+    // scrollable hero content.
+    const shell = screen.getByTestId('parser-landing-shell');
+    expect(shell.contains(footer)).toBe(false);
+  });
+
   it('renders an Open Design–style editorial frame on the landing shell (Sprint 29.x)', () => {
     render(<ParserLandingShell workspaceName="Demo" />);
     const frame = screen.getByTestId('parser-landing-editorial-frame');

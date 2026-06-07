@@ -16,6 +16,7 @@ import { env } from '@/lib/env';
 import { assertLeaseOwnership } from '@/lib/lease/assert-lease-ownership';
 import { type ClauseRow, getLease, listClauses } from '@/lib/lease/queries';
 import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
+import { logger } from '@/lib/log/logger';
 import { type RetrievedChunk, retrieve } from '@/lib/rag/retrieve';
 import type {
   MutationOutcome,
@@ -244,18 +245,14 @@ function validateGrading(
   // line here, gated on NODE_ENV like the route diagnostic, so the
   // grading-rejection failure mode is debuggable without rerunning.
   if (!cited) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(
-        '[chat-diag s32.2-reject]',
-        JSON.stringify({
-          rejected_citation: raw.statute_citation,
-          cited_chunk_id: raw.chunk_id,
-          chunk_heading: null,
-          chunk_body_head: null,
-          rejection_reason: 'chunk_id_not_retrieved',
-        }),
-      );
-    }
+    logger.debug(
+      {
+        rejectedCitation: raw.statute_citation,
+        citedChunkId: raw.chunk_id,
+        rejectionReason: 'chunk_id_not_retrieved',
+      },
+      'grade.citation_rejected',
+    );
     throw new Error(
       `grade_clause_severity: cited chunk_id "${raw.chunk_id}" was not in the retrieved set — citation not grounded in corpus.`,
     );
@@ -332,18 +329,16 @@ function validateGrading(
     return { ...raw, statute_citation: humaniseChunkPointer(raw.chunk_id) };
   }
 
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(
-      '[chat-diag s32.2-reject]',
-      JSON.stringify({
-        rejected_citation: raw.statute_citation,
-        cited_chunk_id: raw.chunk_id,
-        chunk_heading: cited.heading ?? null,
-        chunk_body_head: cited.content.slice(0, 120),
-        rejection_reason: 'citation_not_in_body',
-      }),
-    );
-  }
+  logger.debug(
+    {
+      rejectedCitation: raw.statute_citation,
+      citedChunkId: raw.chunk_id,
+      chunkHeading: cited.heading ?? null,
+      chunkBodyLength: cited.content.length,
+      rejectionReason: 'citation_not_in_body',
+    },
+    'grade.citation_rejected',
+  );
   throw new Error(
     `grade_clause_severity: statute_citation "${raw.statute_citation}" does not appear in the cited chunk's text — citation not grounded.`,
   );

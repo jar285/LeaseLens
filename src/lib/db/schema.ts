@@ -121,7 +121,11 @@ export const SCHEMA = `
     conversation_id TEXT,
     workspace_id    TEXT NOT NULL,
     status          TEXT NOT NULL CHECK(status IN ('success', 'error')) DEFAULT 'success',
+    -- Sprint 44B: error_message holds a SAFE error NAME (e.g. 'SyntaxError'),
+    -- never the raw message (which can embed lease/draft PII); error_code is the
+    -- enumerated failure code (parse_error | tool_error | access_denied | ...).
     error_message   TEXT,
+    error_code      TEXT,
     latency_ms      INTEGER,
     created_at      INTEGER NOT NULL
   );

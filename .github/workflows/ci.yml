@@ -1,0 +1,65 @@
+# Sprint 44C — CI: the four gates LeaseLens already runs locally
+# (lint → typecheck → test+coverage → build), now enforced on every PR with
+# the test reports uploaded as artifacts. e2e (Playwright) is intentionally NOT
+# run here — it needs browsers + a real session secret + a dev webServer; that's
+# a follow-up. No remote log sink / deploy here either.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref so a fast-follow push doesn't queue.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      # vitest.config.ts switches on CI to emit the JUnit report.
+      CI: 'true'
+      # src/lib/env.ts validates a >=32-char secret at module load, which
+      # `vitest` and `next build` both trigger. Throwaway CI-only value — this
+      # is NOT a real secret and signs nothing that leaves CI.
+      LEASELENS_SESSION_SECRET: ci-placeholder-session-secret-not-a-real-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x' # repo engines: >=20.9.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (with coverage)
+        run: npm run test:coverage
+
+      # NOTE (Sprint 44C): `prebuild` runs scripts/seed-if-empty.mjs, which
+      # generates the NJ-corpus embeddings via @huggingface/transformers (WASM).
+      # First CI run may download the model; if it's slow, cache ~/.cache or add
+      # a CI seed-skip. Validated on the first PR run.
+      - name: Build
+        run: npm run build
+
+      - name: Upload test + coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            coverage/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14

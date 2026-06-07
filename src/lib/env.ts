@@ -34,6 +34,10 @@ const envSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
+  // Sprint 44A — structured-logger level (Pino level names; 'silent' disables).
+  LEASELENS_LOG_LEVEL: z
+    .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+    .default('info'),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

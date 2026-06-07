@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { logger } from '@/lib/log/logger';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -119,10 +120,13 @@ describe('rehydrateToolEvents', () => {
   });
 
   // Sprint 25.1 (R14) — orphan tool_result (no matching tool_use) should
-  // be skipped AND surface a console.warn so DB corruption / migration
-  // bugs don't render an incomplete red-flag report silently.
+  // be skipped AND surface a warning so DB corruption / migration bugs
+  // don't render an incomplete red-flag report silently. (Sprint 44 sweep:
+  // the warning now goes through the structured logger, not console.)
   it('warns and skips orphan tool_result rows with no matching tool_use', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = vi
+      .spyOn(logger, 'warn')
+      .mockImplementation((() => {}) as never);
 
     const events = rehydrateToolEvents([
       {
@@ -141,11 +145,11 @@ describe('rehydrateToolEvents', () => {
     expect(events).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(
-      '[rehydrate] orphan tool_result with no matching tool_use',
       expect.objectContaining({
-        tool_result_id: 'never-used',
-        tool_name: 'grade_clause_severity',
+        toolResultId: 'never-used',
+        toolName: 'grade_clause_severity',
       }),
+      'rehydrate.orphan_tool_result',
     );
   });
 

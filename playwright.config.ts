@@ -10,7 +10,10 @@ export default defineConfig({
   testMatch: /.*\.spec\.ts$/,
   fullyParallel: false,
   workers: 1,
-  reporter: [['list']],
+  // Sprint 44C — keep the concise list output + add a viewable HTML report
+  // (writes to playwright-report/; `open: 'never'` so CI/headless runs don't try
+  // to launch a browser). View locally with `npx playwright show-report`.
+  reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',

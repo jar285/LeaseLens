@@ -178,4 +178,29 @@ export function migrate(db: Database.Database): void {
   if (tableExists(db, 'clauses') && !columnExists(db, 'clauses', 'severity')) {
     db.exec(`ALTER TABLE clauses ADD COLUMN severity TEXT`);
   }
+
+  // Sprint 44B — tool_calls.error_code (nullable, no CHECK → a clean ADD
+  // COLUMN; idempotent via columnExists). Stores the enumerated failure code
+  // alongside the now-PII-safe error_message (a bare error NAME). We do NOT
+  // add a 'failed' status to audit_log: its status CHECK would force a full
+  // table rebuild, and tool_calls already records every failure.
+  if (
+    tableExists(db, 'tool_calls') &&
+    !columnExists(db, 'tool_calls', 'error_code')
+  ) {
+    try {
+      db.exec(`ALTER TABLE tool_calls ADD COLUMN error_code TEXT`);
+    } catch (err) {
+      // `next build` runs page-data collection across parallel workers, each
+      // opening this same DB file. For a brand-new column they can all pass the
+      // columnExists check and then race the ADD; the losers throw
+      // "duplicate column name". The column existing is the desired end state,
+      // so swallow only that error and rethrow anything else.
+      if (
+        !(err instanceof Error && /duplicate column name/i.test(err.message))
+      ) {
+        throw err;
+      }
+    }
+  }
 }

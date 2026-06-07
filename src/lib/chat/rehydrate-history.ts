@@ -3,6 +3,7 @@ import type {
   ToolInvocation,
 } from '@/components/chat/ChatMessage';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
+import { logger } from '@/lib/log/logger';
 import { parseToolContent, type ToolUseEnvelope } from './parse-tool-content';
 
 export type { ToolEvent };
@@ -162,10 +163,13 @@ export function rehydrateToolEvents(rows: ConversationRow[]): ToolEvent[] {
       // Sprint 25.1 (R14) — surface DB corruption / migration bugs that
       // would otherwise leave an incomplete red-flag report with no
       // signal. console.warn (not error) per charter §11a.
-      console.warn('[rehydrate] orphan tool_result with no matching tool_use', {
-        tool_result_id: parsed.tool_result.id,
-        tool_name: parsed.tool_result.name,
-      });
+      logger.warn(
+        {
+          toolResultId: parsed.tool_result.id,
+          toolName: parsed.tool_result.name,
+        },
+        'rehydrate.orphan_tool_result',
+      );
       continue;
     }
     events.push({

@@ -8,6 +8,7 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/log/logger';
 import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import { WORKSPACE_TTL_SECONDS } from '@/lib/workspaces/constants';
 import {
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 400 },
       );
     }
-    console.error('Workspace upload failed:', err);
+    logger.error({ err }, 'workspace.upload_failed');
     return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
   }
 }

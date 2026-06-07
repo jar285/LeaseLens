@@ -20,11 +20,15 @@ import { db } from '@/lib/db';
 import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
 import { isSpendCeilingExceeded, recordSpend } from '@/lib/db/spend';
 import { env } from '@/lib/env';
+import { errorResponse } from '@/lib/http/error-response';
 import { getLease } from '@/lib/lease/queries';
 import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
+import { logger } from '@/lib/log/logger';
+import { requestIdFrom } from '@/lib/log/request-id';
 import { retrieve } from '@/lib/rag/retrieve';
 import { createToolRegistry } from '@/lib/tools/create-registry';
 import type { AnthropicTool } from '@/lib/tools/domain';
+import { toSafeToolError } from '@/lib/tools/safe-tool-error';
 import {
   decodeWorkspace,
   WORKSPACE_COOKIE_NAME,
@@ -72,10 +76,6 @@ const MAX_TOOL_ITERATIONS = 15;
 // client as a `truncated` event so the user sees a clear notice when it
 // still happens (e.g. a 20-clause lease with verbose grading).
 const MAX_OUTPUT_TOKENS = 8192;
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unknown error';
-}
 
 /**
  * Append `addition` to `existing`, inserting a paragraph separator between
@@ -161,23 +161,29 @@ function buildMessagesForAnthropic(
 }
 
 export async function POST(req: NextRequest) {
+  // Sprint 44A.2 — request-scoped logger carrying the correlation id the
+  // middleware forwarded. In scope for both the RAG-failure warning and the
+  // top-level error catch below. The `err` serializer scrubs any PII-bearing
+  // message/stack; we never log raw lease/clause content.
+  const requestId = requestIdFrom(req.headers);
+  const log = logger.child({ requestId });
   try {
     let rawBody: unknown;
     try {
       rawBody = await req.json();
     } catch (_e) {
-      return NextResponse.json(
-        { error: 'Invalid or missing JSON body' },
-        { status: 400 },
-      );
+      return errorResponse('VALIDATION', {
+        requestId,
+        message: 'Invalid or missing JSON body',
+      });
     }
 
     const parsedBody = chatRequestBodySchema.safeParse(rawBody);
     if (!parsedBody.success) {
-      return NextResponse.json(
-        { error: 'Message is required' },
-        { status: 400 },
-      );
+      return errorResponse('VALIDATION', {
+        requestId,
+        message: 'Message is required',
+      });
     }
     const { message, conversationId, forceScan, startNewConversation } =
       parsedBody.data;
@@ -196,7 +202,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return errorResponse('UNAUTHENTICATED', {
+        requestId,
+        message: 'Unauthorized',
+      });
     }
 
     // Sprint 11 (revised) — workspace cookie. If missing or expired,
@@ -255,10 +264,10 @@ export async function POST(req: NextRequest) {
     if (env.LEASELENS_DEMO_MODE) {
       const rateLimit = checkAndIncrementRateLimit(userId);
       if (!rateLimit.allowed) {
-        return NextResponse.json(
-          { error: 'Rate limit exceeded. Try again in the next hour.' },
-          { status: 429 },
-        );
+        return errorResponse('RATE_LIMITED', {
+          requestId,
+          message: 'Rate limit exceeded. Try again in the next hour.',
+        });
       }
       if (rateLimit.remaining <= 2) {
         quotaRemaining = rateLimit.remaining;
@@ -324,10 +333,10 @@ export async function POST(req: NextRequest) {
     })();
 
     if (!activeConversationId) {
-      return NextResponse.json(
-        { error: 'Failed to initialize conversation' },
-        { status: 500 },
-      );
+      return errorResponse('INTERNAL', {
+        requestId,
+        message: 'Failed to initialize conversation',
+      });
     }
 
     const resolvedConversationId = activeConversationId;
@@ -337,7 +346,7 @@ export async function POST(req: NextRequest) {
     try {
       ragContext = await retrieve(message, db, { workspaceId: workspace.id });
     } catch (err) {
-      console.error('RAG retrieval failed, proceeding without context:', err);
+      log.warn({ err }, 'rag.retrieve_failed: proceeding without context');
     }
 
     // Phase 10.8.2 — active-lease awareness. Resolve the lease for
@@ -487,11 +496,14 @@ export async function POST(req: NextRequest) {
               // bubble. The event is emitted before `controller.close()`
               // so the frontend processes it on the same stream.
               if (finalMessage.stop_reason === 'max_tokens') {
-                console.warn('[chat] response truncated by max_tokens', {
-                  conversation_id: resolvedConversationId,
-                  output_tokens: finalMessage.usage.output_tokens,
-                  cap: MAX_OUTPUT_TOKENS,
-                });
+                log.warn(
+                  {
+                    conversationId: resolvedConversationId,
+                    outputTokens: finalMessage.usage.output_tokens,
+                    cap: MAX_OUTPUT_TOKENS,
+                  },
+                  'chat.response_truncated',
+                );
                 controller.enqueue(
                   encoder.encode(
                     `${JSON.stringify({
@@ -613,19 +625,19 @@ export async function POST(req: NextRequest) {
           // hallucination signature (AutoScanRunner stream landed zero
           // tool_result events; right pane stays empty even though the
           // chat got a summary). Never ships to prod.
-          if (process.env.NODE_ENV !== 'production') {
-            console.log(
-              '[chat-diag s32.0]',
-              JSON.stringify({
-                conversation_id: resolvedConversationId,
-                iterations,
-                tool_use_count: toolUseCount,
-                final_text_length: finalResponse.length,
-                final_text_head: finalResponse.slice(0, 200),
-                user_message_head: message.slice(0, 120),
-              }),
-            );
-          }
+          // Sprint 44 sweep — was a NODE_ENV-gated console diag with content
+          // heads (final_text_head / user_message_head = PII risk). Now a
+          // structured debug log with lengths only; gated by LEASELENS_LOG_LEVEL.
+          log.debug(
+            {
+              conversationId: resolvedConversationId,
+              iterations,
+              toolUseCount,
+              finalTextLength: finalResponse.length,
+              userMessageLength: message.length,
+            },
+            'chat.turn_complete',
+          );
 
           // Persist final assistant message
           if (finalResponse) {
@@ -653,9 +665,13 @@ export async function POST(req: NextRequest) {
             recordSpend(tokensIn, tokensOut);
           }
         } catch (error) {
+          // Sprint 44B.2 — log the detail server-side (the err serializer
+          // scrubs any PII-bearing message/stack), stream only a safe, generic
+          // message; never the raw err.message to the client.
+          log.error({ err: error }, 'chat.stream_error');
           controller.enqueue(
             encoder.encode(
-              `${JSON.stringify({ error: getErrorMessage(error) })}\n`,
+              `${JSON.stringify({ error: 'The response was interrupted. Please try again.' })}\n`,
             ),
           );
         } finally {
@@ -672,18 +688,18 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Chat API Error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 },
-    );
+    log.error({ err: error }, 'chat.api_error');
+    return errorResponse('INTERNAL', { requestId });
   }
 }
 
 /**
  * Execute a tool and persist the tool_use/tool_result to the database.
+ *
+ * Exported for the Sprint 44B.2 redaction test — it is a cohesive,
+ * separately-verifiable unit (run tool → stream result → persist messages).
  */
-async function executeToolAndPersist(
+export async function executeToolAndPersist(
   toolUse: ToolUseBlock,
   conversationId: string,
   userId: string,
@@ -722,27 +738,35 @@ async function executeToolAndPersist(
     toolResult = envelope.result;
     auditId = envelope.audit_id;
   } catch (err) {
-    toolError = err instanceof Error ? err.message : 'Tool execution failed';
-    toolResult = { error: toolError };
+    // Sprint 44B.2 — sanitize at the boundary: only the safe { name, code }
+    // from toSafeToolError crosses into the client NDJSON stream, the persisted
+    // `messages` row, and the LLM context. A raw JSON.parse SyntaxError embeds
+    // the draft-email body / clause text (tenant PII) in its message. The
+    // registry already logged the failure server-side (tool.execute_failed).
+    const safe = toSafeToolError(err);
+    toolError = safe.name;
+    toolResult = { error: safe.name, code: safe.code };
   }
 
   // Sprint 32.2.0 — dev-only per-tool-call diagnostic. Disambiguates
   // Theory A (server-side grading errors) from Theory B (stale clause_id
   // mismatch from prior conversation history). One line per executed
   // tool; grep for `[chat-diag s32.2]`. NODE_ENV-gated.
-  if (process.env.NODE_ENV !== 'production') {
+  // Sprint 44 sweep — structured per-tool-call diagnostic (debug level). All
+  // fields are IDs/enums/the safe error name (44B.2), never content.
+  {
     const r = (toolResult ?? {}) as Record<string, unknown>;
     const i = (toolUse.input ?? {}) as Record<string, unknown>;
-    console.log(
-      '[chat-diag s32.2]',
-      JSON.stringify({
-        tool_name: toolUse.name,
-        input_clause_id: typeof i.clause_id === 'string' ? i.clause_id : null,
-        result_clause_id: typeof r.clause_id === 'string' ? r.clause_id : null,
-        result_severity: typeof r.severity === 'string' ? r.severity : null,
-        result_has_error: toolError !== undefined,
-        error_msg_head: toolError ? toolError.slice(0, 100) : null,
-      }),
+    logger.debug(
+      {
+        toolName: toolUse.name,
+        inputClauseId: typeof i.clause_id === 'string' ? i.clause_id : null,
+        resultClauseId: typeof r.clause_id === 'string' ? r.clause_id : null,
+        resultSeverity: typeof r.severity === 'string' ? r.severity : null,
+        hasError: toolError !== undefined,
+        errName: toolError ?? null,
+      },
+      'tool.diag',
     );
   }
 

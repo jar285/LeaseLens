@@ -15,17 +15,20 @@
 
 'use client';
 
+import { motion, useReducedMotion } from 'motion/react';
 import { useState } from 'react';
 import type {
   ActiveLeaseRef,
   ToolEvent,
 } from '@/components/chat/ChatStreamContext';
 import type { ChatUIProps } from '@/components/chat/ChatUI';
+import { MotionProvider } from '@/components/layout/MotionProvider';
 import type { Role } from '@/lib/auth/types';
 import { getPdfBinaryRepository } from '@/lib/lease/pdf-binary-repository';
 import type { UploadResult } from './LeaseUploadDropzone';
 import { ParserLandingShell } from './ParserLandingShell';
 import { ParserResultsShell } from './ParserResultsShell';
+import { MODE_FLIP_TRANSITION, shouldAnimateModeFlip } from './workspace-flip';
 
 export interface WorkspaceRouterShellProps {
   initialMessages: ChatUIProps['initialMessages'];
@@ -60,6 +63,9 @@ export function WorkspaceRouterShell(
   // entirely; on SSR rehydration we forward them so prior gradings
   // come back into view.
   const [freshUpload, setFreshUpload] = useState(false);
+  // Sprint 43.3 — reduced-motion read for the Mode A->B flip gating. Read at
+  // the top level (above MotionProvider) so it reflects the OS media query.
+  const reducedMotion = useReducedMotion();
 
   function handleUploadedFromLanding(result: UploadResult, file: File): void {
     setLiveActiveLease({
@@ -88,17 +94,6 @@ export function WorkspaceRouterShell(
     setFreshUpload(false);
   }
 
-  if (!liveActiveLease) {
-    return (
-      <ParserLandingShell
-        workspaceName={props.workspaceName}
-        viewerRole={props.viewerRole}
-        conversationId={props.conversationId ?? null}
-        onUploaded={handleUploadedFromLanding}
-      />
-    );
-  }
-
   // Sprint 26b — post-upload routes to ParserResultsShell.
   //
   // Sprint 26c.9 — on a fresh in-session upload, pass an empty tool-
@@ -112,16 +107,44 @@ export function WorkspaceRouterShell(
   // results last time).
   const triggerAutoScan = freshUpload && props.autoScanEnabled === true;
 
+  // Sprint 43.1 — MotionProvider wraps the whole router so one
+  // <MotionConfig reducedMotion="user"> covers both Mode A and Mode B (and the
+  // Mode A->B flip, Sprint 43.3) from a single point, without disturbing the
+  // inner provider order (AssistantFabProvider -> LeaseParserProvider ->
+  // ChatStreamProvider) that ParserResultsShell still owns.
+  const animateFlip = shouldAnimateModeFlip(freshUpload, reducedMotion);
   return (
-    <ParserResultsShell
-      initialMessages={props.initialMessages}
-      conversationId={props.conversationId}
-      workspaceName={props.workspaceName}
-      viewerRole={props.viewerRole}
-      initialToolEvents={initialToolEvents}
-      initialActiveLease={liveActiveLease}
-      onReplace={handleReplace}
-      triggerAutoScan={triggerAutoScan}
-    />
+    <MotionProvider>
+      {liveActiveLease ? (
+        // Sprint 43.3 — Mode A->B flip: the workspace fades in on a fresh
+        // in-session upload (orientation: "lease loaded -> here's the
+        // workspace"). OPACITY-ONLY — the subtree holds the fixed AssistantFab,
+        // so a transform here would re-base its containing block. Gated so SSR
+        // rehydration and reduced-motion render instantly (initial={false}).
+        <motion.div
+          initial={animateFlip ? { opacity: 0 } : false}
+          animate={{ opacity: 1 }}
+          transition={MODE_FLIP_TRANSITION}
+        >
+          <ParserResultsShell
+            initialMessages={props.initialMessages}
+            conversationId={props.conversationId}
+            workspaceName={props.workspaceName}
+            viewerRole={props.viewerRole}
+            initialToolEvents={initialToolEvents}
+            initialActiveLease={liveActiveLease}
+            onReplace={handleReplace}
+            triggerAutoScan={triggerAutoScan}
+          />
+        </motion.div>
+      ) : (
+        <ParserLandingShell
+          workspaceName={props.workspaceName}
+          viewerRole={props.viewerRole}
+          conversationId={props.conversationId ?? null}
+          onUploaded={handleUploadedFromLanding}
+        />
+      )}
+    </MotionProvider>
   );
 }

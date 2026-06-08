@@ -221,3 +221,47 @@ this slice emphasizes only the previously-static verdict, the load-bearing "is t
   static (no rehydration flash); the keyed `motion.p` (no `layout` prop) does not disturb the cards' LayoutGroup
   and triggers no screen-reader re-announcement (not an aria-live region); sober + informational, not
   celebratory; consumes existing state; tests honest.
+
+---
+
+## 43.7 — Motion + a11y + perf gate (2026-06-07)
+
+Verification slice — **no new feature code**. It runs/records the gates and routes the browser-dependent ones
+to CI/local.
+
+**Done in this environment**
+- **Production build — GREEN.** `npm run build` compiles (7.5s), TypeScript passes, all 19 static pages
+  generate. (Next 16's Turbopack build output no longer prints a per-route First Load JS column.)
+- **Bundle delta — ~0 (measured).** Client chunks (`.next/static/chunks`): pre-sprint (`a0831c3`) **4.7M** →
+  post-sprint (`3a57334`) **4.7M** — no measurable change. Additive confirmed: `git diff a0831c3..HEAD --
+  package.json` is empty (no new dependency; `motion` was already present). The flagship bundle work (the
+  17-file `{motion}`→`m` + LazyMotion migration) stays deferred to its own sprint; a precise per-route First
+  Load JS baseline needs `@next/bundle-analyzer` (the repo has none) and is most useful in that migration sprint.
+- **Reduced-motion sweep — PASS (code audit).** Every new motion site is gated:
+  global `<MotionConfig reducedMotion="user">` (MotionProvider); Mode A→B flip
+  `shouldAnimateModeFlip(freshUpload, reducedMotion)`; ClausesList stagger `animate = mounted && !reduced` →
+  `initial={animate ? 'hidden' : false}`; clause-row + red-flag-toggle tap-press
+  `motion-reduce:transition-none motion-reduce:active:scale-100`; verdict settle
+  `shouldEmphasizeVerdict(isReviewReady, mounted, reducedMotion)`.
+- **Motion tokens — coherent, no tuning needed.** New code consumes DURATION/EASE/STAGGER (no ad-hoc numbers):
+  flip = `DURATION.enter` ceiling; stagger = `cappedStaggerStep(STAGGER)` capped 0.4s; verdict = `DURATION.base`;
+  tap-press = CSS `active:scale` (FAB-pill-consistent).
+
+**Merge gate — must run in CI / locally with browsers (outside this environment)**
+- **Playwright reduced-motion run** (`emulateMedia({ reducedMotion: 'reduce' })`): existing T18 + assertions
+  that the flip / stagger / verdict settle are instant under reduce.
+- **CLS / INP / frame-budget** on the Mode A→B flip + list stagger (Grigorik) — needs real-browser perf tooling.
+- **Screenshots** of each affected flow against the seeded sample lease.
+
+No QA-workflow for this slice — it adds no new implementation (the code was adversarially reviewed in 43.1–43.6).
+
+---
+
+## Sprint 43 — summary
+
+Shipped (TDD + per-slice adversarial QA, all gates green at each step): **43.1** motion foundations + tokens ·
+**43.3** Mode A→B flip · **43.4** ClausesList stagger · **43.5** card tap-press + inset focus · **43.6** verdict
+emphasis. **Retired** (already satisfied, Rams "earns its place"): **43.2** FAB drawer open/close.
+**43.7** gate: build green, ~0 bundle delta, reduced-motion sweep pass; Playwright/perf/screenshots = the
+CI/local merge gate. Deferred to its own sprint: the `{motion}`→`m` + LazyMotion bundle migration (this sprint's
+build is its "before").

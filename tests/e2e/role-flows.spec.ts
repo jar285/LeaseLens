@@ -189,7 +189,7 @@ test('T13 — Admin sees audit rows from other actors; Reviewer sees only own', 
   await expect(page.getByTestId(`audit-row-${adminAuthoredId}`)).toHaveCount(0);
 });
 
-test('T15 — continue-previous undo restores lease + cards + transcript', async ({
+test('T15 — "Clear assistant chat" preserves the lease + red-flag cards (parser state survives)', async ({
   context,
   page,
 }) => {
@@ -221,14 +221,11 @@ test('T15 — continue-previous undo restores lease + cards + transcript', async
   await openAssistantFab(page);
   await page.getByTestId('new-conversation-btn').click();
 
-  // Red-flag report empties (activeLease cleared); the Continue-previous
-  // affordance appears inside the drawer's chat toolbar.
-  await expect(page.getByTestId('red-flag-report-empty')).toBeVisible();
-  await expect(page.getByTestId('continue-previous-btn')).toBeVisible();
-
-  // Click Continue previous — restoreConversation replays the stashed
-  // { activeLease, toolEvents } atomically.
-  await page.getByTestId('continue-previous-btn').click();
-
+  // Sprint 28.7 + CLAUDE.md invariant — "Clear assistant chat" stashes the CHAT
+  // thread only; the lease + red-flag cards (owned by LeaseParserContext) are
+  // intentionally PRESERVED. The Continue-previous undo is gated on having NO
+  // active lease (ChatUI: `showContinuePrevious = … && !activeLease`), so with a
+  // lease attached the cards simply remain and no undo affordance is offered.
   await expect(page.getByTestId('red-flag-card')).toHaveCount(2);
+  await expect(page.getByTestId('continue-previous-btn')).toHaveCount(0);
 });

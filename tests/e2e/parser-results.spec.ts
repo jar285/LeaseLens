@@ -48,9 +48,11 @@ test('post-upload renders the parser-results shell (Mode B), not the legacy thre
 
   // The real FAB (not the stub) anchors the bottom-right.
   await expect(page.getByTestId('assistant-fab')).toBeVisible();
+  // Sprint 29.6 — the pill's aria-label carries a dynamic state suffix
+  // ("Open assistant — Ask about lease" / "— Help" / "— Scanning…").
   await expect(page.getByTestId('assistant-fab')).toHaveAttribute(
     'aria-label',
-    'Open assistant',
+    /^Open assistant/,
   );
 });
 
@@ -79,6 +81,12 @@ test('Replace returns the workspace to Mode A (parser-first landing)', async ({
 
   await expect(page.getByTestId('parser-results-shell')).toBeVisible();
   await page.getByTestId('results-replace-button').click();
+  // Sprint 28.15 — Replace now opens a styled ConfirmDialog (was window.confirm);
+  // confirm the destructive reset to return to Mode A.
+  await page
+    .getByTestId('confirm-dialog')
+    .getByRole('button', { name: 'Reset workspace' })
+    .click();
 
   // Back to landing — no results shell, hero dropzone visible.
   await expect(page.getByTestId('parser-landing-shell')).toBeVisible();
@@ -90,6 +98,12 @@ test('uploading after Replace restores the results shell', async ({ page }) => {
   await page.goto('/');
   await uploadSampleLease(page);
   await page.getByTestId('results-replace-button').click();
+  // Sprint 28.15 — Replace now opens a styled ConfirmDialog (was window.confirm);
+  // confirm the destructive reset to return to Mode A.
+  await page
+    .getByTestId('confirm-dialog')
+    .getByRole('button', { name: 'Reset workspace' })
+    .click();
   await expect(page.getByTestId('parser-landing-shell')).toBeVisible();
 
   // Re-uploading the same lease should lift back into Mode B cleanly.

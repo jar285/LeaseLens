@@ -13,8 +13,7 @@ import { db } from '@/lib/db';
 import { openAssistantFab } from './helpers/open-assistant-fab';
 import { clearUserConversations } from './helpers/seed-gradings';
 import { setSessionCookies } from './helpers/session';
-
-const SAMPLE_PDF = 'src/corpus/sample-lease/sample-nj-residential-lease.pdf';
+import { uploadSampleLease } from './helpers/upload-sample-lease';
 
 const TENANT_ID = DEMO_USERS.find((u) => u.role === 'Tenant')!.id;
 const REVIEWER_ID = DEMO_USERS.find((u) => u.role === 'Reviewer')!.id;
@@ -67,7 +66,7 @@ test('preflight — empty homepage renders Mode A, ParserResultsShell appears af
   await expect(page.getByTestId('chat-composer')).toHaveCount(0);
   await expect(page.getByTestId('assistant-fab')).toBeVisible();
 
-  await page.getByTestId('lease-upload-input').setInputFiles(SAMPLE_PDF);
+  await uploadSampleLease(page);
   await expect(page.getByTestId('parser-results-shell')).toBeVisible({
     timeout: 30_000,
   });
@@ -77,7 +76,10 @@ test('preflight — empty homepage renders Mode A, ParserResultsShell appears af
     'loaded',
   );
   await expect(page.getByTestId('results-stack')).toBeVisible();
-  await expect(page.getByTestId('red-flag-report-empty')).toBeVisible();
+  // Sprint 26c.10 — auto-scan fires on upload, so the red-flags pane is in its
+  // scanning state here (not the pre-scan empty state); assert the section
+  // itself renders, not a transient empty/scanning sub-state.
+  await expect(page.getByTestId('results-red-flags-section')).toBeVisible();
   await expect(page.getByTestId('clauses-list')).toBeVisible();
   // Sprint 26c — the temporary chat slot is gone; chat lives in the
   // FAB drawer. The pill itself anchors the bottom-right.
@@ -95,8 +97,7 @@ test('T1 — upload PDF, ParserResultsShell mounts, scan triggers tool flow', as
 }) => {
   await page.goto('/');
 
-  // setInputFiles bypasses the drag-drop path and goes through onChange.
-  await page.getByTestId('lease-upload-input').setInputFiles(SAMPLE_PDF);
+  await uploadSampleLease(page);
 
   // /api/leases parses + segments the PDF — 2–8s on warm cache.
   await expect(page.getByTestId('results-pdf-pane')).toHaveAttribute(
@@ -108,32 +109,27 @@ test('T1 — upload PDF, ParserResultsShell mounts, scan triggers tool flow', as
     'sample-nj-residential-lease.pdf',
   );
 
-  // Sprint 26c — chat lives inside the FAB drawer. Open it before
-  // driving the composer.
-  await openAssistantFab(page);
-
-  // Send a chat message; the LEASELENS_E2E_MOCK=1 mock returns a
-  // deterministic extract_clauses tool_use regardless of prompt content.
-  await page.getByRole('textbox').fill('Scan this lease.');
-  await page.getByRole('button', { name: 'Send message' }).click();
-
-  // For Tenant viewers, scan tools (extract_clauses + grade_clause_severity)
-  // render through <ScanTimeline /> instead of inline tool cards
-  // (Sprint 18 §5). Wait for that surface to confirm the stream landed.
-  await expect(page.getByTestId('scan-timeline').last()).toBeVisible({
+  // Sprint 26c.10 — auto-scan-on-upload fires the standard scan automatically.
+  // Its extract_clauses tool flow (via LEASELENS_E2E_MOCK) runs SILENTLY and
+  // routes into parser state, populating ClausesList — assert the clause rows
+  // appear to confirm the scan's tool flow ran. (Auto-scan consumes the scan
+  // turn, so a manual chat scan no longer yields a chat-surface ScanTimeline;
+  // and the mock emits no grade_clause_severity gradings, so RedFlagReport stays
+  // empty — visible red-flag cards are covered in red-flag-interactions.spec.ts
+  // via direct DB seeding.)
+  await expect(page.getByTestId('clauses-list-row').first()).toBeVisible({
     timeout: 30_000,
   });
 
-  // The mock does NOT emit grade_clause_severity gradings — visible
-  // red-flag cards are covered in red-flag-interactions.spec.ts via
-  // direct DB seeding.
+  // The mock does NOT emit grade_clause_severity gradings — visible red-flag
+  // cards are covered in red-flag-interactions.spec.ts via direct DB seeding.
 });
 
 test('T2 — role switch does NOT remount the shell (R1 DOM-identity invariant)', async ({
   page,
 }) => {
   await page.goto('/');
-  await page.getByTestId('lease-upload-input').setInputFiles(SAMPLE_PDF);
+  await uploadSampleLease(page);
   await expect(page.getByTestId('results-pdf-pane')).toHaveAttribute(
     'data-state',
     'loaded',
@@ -173,7 +169,7 @@ test('T3 — cockpit round-trip restores loaded state from IndexedDB', async ({
   await setSessionCookies(page.context(), 'Reviewer');
 
   await page.goto('/');
-  await page.getByTestId('lease-upload-input').setInputFiles(SAMPLE_PDF);
+  await uploadSampleLease(page);
   await expect(page.getByTestId('results-pdf-pane')).toHaveAttribute(
     'data-state',
     'loaded',
@@ -220,7 +216,7 @@ test('T4 — IndexedDB cache miss → reattach state surfaces the lost-cache hin
   // back on Mode A after Replace). The legacy three-pane shell's
   // inline reattach dropzone is gone; recovery now goes via Replace.
   await page.goto('/');
-  await page.getByTestId('lease-upload-input').setInputFiles(SAMPLE_PDF);
+  await uploadSampleLease(page);
   await expect(page.getByTestId('results-pdf-pane')).toHaveAttribute(
     'data-state',
     'loaded',

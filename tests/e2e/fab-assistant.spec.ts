@@ -17,7 +17,6 @@ import {
   seedLease,
 } from './helpers/seed-gradings';
 import { setSessionCookies } from './helpers/session';
-import { uploadSampleLease } from './helpers/upload-sample-lease';
 
 const TENANT_ID = DEMO_USERS.find((u) => u.role === 'Tenant')!.id;
 
@@ -26,50 +25,46 @@ test.beforeEach(async ({ context }) => {
   await setSessionCookies(context, 'Tenant');
 });
 
-test('pill → menu → drawer flow with quick-action prefill', async ({
+test('pill opens the assistant drawer directly, with suggested prompts inside', async ({
   page,
 }) => {
+  // Sprint 27.1 — the standalone quick-action MENU is gone: the pill opens the
+  // drawer directly, and the chips moved inside as `chat-suggested-prompt`
+  // suggestions (shown while the thread is empty). No lease needed — the
+  // landing (Mode A) mounts the FAB with the always-enabled onboarding chips.
   await page.goto('/');
-  await uploadSampleLease(page);
 
   const pill = page.getByTestId('assistant-fab');
   await expect(pill).toBeVisible();
-  await expect(pill).toHaveAttribute('aria-label', 'Open assistant');
+  // The aria-label now carries a dynamic state suffix ("— Help" / "— Ask…").
+  await expect(pill).toHaveAttribute('aria-label', /^Open assistant/);
   await pill.click();
 
-  await expect(page.getByTestId('assistant-fab-menu')).toBeVisible();
-  // The "Help me understand a citation" chip is always enabled.
-  const citationChip = page
-    .getByTestId('assistant-fab-chip')
-    .filter({ hasText: /citation/i });
-  await expect(citationChip).toBeVisible();
-  await citationChip.click();
-
+  // Opens the drawer directly (no intermediate menu).
   await expect(page.getByTestId('assistant-fab-drawer')).toBeVisible();
-  // The composer has the chip's prompt prefilled.
-  const textarea = page.getByLabel('Type a message');
-  await expect(textarea).toHaveValue(/citation/i);
+  // Quick-action chips live inside the drawer now.
+  await expect(page.getByTestId('chat-suggested-prompt').first()).toBeVisible();
+  // (The card-driven prefill path — fab.openWith — is covered by the
+  // red-flag / clause-row "Explain" tests below.)
 });
 
 test('Escape closes the drawer and returns focus to the pill', async ({
   page,
 }) => {
   await page.goto('/');
-  await uploadSampleLease(page);
 
-  await page.getByTestId('assistant-fab').click();
-  await page
-    .getByTestId('assistant-fab-chip')
-    .filter({ hasText: /citation/i })
-    .click();
+  const pill = page.getByTestId('assistant-fab');
+  await pill.click();
 
   const drawer = page.getByTestId('assistant-fab-drawer');
   await expect(drawer).toBeVisible();
   await drawer.press('Escape');
-  await expect(drawer).toHaveCount(0);
 
-  // Focus restored to the pill.
-  await expect(page.getByTestId('assistant-fab')).toBeFocused();
+  // The drawer STAYS MOUNTED (drafts persist, CLAUDE.md invariant) — it closes
+  // via state, not unmount — so assert the closed state + focus return, not
+  // removal from the DOM.
+  await expect(drawer).toHaveAttribute('data-state', 'closed');
+  await expect(pill).toBeFocused();
 });
 
 test('red-flag "Explain" opens the FAB drawer with a clause-aware prompt', async ({

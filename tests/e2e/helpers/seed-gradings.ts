@@ -108,8 +108,7 @@ export function seedGradedConversation(
         statute_citation: g.statuteCitation ?? 'NJ Stat 46:8-19',
         chunk_id: g.chunkId ?? 'security-deposit-cap#section:1',
         reasoning: g.reasoning ?? 'Seeded grading for E2E test.',
-        recommended_action:
-          g.recommendedAction ?? 'Seeded recommended action.',
+        recommended_action: g.recommendedAction ?? 'Seeded recommended action.',
         clause_type: g.clauseType ?? 'security_deposit',
         clause_index: g.clauseIndex ?? i,
         page_number: g.pageNumber,
@@ -167,6 +166,19 @@ export function clearUserConversations(userId: string): void {
       deleteConv.run(c.id);
     }
   })();
+}
+
+/**
+ * Resets the demo-mode upload rate-limit table. /api/leases enforces 10
+ * uploads/hour/session when LEASELENS_DEMO_MODE is on (the e2e webServer sets
+ * it), and the count persists in the shared dev DB — so without a reset the
+ * limit leaks across specs + runs and every upload past the 10th returns 429
+ * (the dropzone fails silently and Mode B never mounts). Clearing the table in
+ * setup keeps uploads deterministic. The dev server reads the same WAL DB, so
+ * a delete from the test process is visible to its next request.
+ */
+export function clearRateLimit(): void {
+  db.prepare('DELETE FROM rate_limit').run();
 }
 
 /**

@@ -1,8 +1,8 @@
-# Sprint 44C — CI: the four gates LeaseLens already runs locally
-# (lint → typecheck → test+coverage → build), now enforced on every PR with
-# the test reports uploaded as artifacts. e2e (Playwright) is intentionally NOT
-# run here — it needs browsers + a real session secret + a dev webServer; that's
-# a follow-up. No remote log sink / deploy here either.
+# Sprint 44C — CI: the four gates LeaseLens runs locally (lint → typecheck →
+# test+coverage → build), enforced on every PR with reports uploaded as
+# artifacts. The Playwright e2e suite runs as a separate `e2e` job (added once
+# the suite was repaired + made deterministic — it had silently rotted while
+# ungated, which is exactly why it's now a gate). No remote log sink / deploy.
 name: CI
 
 on:
@@ -37,6 +37,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `prebuild` → seed-if-empty.mjs → `npm run db:seed`, which is
+      # `tsx --env-file=.env.local …`. Node's --env-file ERRORS if the file is
+      # absent, so the build's seed step would fail in CI without this. The
+      # secret is also a job env (above) for processes that read process.env
+      # directly (vitest). Throwaway — not a real secret.
+      - name: Write CI .env.local
+        run: echo "LEASELENS_SESSION_SECRET=$LEASELENS_SESSION_SECRET" > .env.local
+
       - name: Lint
         run: npm run lint
 
@@ -46,10 +54,9 @@ jobs:
       - name: Test (with coverage)
         run: npm run test:coverage
 
-      # NOTE (Sprint 44C): `prebuild` runs scripts/seed-if-empty.mjs, which
-      # generates the NJ-corpus embeddings via @huggingface/transformers (WASM).
-      # First CI run may download the model; if it's slow, cache ~/.cache or add
-      # a CI seed-skip. Validated on the first PR run.
+      # `prebuild` runs seed-if-empty.mjs → db:seed, which embeds the NJ corpus
+      # via @huggingface/transformers (all-MiniLM-L6-v2, WASM). The first run
+      # downloads the model (~23 MB). Follow-up: cache the model to speed this up.
       - name: Build
         run: npm run build
 
@@ -61,5 +68,55 @@ jobs:
           path: |
             coverage/
             test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Sprint 44C follow-up — the Playwright e2e suite, gated so it can't silently
+  # rot again (it had drifted across many sprints while ungated). Runs in
+  # parallel with `verify`.
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      # reuseExistingServer:false under CI → playwright.config starts its own
+      # `npm run dev` webServer (with LEASELENS_E2E_MOCK=1 + DEMO_MODE=true).
+      CI: 'true'
+      LEASELENS_SESSION_SECRET: ci-placeholder-session-secret-not-a-real-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # db:seed (`tsx --env-file=.env.local`) AND `next dev` (the Playwright
+      # webServer) both read .env.local; write a throwaway one. Not a real secret.
+      - name: Write CI .env.local
+        run: echo "LEASELENS_SESSION_SECRET=$LEASELENS_SESSION_SECRET" > .env.local
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # Pre-seed HERE, not inside the Playwright webServer: the embed step
+      # (~30s + a one-time ~23 MB HF model download) would blow the webServer's
+      # 120s startup budget. db:seed seeds the corpus + SAMPLE_WORKSPACE + demo
+      # users + the sample lease; with chunks populated, `npm run dev`'s predev
+      # seed-if-empty then skips and the dev server starts fast.
+      - name: Seed DB (corpus + workspace + demo users)
+        run: npm run db:seed
+
+      - name: Run e2e (Playwright)
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
           if-no-files-found: ignore
           retention-days: 14

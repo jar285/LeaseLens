@@ -489,7 +489,14 @@ export function RedFlagReport(): React.JSX.Element {
                   onClick={toggle}
                   aria-expanded={isExpanded}
                   data-testid="red-flag-card-toggle"
-                  className="flex w-full items-start gap-2 py-3 pr-3 pl-4 text-left transition-colors hover:bg-surface-muted/60 focus-visible:bg-surface-muted/60 focus-visible:outline-none dark:hover:bg-neutral-800/40"
+                  // Sprint 43.5 — sober CSS tap-press (no bounce — tone invariant
+                  // for legal-risk content) + a visible INSET focus ring. A
+                  // ring-offset ring would be clipped by the card's
+                  // overflow-hidden, but ring-inset survives (same idiom as the
+                  // ActiveRing overlay), replacing the too-faint focus
+                  // background-change. reduced-motion disables the transition +
+                  // the scale.
+                  className="flex w-full items-start gap-2 py-3 pr-3 pl-4 text-left transition-[background-color,transform] hover:bg-surface-muted/60 active:scale-[0.99] focus-visible:bg-surface-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 motion-reduce:transition-none motion-reduce:active:scale-100 dark:hover:bg-neutral-800/40 dark:focus-visible:ring-accent-400/50"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">

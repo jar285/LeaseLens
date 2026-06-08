@@ -123,6 +123,27 @@ describe('RedFlagReport', () => {
     expect(screen.getByText(/NJ Stat 2A:42-6\.1/)).toBeInTheDocument();
   });
 
+  it('Sprint 43.5 — card toggle: sober tap-press, reduced-motion off, inset focus ring', () => {
+    render(
+      <ProviderWithEvents events={[grade()]}>
+        <RedFlagReport />
+      </ProviderWithEvents>,
+    );
+    const toggle = screen.getByTestId('red-flag-card-toggle');
+    // Sober press (no spring/bounce) with transform joined to the transition.
+    expect(toggle.className).toMatch(/active:scale-\[0\.99\]/);
+    expect(toggle.className).toMatch(
+      /transition-\[background-color,transform\]/,
+    );
+    // Reduced-motion neutralizes BOTH the transition and the scale.
+    expect(toggle.className).toMatch(/motion-reduce:transition-none/);
+    expect(toggle.className).toMatch(/motion-reduce:active:scale-100/);
+    // Visible focus: an INSET ring (no ring-offset) so the card's
+    // overflow-hidden does not clip it — same idiom as the ActiveRing overlay.
+    expect(toggle.className).toMatch(/focus-visible:ring-2/);
+    expect(toggle.className).toMatch(/focus-visible:ring-inset/);
+  });
+
   it('filters out non-grading tool events (extract_clauses, etc.)', () => {
     render(
       <ProviderWithEvents

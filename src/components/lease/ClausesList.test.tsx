@@ -118,6 +118,23 @@ function renderWithEvents(events: ToolEvent[]): {
 }
 
 describe('ClausesList', () => {
+  it('Sprint 43.5 — rows have a sober tap-press, reduced-motion off, and keep their focus ring', () => {
+    renderWithEvents([
+      gradingEvent({
+        clause_id: 'c1',
+        clause_index: 0,
+        clause_type: 'security_deposit',
+        page_number: 1,
+        severity: 'high',
+      }),
+    ]);
+    const row = screen.getAllByTestId('clauses-list-row')[0];
+    expect(row.className).toMatch(/active:scale-\[0\.99\]/);
+    expect(row.className).toMatch(/motion-reduce:active:scale-100/);
+    // The row sits outside any overflow-hidden, so it keeps its ring-offset ring.
+    expect(row.className).toMatch(/focus-visible:ring-2/);
+  });
+
   it('renders an empty-state hint when no extract_clauses event is present', () => {
     renderWithEvents([]);
     expect(screen.getByTestId('clauses-list')).toBeInTheDocument();

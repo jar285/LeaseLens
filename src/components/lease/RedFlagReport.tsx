@@ -49,6 +49,10 @@ import { RedFlagSkeletonCard } from './RedFlagSkeletonCard';
 import { RedFlagsLoadingState } from './RedFlagsLoadingState';
 import { SeverityBadge } from './SeverityBadge';
 import { useScanLifecycle } from './scan-lifecycle';
+import {
+  shouldEmphasizeVerdict,
+  VERDICT_SETTLE_TRANSITION,
+} from './verdict-emphasis';
 
 // Sprint 26c — prompt templates for the FAB drawer. Centralized so the
 // copy stays consistent and a single test pins the wording.
@@ -373,6 +377,16 @@ export function RedFlagReport(): React.JSX.Element {
     </>
   );
 
+  // Sprint 43.6 — emphasize the verdict once review becomes ready (see
+  // verdict-emphasis.ts). The headline is keyed on this flag so it settles a
+  // single time at the review-ready transition, not on every grading tick.
+  const isReviewReady = lifecycle.stage === 'review_ready';
+  const emphasizeVerdict = shouldEmphasizeVerdict(
+    isReviewReady,
+    mounted,
+    reduced,
+  );
+
   return (
     // Sprint 23g — relative positioning is required by AnimatePresence
     // `mode="popLayout"` so exiting cards drop out of layout without
@@ -389,16 +403,24 @@ export function RedFlagReport(): React.JSX.Element {
             strip. Rendered ONLY when at least one valid grading exists
             (verdict.tier !== 'idle'), so the empty state stays clean. */}
         {verdict.tier !== 'idle' ? (
-          <p
+          <motion.p
+            // Sprint 43.6 — one-shot sober settle when review becomes ready: the
+            // key flips at the review-ready transition so the headline remounts
+            // and animates ONCE. Static during grading and under reduced motion
+            // (initial={false}).
+            key={emphasizeVerdict ? 'verdict-ready' : 'verdict-pending'}
             data-testid="red-flag-verdict"
             // Sprint 35.1 — the verdict is the load-bearing "is this lease bad?"
             // answer, so it earns the brand's editorial-headline face (Source
             // Serif 4 bold, tracking-tight) per MASTER.md — not body sans. Text
             // is balanced so the em-dash clause doesn't orphan on wrap.
             className="text-balance font-serif text-lg font-bold tracking-tight text-fg-default leading-snug"
+            initial={emphasizeVerdict ? { opacity: 0.6, y: 2 } : false}
+            animate={{ opacity: 1, y: 0 }}
+            transition={VERDICT_SETTLE_TRANSITION}
           >
             {verdict.headline}
-          </p>
+          </motion.p>
         ) : null}
         {/* Summary row — at-a-glance severity counts. */}
         {animate ? (

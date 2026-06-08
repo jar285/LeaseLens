@@ -183,3 +183,41 @@ soberly (red-flag `hover:shadow-lift`, clause-row `hover:bg`), so this slice is 
   the toggle's bg-change focus was ~1.03:1 — *resolved here* by the inset ring (better than deferring), since I
   was already touching that button and the user's original 43.5 ask included a visible ring. The adversarial
   verifier corrected my earlier over-claims ("WCAG-valid" bg-change; "a ring would clip") — both now fixed.
+
+---
+
+## 43.6 — scan-complete verdict emphasis (2026-06-07)
+
+**Goal:** mark the review-ready moment with ONE sober, informational settle on the verdict headline — not a
+cascade and not a celebration (the result may be "4 serious red flags"). Scoping showed substantial completion
+feedback already exists (streaming cards, summary pulse, "Scan complete" status, the 650ms lifecycle beat), so
+this slice emphasizes only the previously-static verdict, the load-bearing "is this lease bad?" answer.
+
+**What changed**
+- **NEW** [src/components/lease/verdict-emphasis.ts](../../../src/components/lease/verdict-emphasis.ts) —
+  `shouldEmphasizeVerdict(isReviewReady, mounted, reducedMotion)` (pure gate) + `VERDICT_SETTLE_TRANSITION`
+  (tokenized: `DURATION.base` + `EASE.standard`, a tween — no spring/overshoot).
+- [src/components/lease/RedFlagReport.tsx](../../../src/components/lease/RedFlagReport.tsx) — the verdict `<p>`
+  → keyed `<motion.p>`: `key={emphasizeVerdict ? 'verdict-ready' : 'verdict-pending'}`,
+  `initial={emphasizeVerdict ? { opacity: 0.6, y: 2 } : false}`, `animate={{ opacity: 1, y: 0 }}`. The key flips
+  at the grading→review_ready transition so the headline remounts and settles **once**; during grading / under
+  reduced motion / before mount it is static (`initial={false}`). Consumes the existing lifecycle state — no new
+  scan computation; animates only the one headline (not the list/PDF — Osmani).
+
+**Tests added (TDD red→green)**
+- **NEW** [verdict-emphasis.test.ts](../../../src/components/lease/verdict-emphasis.test.ts) — 6-case truth
+  table (ready+mounted+motion → emphasize; pre-ready / pre-mount / reduced → instant; null reduced → enabled) +
+  the transition consumes the tokenized base duration + standard easing. The settle visual is gated by the 43.7
+  Playwright run (not observable in happy-dom).
+
+**Gate results**
+- `npm run lint` clean (336 files); `npm run typecheck` clean; `npm test` — **1260 passed, 145 files** (+6).
+  The 36 existing `RedFlagReport` tests are the regression guard the `motion.p` swap preserved. Bundle baseline
+  still **DEFERRED** (dev live).
+
+**QA/QC (adversarial workflow — 2 dimensions: settle-correctness/Osmani, tone/spec/test-honesty)**
+- **0 findings.** Verified: fires once at the review-ready transition (key stable while ready → no replay; key
+  stays `verdict-pending` through grading ticks → no per-tick re-settle); pre-mount/reduced-motion render it
+  static (no rehydration flash); the keyed `motion.p` (no `layout` prop) does not disturb the cards' LayoutGroup
+  and triggers no screen-reader re-announcement (not an aria-live region); sober + informational, not
+  celebratory; consumes existing state; tests honest.

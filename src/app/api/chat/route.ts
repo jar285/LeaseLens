@@ -379,11 +379,20 @@ export async function POST(req: NextRequest) {
             'SELECT COUNT(*) AS n FROM clauses WHERE lease_id = ? AND workspace_id = ?',
           )
           .get(lease.id, workspace.id) as { n: number } | undefined;
+        // Sprint 45 — graded count drives the prompt's graded-vs-ungraded
+        // awareness branch (graded → answer via get_lease_findings, don't
+        // re-scan).
+        const gradedCountRow = db
+          .prepare(
+            'SELECT COUNT(*) AS n FROM clauses WHERE lease_id = ? AND workspace_id = ? AND graded_at IS NOT NULL',
+          )
+          .get(lease.id, workspace.id) as { n: number } | undefined;
         activeLease = {
           id: lease.id,
           filename: lease.filename,
           page_count: lease.page_count,
           clause_count: clauseCountRow?.n ?? 0,
+          graded_count: gradedCountRow?.n ?? 0,
         };
       }
     } catch {

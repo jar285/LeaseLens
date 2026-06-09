@@ -379,6 +379,60 @@ describe('buildSystemPrompt', () => {
     });
   });
 
+  // Sprint 45 — once a lease is GRADED, the prompt must point the model at
+  // get_lease_findings (read the stored findings) instead of telling it to
+  // re-run the scan. This is the fix for the "chat re-scans on every follow-up"
+  // bug: the awareness line previously said "NOT YET graded → scan it" forever.
+  describe('Sprint 45 — graded-aware awareness + get_lease_findings', () => {
+    const gradedLease = {
+      id: 'lease-1',
+      filename: 'sample.pdf',
+      page_count: 2,
+      clause_count: 15,
+      graded_count: 12,
+    };
+
+    it('a graded lease points the model at get_lease_findings, not a re-scan', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: gradedLease,
+      });
+      expect(prompt).toMatch(/get_lease_findings/);
+      expect(prompt).toMatch(/HAS BEEN GRADED/);
+      // It must NOT tell the model to (re-)scan an already-graded lease.
+      expect(prompt).not.toContain('still need to call extract_clauses');
+    });
+
+    it('an ungraded lease (no graded_count) keeps the "scan it" instruction', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: {
+          id: 'l',
+          filename: 's.pdf',
+          page_count: 2,
+          clause_count: 15,
+        },
+      });
+      expect(prompt).toContain('still need to call extract_clauses');
+      expect(prompt).toMatch(/not\s+yet\s+graded/i);
+    });
+
+    it('lists get_lease_findings in the tool manifest', () => {
+      expect(buildSystemPrompt('Tenant')).toMatch(/get_lease_findings/);
+    });
+
+    it('the reuse-on-follow-ups instruction also names get_lease_findings', () => {
+      const prompt = buildSystemPrompt({
+        role: 'Tenant',
+        activeLease: gradedLease,
+      });
+      // Appears in the manifest AND the reuse section.
+      expect(
+        (prompt.match(/get_lease_findings/g) ?? []).length,
+      ).toBeGreaterThanOrEqual(2);
+    });
+  });
+
   // Sprint 29.10 — scan progress awareness. When AutoScanRunner is
   // streaming grade_clause_severity tool calls into the conversation
   // and the user opens the FAB to ask "walk me through the highest-

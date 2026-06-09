@@ -14,7 +14,12 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { env } from '@/lib/env';
 import { assertLeaseOwnership } from '@/lib/lease/assert-lease-ownership';
-import { type ClauseRow, getLease, listClauses } from '@/lib/lease/queries';
+import {
+  type ClauseRow,
+  getLease,
+  listClauses,
+  listGradings,
+} from '@/lib/lease/queries';
 import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
 import { logger } from '@/lib/log/logger';
 import { type RetrievedChunk, retrieve } from '@/lib/rag/retrieve';
@@ -118,6 +123,51 @@ export function createExtractClausesTool(
               : c.text,
           page_number: c.page_number,
         })),
+      };
+    },
+  };
+}
+
+// -----------------------------------------------------------------------------
+// get_lease_findings (read-only — returns the STORED gradings, never re-scans)
+// -----------------------------------------------------------------------------
+
+export function createGetLeaseFindingsTool(
+  db: Database.Database,
+): ToolDescriptor {
+  return {
+    name: 'get_lease_findings',
+    description:
+      "Return the already-computed red-flag findings for the active lease (severity, statute citation, plain-English reasoning, and recommended action per clause), read directly from storage with NO re-scan and NO model/corpus calls. Call this FIRST to answer any question about existing findings — 'explain the highest-severity finding', 'rank the red flags', 'summarize the issues', 'which clauses are risky' — or to gather grounding before drafting a negotiation email. Findings come back ordered by severity (high first). Do NOT call extract_clauses + grade_clause_severity to answer these questions when get_lease_findings already returns graded clauses.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        lease_id: {
+          type: 'string',
+          description:
+            'Lease id. Optional when the conversation has an active_lease_id; required when called via MCP.',
+        },
+      },
+    },
+    roles: 'ALL',
+    category: 'lease',
+    execute: async (input, ctx) => {
+      const leaseId = resolveLeaseId(db, input, {
+        workspaceId: ctx.workspaceId,
+        conversationId: ctx.conversationId,
+        userId: ctx.userId,
+        // Same recent-upload fallback as extract_clauses, so a follow-up
+        // resolves the active lease even if THIS conversation didn't run the
+        // scan (the auto-scan uses a separate conversation; see ChatUI sync).
+        enableRecentLeaseFallback: true,
+      });
+      loadOwnedLease(db, leaseId, ctx);
+      const findings = listGradings(db, leaseId, ctx.workspaceId);
+      return {
+        lease_id: leaseId,
+        total_clauses: listClauses(db, leaseId, ctx.workspaceId).length,
+        graded_count: findings.length,
+        findings,
       };
     },
   };
@@ -360,6 +410,11 @@ export function createGradeClauseSeverityTool(
           description:
             'The clause_id returned by extract_clauses for the clause to grade.',
         },
+        force_regrade: {
+          type: 'boolean',
+          description:
+            'Set true to re-grade a clause that was already graded (e.g. the user explicitly asks to re-scan). Defaults false — an already-graded clause returns its stored grading without a re-grade.',
+        },
       },
       required: ['clause_id'],
     },
@@ -371,6 +426,25 @@ export function createGradeClauseSeverityTool(
         throw new Error('grade_clause_severity: clause_id is required');
       }
       const clause = loadOwnedLeaseFromClauseId(db, clauseId, ctx);
+
+      // Sprint 45 — already-graded short-circuit. If the clause was graded in a
+      // prior turn, return the STORED grading (no retrieve, no Anthropic) — so
+      // even if the model ignores the prompt and re-fires the scan, each call is
+      // a cheap DB read instead of a ~3-4s retrieve+LLM round-trip. An explicit
+      // user re-scan passes force_regrade:true to recompute.
+      if (clause.graded_at != null && input.force_regrade !== true) {
+        return {
+          clause_id: clauseId,
+          clause_type: clause.clause_type,
+          clause_index: clause.clause_index,
+          page_number: clause.page_number,
+          severity: clause.severity,
+          statute_citation: clause.statute_citation,
+          chunk_id: clause.chunk_id,
+          reasoning: clause.reasoning,
+          recommended_action: clause.recommended_action,
+        };
+      }
 
       const retrieved = await retrieve(clause.text, db, {
         workspaceId: ctx.workspaceId,
@@ -423,9 +497,25 @@ export function createGradeClauseSeverityTool(
       // AFTER validation so a failed citation grounding never poisons
       // the clauses table with an unverified grade. Idempotent: a
       // re-grade overwrites the prior severity in place.
+      // Sprint 45 — persist the FULL grading (citation/chunk/reasoning/action +
+      // graded_at), not just severity, so the chat reads findings via
+      // get_lease_findings WITHOUT re-running the scan. graded_at is the
+      // "has been graded" sentinel (powers the read tool + the short-circuit).
       db.prepare(
-        `UPDATE clauses SET severity = ? WHERE id = ? AND workspace_id = ?`,
-      ).run(validated.severity, clauseId, ctx.workspaceId);
+        `UPDATE clauses
+            SET severity = ?, statute_citation = ?, chunk_id = ?,
+                reasoning = ?, recommended_action = ?, graded_at = ?
+          WHERE id = ? AND workspace_id = ?`,
+      ).run(
+        validated.severity,
+        validated.statute_citation,
+        validated.chunk_id,
+        validated.reasoning,
+        validated.recommended_action,
+        Math.floor(Date.now() / 1000),
+        clauseId,
+        ctx.workspaceId,
+      );
 
       return {
         clause_id: clauseId,

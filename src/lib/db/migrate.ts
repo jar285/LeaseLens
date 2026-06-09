@@ -203,4 +203,43 @@ export function migrate(db: Database.Database): void {
       }
     }
   }
+
+  // Sprint 45 — persist the FULL grading on `clauses` (not just severity) so
+  // the chat reads findings via get_lease_findings WITHOUT re-running the scan
+  // (reasoning/citation otherwise live only in trimmed conversation history).
+  // Five nullable columns, no CHECK → clean ADD COLUMNs; idempotent via
+  // columnExists; race-tolerant for parallel `next build` workers (Sprint 44B).
+  if (tableExists(db, 'clauses')) {
+    for (const [name, type] of [
+      ['statute_citation', 'TEXT'],
+      ['chunk_id', 'TEXT'],
+      ['reasoning', 'TEXT'],
+      ['recommended_action', 'TEXT'],
+      ['graded_at', 'INTEGER'],
+    ] as const) {
+      if (columnExists(db, 'clauses', name)) continue;
+      try {
+        db.exec(`ALTER TABLE clauses ADD COLUMN ${name} ${type}`);
+      } catch (err) {
+        if (
+          !(err instanceof Error && /duplicate column name/i.test(err.message))
+        ) {
+          throw err;
+        }
+      }
+    }
+
+    // Sprint 45 — backfill graded_at for clauses graded by PRE-Sprint-45 code
+    // (severity set, graded_at NULL). Without it those grades read as
+    // "ungraded", so the chat needlessly re-scans an already-scanned lease (the
+    // graded-count prompt branch + get_lease_findings both key off graded_at).
+    // `severity` is the long-standing graded sentinel (Sprint 24.1), set by
+    // every successful grade; created_at approximates the grade time. Idempotent
+    // (matches 0 rows once backfilled; UPDATE is race-safe, no schema change).
+    if (columnExists(db, 'clauses', 'graded_at')) {
+      db.exec(
+        `UPDATE clauses SET graded_at = created_at WHERE severity IS NOT NULL AND graded_at IS NULL`,
+      );
+    }
+  }
 }

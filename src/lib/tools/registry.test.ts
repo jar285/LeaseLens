@@ -431,15 +431,17 @@ describe('ToolRegistry', () => {
       }
     });
 
-    it('Sprint 13: total tool count is 7 (4 retained + 3 new)', async () => {
+    it('Sprint 13 + 45: total tool count is 8 (4 retained + 3 new + get_lease_findings)', async () => {
       const { createToolRegistry } = await import('./create-registry');
       const db = createTestDb();
       const registry = createToolRegistry(db);
 
       // 4 retained: search_corpus, get_document_summary, list_documents, render_workflow_diagram
       // 3 new:      extract_clauses, grade_clause_severity, draft_negotiation_email
+      // Sprint 45:  get_lease_findings (read-only findings reader)
       // 2 removed:  schedule_content_item, approve_draft
-      expect(registry.getToolNames()).toHaveLength(7);
+      expect(registry.getToolNames()).toContain('get_lease_findings');
+      expect(registry.getToolNames()).toHaveLength(8);
     });
   });
 

@@ -523,4 +523,117 @@ describe('migrate', () => {
     }[];
     expect(cols.some((c) => c.name === 'active_lease_id')).toBe(true);
   });
+
+  // Sprint 45 — clauses gains the full grading (statute_citation / chunk_id /
+  // reasoning / recommended_action / graded_at) so the chat reads findings via
+  // get_lease_findings without re-running the scan. Pre-Sprint-45 dev DBs have a
+  // clauses table with only `severity`.
+  const S45_GRADING_COLUMNS = [
+    'statute_citation',
+    'chunk_id',
+    'reasoning',
+    'recommended_action',
+    'graded_at',
+  ];
+
+  function seedPreS45Clauses(db: Database.Database): void {
+    seedPreS13Schema(db); // documents/chunks/etc. so migrate's ADD COLUMN loop runs
+    db.exec(`
+      CREATE TABLE clauses (
+        id TEXT PRIMARY KEY, lease_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+        clause_index INTEGER NOT NULL, clause_type TEXT NOT NULL, text TEXT NOT NULL,
+        page_number INTEGER NOT NULL, severity TEXT, created_at INTEGER NOT NULL
+      );
+    `);
+  }
+
+  it('Sprint 45 — adds the grading columns to a pre-Sprint-45 clauses table', () => {
+    const db = new Database(':memory:');
+    seedPreS45Clauses(db);
+
+    migrate(db);
+
+    const cols = db.prepare(`PRAGMA table_info(clauses)`).all() as {
+      name: string;
+      notnull: number;
+    }[];
+    for (const name of S45_GRADING_COLUMNS) {
+      const col = cols.find((c) => c.name === name);
+      expect(col, `expected clauses.${name} to exist`).toBeDefined();
+      expect(col?.notnull).toBe(0);
+    }
+  });
+
+  it('Sprint 45 — migrate is idempotent for the new clauses grading columns', () => {
+    const db = new Database(':memory:');
+    seedPreS45Clauses(db);
+
+    migrate(db);
+    expect(() => migrate(db)).not.toThrow();
+
+    const cols = db.prepare(`PRAGMA table_info(clauses)`).all() as {
+      name: string;
+    }[];
+    for (const name of S45_GRADING_COLUMNS) {
+      expect(cols.filter((c) => c.name === name)).toHaveLength(1);
+    }
+  });
+
+  it('Sprint 45 — fresh SCHEMA includes the clauses grading columns; migrate is a no-op', () => {
+    const db = new Database(':memory:');
+    db.exec(SCHEMA);
+    migrate(db);
+
+    const cols = db.prepare(`PRAGMA table_info(clauses)`).all() as {
+      name: string;
+    }[];
+    for (const name of S45_GRADING_COLUMNS) {
+      expect(cols.some((c) => c.name === name)).toBe(true);
+    }
+  });
+
+  it('Sprint 45 — backfills graded_at for pre-Sprint-45 grades (severity set, graded_at NULL)', () => {
+    const db = new Database(':memory:');
+    seedPreS45Clauses(db); // clauses table WITHOUT graded_at, WITH severity
+    const now = Math.floor(Date.now() / 1000);
+    // Old-code grade: severity set, no graded_at — should read as graded after backfill.
+    db.prepare(
+      `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, severity, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('c-graded', 'l1', 'w1', 0, 'security_deposit', 'x', 1, 'high', now);
+    // Never graded: severity NULL — must stay ungraded.
+    db.prepare(
+      `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, severity, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('c-ungraded', 'l1', 'w1', 1, 'unknown', 'y', 1, null, now);
+
+    migrate(db);
+
+    const graded = db
+      .prepare('SELECT graded_at FROM clauses WHERE id = ?')
+      .get('c-graded') as { graded_at: number | null };
+    const ungraded = db
+      .prepare('SELECT graded_at FROM clauses WHERE id = ?')
+      .get('c-ungraded') as { graded_at: number | null };
+    expect(graded.graded_at).not.toBeNull(); // backfilled → counts as graded
+    expect(ungraded.graded_at).toBeNull(); // never graded → stays ungraded
+
+    // Idempotent: a second migrate leaves the backfilled value alone.
+    const before = (
+      db
+        .prepare('SELECT graded_at FROM clauses WHERE id = ?')
+        .get('c-graded') as {
+        graded_at: number;
+      }
+    ).graded_at;
+    migrate(db);
+    const after = (
+      db
+        .prepare('SELECT graded_at FROM clauses WHERE id = ?')
+        .get('c-graded') as {
+        graded_at: number;
+      }
+    ).graded_at;
+    expect(after).toBe(before);
+  });
 });

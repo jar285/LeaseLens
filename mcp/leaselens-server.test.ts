@@ -91,7 +91,7 @@ describe('MCP Server Contract', () => {
   });
 
   describe('Tool Parity', () => {
-    it('exposes the LeaseLens 7-tool surface (Sprint 13)', () => {
+    it('exposes the LeaseLens 8-tool surface (Sprint 13 + 45)', () => {
       const registry = createToolRegistry(db);
       const toolNames = registry.getToolNames();
 
@@ -105,10 +105,12 @@ describe('MCP Server Contract', () => {
       expect(toolNames).toContain('extract_clauses');
       expect(toolNames).toContain('grade_clause_severity');
       expect(toolNames).toContain('draft_negotiation_email');
+      // Sprint 45: read-only findings reader.
+      expect(toolNames).toContain('get_lease_findings');
       // ContentOps mutating tools removed.
       expect(toolNames).not.toContain('schedule_content_item');
       expect(toolNames).not.toContain('approve_draft');
-      expect(toolNames).toHaveLength(7);
+      expect(toolNames).toHaveLength(8);
     });
 
     it('should return envelope-shaped results from registry.execute', async () => {
@@ -178,6 +180,7 @@ describe('MCP Server Contract', () => {
       expect(names).toContain('extract_clauses');
       expect(names).toContain('grade_clause_severity');
       expect(names).toContain('draft_negotiation_email');
+      expect(names).toContain('get_lease_findings');
     });
 
     it('Reviewer sees search/get plus all three lease tools (Sprint 13)', () => {
@@ -190,6 +193,7 @@ describe('MCP Server Contract', () => {
       expect(names).toContain('extract_clauses');
       expect(names).toContain('grade_clause_severity');
       expect(names).toContain('draft_negotiation_email');
+      expect(names).toContain('get_lease_findings');
     });
 
     it('Tenant sees search_corpus + the three lease tools; NOT the removed ContentOps tools (Sprint 13)', () => {
@@ -204,6 +208,7 @@ describe('MCP Server Contract', () => {
       expect(names).toContain('extract_clauses');
       expect(names).toContain('grade_clause_severity');
       expect(names).toContain('draft_negotiation_email');
+      expect(names).toContain('get_lease_findings');
     });
 
     it('should expose render_workflow_diagram for all three roles', () => {

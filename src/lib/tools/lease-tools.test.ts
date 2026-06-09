@@ -18,6 +18,7 @@ import {
   type AnthropicLike,
   createDraftNegotiationEmailTool,
   createExtractClausesTool,
+  createGetLeaseFindingsTool,
   createGradeClauseSeverityTool,
 } from './lease-tools';
 
@@ -177,6 +178,125 @@ describe('extract_clauses tool', () => {
   });
 });
 
+describe('get_lease_findings tool (Sprint 45)', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+    seedWorkspace(db);
+  });
+
+  // Write a clause + its grading directly (no model call), so the read-tool
+  // tests don't depend on the grader.
+  function seedGradedClause(
+    leaseId: string,
+    clauseIndex: number,
+    severity: 'high' | 'medium' | 'low' | 'ok',
+  ): void {
+    insertClause(db, {
+      leaseId,
+      workspaceId: SAMPLE_WORKSPACE.id,
+      clauseIndex,
+      clauseType: 'unknown',
+      text: `clause ${clauseIndex}`,
+      pageNumber: 1,
+    });
+    db.prepare(
+      `UPDATE clauses SET severity = ?, statute_citation = ?, chunk_id = ?,
+              reasoning = ?, recommended_action = ?, graded_at = ?
+        WHERE lease_id = ? AND clause_index = ?`,
+    ).run(
+      severity,
+      'NJSA 1:2-3',
+      'chunk#section:1',
+      `reasoning ${clauseIndex}`,
+      `action ${clauseIndex}`,
+      1,
+      leaseId,
+      clauseIndex,
+    );
+  }
+
+  function seedLeaseRow(uploadedBy = TENANT_ID): string {
+    return insertLease(db, {
+      workspaceId: SAMPLE_WORKSPACE.id,
+      filename: 's.pdf',
+      textExtract: 'x',
+      pageCount: 1,
+      uploadedBy,
+    });
+  }
+
+  it('returns stored gradings with NO Anthropic/corpus call (read-only by construction)', async () => {
+    const leaseId = seedLeaseRow();
+    seedGradedClause(leaseId, 0, 'high');
+
+    // The factory takes ONLY db — it cannot call Anthropic; that is the
+    // no-re-scan guarantee.
+    const tool = createGetLeaseFindingsTool(db);
+    const result = (await tool.execute(
+      { lease_id: leaseId },
+      ctx('Tenant', TENANT_ID),
+    )) as {
+      lease_id: string;
+      total_clauses: number;
+      graded_count: number;
+      findings: Array<{
+        severity: string;
+        statute_citation: string;
+        reasoning: string;
+        recommended_action: string;
+      }>;
+    };
+
+    expect(result.lease_id).toBe(leaseId);
+    expect(result.graded_count).toBe(1);
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].severity).toBe('high');
+    expect(result.findings[0].statute_citation).toBe('NJSA 1:2-3');
+    expect(result.findings[0].reasoning).toBe('reasoning 0');
+    expect(result.findings[0].recommended_action).toBe('action 0');
+  });
+
+  it('omits ungraded clauses and orders findings high-severity first', async () => {
+    const leaseId = seedLeaseRow();
+    seedGradedClause(leaseId, 0, 'low');
+    seedGradedClause(leaseId, 1, 'high');
+    insertClause(db, {
+      leaseId,
+      workspaceId: SAMPLE_WORKSPACE.id,
+      clauseIndex: 2,
+      clauseType: 'unknown',
+      text: 'ungraded',
+      pageNumber: 1,
+    });
+
+    const tool = createGetLeaseFindingsTool(db);
+    const result = (await tool.execute(
+      { lease_id: leaseId },
+      ctx('Tenant', TENANT_ID),
+    )) as {
+      total_clauses: number;
+      graded_count: number;
+      findings: Array<{ severity: string }>;
+    };
+
+    expect(result.total_clauses).toBe(3);
+    expect(result.graded_count).toBe(2);
+    expect(result.findings.map((f) => f.severity)).toEqual(['high', 'low']);
+  });
+
+  it('does not return a lease the Tenant did not upload (ownership)', async () => {
+    const leaseId = seedLeaseRow(REVIEWER_ID);
+    seedGradedClause(leaseId, 0, 'high');
+
+    const tool = createGetLeaseFindingsTool(db);
+    await expect(
+      tool.execute({ lease_id: leaseId }, ctx('Tenant', TENANT_ID)),
+    ).rejects.toThrow(/own|tenant|access/i);
+  });
+});
+
 describe('grade_clause_severity tool', () => {
   let db: Database.Database;
 
@@ -207,6 +327,109 @@ describe('grade_clause_severity tool', () => {
 
     expect(result.severity).toBe('high');
     expect(result.chunk_id).toBe(chunkId);
+  });
+
+  it('Sprint 45 — persists the FULL grading (not just severity) so follow-ups need not re-scan', async () => {
+    const chunkId = seedTenantLawCorpusChunk(db);
+    const { clauseId } = seedSampleLease(db);
+    const anthropic = buildAnthropicMock(
+      JSON.stringify({
+        severity: 'high',
+        statute_citation: 'NJ Stat 46:8-21.2',
+        chunk_id: chunkId,
+        reasoning:
+          'Two months rent exceeds the 1.5-month statutory cap on deposits.',
+        recommended_action: 'Negotiate the deposit down to 1.5 months rent.',
+      }),
+    );
+    const tool = createGradeClauseSeverityTool(db, anthropic);
+
+    await tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID));
+
+    const row = db
+      .prepare(
+        'SELECT severity, statute_citation, chunk_id, reasoning, recommended_action, graded_at FROM clauses WHERE id = ?',
+      )
+      .get(clauseId) as {
+      severity: string | null;
+      statute_citation: string | null;
+      chunk_id: string | null;
+      reasoning: string | null;
+      recommended_action: string | null;
+      graded_at: number | null;
+    };
+    expect(row.severity).toBe('high');
+    expect(row.statute_citation).toBe('NJ Stat 46:8-21.2');
+    expect(row.chunk_id).toBe(chunkId);
+    expect(row.reasoning).toMatch(/1\.5-month/);
+    expect(row.recommended_action).toMatch(/negotiate/i);
+    expect(typeof row.graded_at).toBe('number');
+  });
+
+  it('Sprint 45 — a rejected grading leaves graded_at NULL (no poisoned findings)', async () => {
+    seedTenantLawCorpusChunk(db);
+    const { clauseId } = seedSampleLease(db);
+    // Cites a chunk_id not in the retrieved set → validateGrading throws BEFORE
+    // the write, so the clause stays ungraded.
+    const anthropic = buildAnthropicMock(
+      JSON.stringify({
+        severity: 'high',
+        statute_citation: 'NJ Stat 46:8-21.2',
+        chunk_id: 'not-a-real-chunk#section:9',
+        reasoning: 'x',
+        recommended_action: 'y',
+      }),
+    );
+    const tool = createGradeClauseSeverityTool(db, anthropic);
+
+    await expect(
+      tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
+    ).rejects.toThrow();
+
+    const row = db
+      .prepare('SELECT graded_at, severity FROM clauses WHERE id = ?')
+      .get(clauseId) as { graded_at: number | null; severity: string | null };
+    expect(row.graded_at).toBeNull();
+    expect(row.severity).toBeNull();
+  });
+
+  it('Sprint 45 — re-grading an already-graded clause returns the stored grading WITHOUT calling Anthropic (force_regrade recomputes)', async () => {
+    const chunkId = seedTenantLawCorpusChunk(db);
+    const { clauseId } = seedSampleLease(db);
+    const create = vi.fn().mockResolvedValue({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            severity: 'high',
+            statute_citation: 'NJ Stat 46:8-21.2',
+            chunk_id: chunkId,
+            reasoning: 'Two months rent exceeds the 1.5-month cap.',
+            recommended_action: 'Negotiate down to 1.5 months rent.',
+          }),
+        },
+      ],
+    });
+    const tool = createGradeClauseSeverityTool(db, { messages: { create } });
+
+    await tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID));
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // Second grade → short-circuits to the stored grading; no Anthropic call.
+    const second = (await tool.execute(
+      { clause_id: clauseId },
+      ctx('Tenant', TENANT_ID),
+    )) as { severity: string; statute_citation: string };
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(second.severity).toBe('high');
+    expect(second.statute_citation).toBe('NJ Stat 46:8-21.2');
+
+    // Explicit re-scan still recomputes.
+    await tool.execute(
+      { clause_id: clauseId, force_regrade: true },
+      ctx('Tenant', TENANT_ID),
+    );
+    expect(create).toHaveBeenCalledTimes(2);
   });
 
   it('throws when the LLM cites a chunk_id not in the retrieved set (spec §2.6)', async () => {

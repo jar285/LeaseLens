@@ -179,6 +179,15 @@ export const SCHEMA = `
     -- validation succeeds. NULL until the clause has been graded.
     -- Source of truth for the cockpit SeverityDistribution panel.
     severity      TEXT CHECK(severity IN ('high', 'medium', 'low', 'ok')),
+    -- Sprint 45 — the rest of the grading persisted alongside severity so the
+    -- chat can read findings via get_lease_findings WITHOUT re-running the scan
+    -- (reasoning/citation otherwise live only in trimmed conversation history).
+    -- All NULL until graded; graded_at is the "has been graded" sentinel.
+    statute_citation   TEXT,
+    chunk_id           TEXT,
+    reasoning          TEXT,
+    recommended_action TEXT,
+    graded_at          INTEGER,
     created_at    INTEGER NOT NULL
   );
 

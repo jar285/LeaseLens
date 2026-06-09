@@ -25,6 +25,13 @@ export interface ActiveLeaseSummary {
   filename: string;
   page_count: number;
   clause_count: number;
+  /**
+   * Sprint 45 — count of clauses with a persisted grading (graded_at NOT NULL).
+   * Drives the graded-vs-ungraded awareness branch: a graded lease points the
+   * model at get_lease_findings instead of telling it to (re-)scan. Optional so
+   * legacy call sites that omit it fall through to the ungraded branch.
+   */
+  graded_count?: number;
 }
 
 const MAX_PASSAGE_CHARS = 400;
@@ -112,9 +119,17 @@ export function buildSystemPrompt(
   // tied to a freshly-uploaded lease. Result: auto-scan stuck on
   // "Upload received" forever. The new wording makes the upload-
   // pipeline indexing distinct from the scan-tool gradings.
-  const leaseAwarenessSection = activeLease
-    ? `An active lease IS loaded for this conversation: "${activeLease.filename}" (${activeLease.page_count} ${activeLease.page_count === 1 ? 'page' : 'pages'}, ${activeLease.clause_count} ${activeLease.clause_count === 1 ? 'clause' : 'clauses'} indexed from the PDF text-layer at upload time — NOT YET graded; you still need to call extract_clauses to read the clause list and grade_clause_severity once per clause to grade them, lease_id ${activeLease.id}). When the user asks about "this lease", "the lease", "my lease", or anything specific to it (e.g. "find red flags", "what does it say about X", "review the deposit clause"), CALL extract_clauses or grade_clause_severity directly — do NOT ask the user to upload, the upload is already in the left pane and this conversation is bound to it.`
-    : 'No lease is currently loaded for this conversation. If the user asks about "this lease" or "my lease" anyway, call extract_clauses once — the recent-upload fallback will resolve a freshly-uploaded lease that has not yet been bound to this conversation. Only respond "please upload a lease" if extract_clauses returns the corpus-not-loaded / no-lease error.';
+  // Sprint 45 — graded count drives the awareness branch (number, never
+  // undefined, so the template can pluralise cleanly).
+  const gradedCount = activeLease ? (activeLease.graded_count ?? 0) : 0;
+  const leaseAwarenessSection = !activeLease
+    ? 'No lease is currently loaded for this conversation. If the user asks about "this lease" or "my lease" anyway, call extract_clauses once — the recent-upload fallback will resolve a freshly-uploaded lease that has not yet been bound to this conversation. Only respond "please upload a lease" if extract_clauses returns the corpus-not-loaded / no-lease error.'
+    : gradedCount > 0
+      ? // Sprint 45 — the lease is ALREADY graded. Point the model at the cheap
+        // read tool so it answers finding questions from stored gradings instead
+        // of re-running the 48-56s extract+grade scan loop.
+        `An active lease IS loaded for this conversation and HAS BEEN GRADED: "${activeLease.filename}" (${activeLease.page_count} ${activeLease.page_count === 1 ? 'page' : 'pages'}, ${activeLease.clause_count} ${activeLease.clause_count === 1 ? 'clause' : 'clauses'}, ${gradedCount} graded ${gradedCount === 1 ? 'finding' : 'findings'} ready; lease_id ${activeLease.id}). To answer ANY question about its findings — explain, rank, or summarise a finding, or gather grounding to draft a negotiation email — call get_lease_findings (it returns the stored gradings instantly, with NO re-scan and no model/corpus calls). Do NOT re-run extract_clauses or grade_clause_severity to answer these; only re-scan when the user explicitly asks or the lease changed.`
+      : `An active lease IS loaded for this conversation: "${activeLease.filename}" (${activeLease.page_count} ${activeLease.page_count === 1 ? 'page' : 'pages'}, ${activeLease.clause_count} ${activeLease.clause_count === 1 ? 'clause' : 'clauses'} indexed from the PDF text-layer at upload time — NOT YET graded; you still need to call extract_clauses to read the clause list and grade_clause_severity once per clause to grade them, lease_id ${activeLease.id}). When the user asks about "this lease", "the lease", "my lease", or anything specific to it (e.g. "find red flags", "what does it say about X", "review the deposit clause"), CALL extract_clauses or grade_clause_severity directly — do NOT ask the user to upload, the upload is already in the left pane and this conversation is bound to it.`;
 
   // Sprint 23e — prefer prior tool results on follow-up turns. Without
   // this instruction the model re-runs extract_clauses + grade_clause_
@@ -123,7 +138,7 @@ export function buildSystemPrompt(
   // before the model thinks to look for it, producing "I don't have
   // a record of clause gradings" replies after a successful scan.
   const reusePriorResultsSection =
-    "When the conversation history already contains grade_clause_severity or extract_clauses tool_result blocks from earlier turns, REUSE those results to answer follow-up questions (ranking, summarising, drafting emails for specific clauses). Do NOT re-run the scan tools on follow-up turns unless the user explicitly asks for a re-scan, the lease changed, or a needed clause is missing from the prior results. When drafting emails or ranking by severity, cite the prior grading's `reasoning` and `statute_citation` directly rather than calling the tool again.";
+    "To answer any question about EXISTING findings — explain, rank, or summarise a finding, or gather grounding to draft a negotiation email — call `get_lease_findings`: it returns the stored gradings instantly, with no re-scan and no model/corpus calls. You may also REUSE prior grade_clause_severity or extract_clauses tool_result blocks already in the conversation history. Either way, do NOT re-run the scan tools (extract_clauses + grade_clause_severity) on follow-up turns unless the user explicitly asks for a re-scan, the lease changed, or a needed clause is missing from the prior results. When ranking by severity or drafting emails, cite the finding's `reasoning` and `statute_citation` directly rather than re-grading.";
 
   // Sprint 29.10 — scan progress awareness. The auto-scan
   // (AutoScanRunner) streams extract_clauses + grade_clause_severity
@@ -211,6 +226,7 @@ export function buildSystemPrompt(
     'Tool surface and prescribed call order:',
     '- search_corpus: hybrid retrieval over the NJ tenant-law corpus. Use it any time the user asks about a NJ statute, doctrine, or tenant right that is not already in the conversation.',
     '- extract_clauses: list the clauses already extracted from the active lease (read-only). Call before grading individual clauses.',
+    '- get_lease_findings: return the STORED red-flag findings for the active lease (severity, statute citation, reasoning, and recommended action per graded clause) — read-only, no re-scan, no model/corpus calls. Call this FIRST to answer any question about existing findings (explain / rank / summarise) or to gather grounding before drafting emails, instead of re-running extract_clauses + grade_clause_severity.',
     '- grade_clause_severity: grade ONE clause at a time against retrieved NJ tenant-law chunks. Stream the gradings (one tool call per clause) so the right-pane report fills in progressively. The tool validates that the cited chunk_id and statute_citation are grounded in the corpus. CRITICAL: if a clause\'s matching statute is not in the retrieved chunks, set severity="ok" and use the chunk\'s heading as the citation rather than inventing a statute number. The validator REJECTS fabricated citations and the entire grading is LOST — the user sees an error instead. Preferring severity="ok" to fabrication is non-negotiable.',
     '- draft_negotiation_email: mutating; produces an audit row + a tenant-reviewable email. When the user asks for negotiation emails (singular or plural — "draft an email", "draft emails for the high-severity clauses", "can you write the negotiation emails"), call this tool ONCE per relevant clause_id, in parallel where possible, and pass the most-recent grading\'s `reasoning` as `concern_summary` and its `statute_citation` as `statute_citation`. Present the resulting drafts directly under per-clause headings (e.g. `## Email 1: Security Deposit`). Do NOT re-summarize the concerns the red-flag report already shows. Do NOT offer multiple stylistic options ("here are three versions") — the tool produces ONE polished draft per call.',
     '- render_workflow_diagram: emit Mermaid source when the user asks to visualize the lease. PICK CHART TYPE BY DATA SHAPE, not user phrasing: severity distribution / "heatmap of risk" → `flowchart LR` with one `subgraph` per severity bucket (HIGH / MEDIUM / OK) containing the clause nodes, colored via `classDef` + `class A,B,C bucketname`. Clause relationships / dependencies → same shape (`flowchart LR` + `subgraph` per topic). Scan workflow / what-just-happened → `mindmap` or short `flowchart TD`. NEVER emit a flat flowchart with 10+ leaves under one parent — group them. Keep node labels SHORT (≤ 4 words) and total nodes ≤ 20 — move detail to the right-pane red flags, not into the diagram.',

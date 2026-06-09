@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
 import { ThemeToggle } from '@/components/auth/ThemeToggle';
 import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
+import { LEASELENS_WORDMARK_MASTHEAD } from '@/components/brand/wordmark-classes';
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
 import { WorkspaceRouterShell } from '@/components/lease/WorkspaceRouterShell';
@@ -132,7 +133,10 @@ export default async function Home() {
     // spans (which use `position: absolute`) still find `<main>` as
     // their containing block instead of escaping to the viewport.
     // It is positionally inert otherwise.
-    <main className="relative min-h-screen bg-surface-base font-sans text-fg-default">
+    <main
+      data-theme-surface
+      className="relative min-h-screen bg-surface-base font-sans text-fg-default"
+    >
       {/* Sprint 26c.2 — header proportions bumped to feel like a real
           masthead, not a thin app chrome. py-3 → py-4 (denser by ~25%);
           the brand box steps up from h-7 to h-10 with rounded-lg, the
@@ -141,18 +145,17 @@ export default async function Home() {
           size bump to keep visual balance with the larger lockup. */}
       {/* Sprint 28.13 — sticky brand/role/theme header so it stays
           accessible during deep window scroll. */}
-      <header className="sticky top-0 z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-4 dark:border-neutral-800">
+      <header
+        data-theme-surface
+        className="sticky top-0 z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-4 dark:border-neutral-800"
+      >
         <div className="flex items-center gap-5">
           <div className="flex items-center gap-3.5">
-            {/* Sprint 26c.4 — navbar brand text quieted (16px semibold →
-                14px medium) so the hero headline carries more visual
-                weight than the masthead lockup. The icon stays h-10
-                (per design direction) — a slightly heavier icon next
-                to lighter text reads as a glyph + label, which is the
-                desired navigation-branding pattern. */}
+            {/* Sprint 29.x — masthead is the sole LeaseLens wordmark on
+                Mode A; hero uses badge + editorial headline only. */}
             <Link
               href="/"
-              className="flex items-center gap-3 rounded-md font-medium text-[14px] text-neutral-800 tracking-tight transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:text-neutral-100"
+              className="flex items-center gap-3 rounded-md transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
             >
               <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-600 text-white shadow-hairline">
                 {/*
@@ -167,7 +170,12 @@ export default async function Home() {
                 */}
                 <LeaseLensMark className="h-5 w-5" />
               </span>
-              LeaseLens
+              <span
+                data-testid="brand-wordmark"
+                className={LEASELENS_WORDMARK_MASTHEAD}
+              >
+                LeaseLens
+              </span>
             </Link>
             {/* Sprint 23h — persistent system anchor (the LeaseLens
                 equivalent of open-design.ai's "52.5200° N · 13.4050° E"
@@ -238,7 +246,7 @@ export default async function Home() {
       </header>
       {/* Sprint 26a — workspace router shell. Routes to ParserLandingShell
           (Mode A, hero dropzone) when no active lease is rehydrated;
-          falls through to the legacy three-pane LeaseLensWorkspaceShell
+          falls through to ParserResultsShell when a lease is active.
           otherwise. Sprint 26b replaces the post-upload branch with the
           new ParserResultsShell; Sprint 26c replaces the FAB stub with
           the real assistant. */}

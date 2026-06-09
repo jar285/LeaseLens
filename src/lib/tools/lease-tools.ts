@@ -14,8 +14,14 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { env } from '@/lib/env';
 import { assertLeaseOwnership } from '@/lib/lease/assert-lease-ownership';
-import { type ClauseRow, getLease, listClauses } from '@/lib/lease/queries';
+import {
+  type ClauseRow,
+  getLease,
+  listClauses,
+  listGradings,
+} from '@/lib/lease/queries';
 import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
+import { logger } from '@/lib/log/logger';
 import { type RetrievedChunk, retrieve } from '@/lib/rag/retrieve';
 import type {
   MutationOutcome,
@@ -123,6 +129,51 @@ export function createExtractClausesTool(
 }
 
 // -----------------------------------------------------------------------------
+// get_lease_findings (read-only — returns the STORED gradings, never re-scans)
+// -----------------------------------------------------------------------------
+
+export function createGetLeaseFindingsTool(
+  db: Database.Database,
+): ToolDescriptor {
+  return {
+    name: 'get_lease_findings',
+    description:
+      "Return the already-computed red-flag findings for the active lease (severity, statute citation, plain-English reasoning, and recommended action per clause), read directly from storage with NO re-scan and NO model/corpus calls. Call this FIRST to answer any question about existing findings — 'explain the highest-severity finding', 'rank the red flags', 'summarize the issues', 'which clauses are risky' — or to gather grounding before drafting a negotiation email. Findings come back ordered by severity (high first). Do NOT call extract_clauses + grade_clause_severity to answer these questions when get_lease_findings already returns graded clauses.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        lease_id: {
+          type: 'string',
+          description:
+            'Lease id. Optional when the conversation has an active_lease_id; required when called via MCP.',
+        },
+      },
+    },
+    roles: 'ALL',
+    category: 'lease',
+    execute: async (input, ctx) => {
+      const leaseId = resolveLeaseId(db, input, {
+        workspaceId: ctx.workspaceId,
+        conversationId: ctx.conversationId,
+        userId: ctx.userId,
+        // Same recent-upload fallback as extract_clauses, so a follow-up
+        // resolves the active lease even if THIS conversation didn't run the
+        // scan (the auto-scan uses a separate conversation; see ChatUI sync).
+        enableRecentLeaseFallback: true,
+      });
+      loadOwnedLease(db, leaseId, ctx);
+      const findings = listGradings(db, leaseId, ctx.workspaceId);
+      return {
+        lease_id: leaseId,
+        total_clauses: listClauses(db, leaseId, ctx.workspaceId).length,
+        graded_count: findings.length,
+        findings,
+      };
+    },
+  };
+}
+
+// -----------------------------------------------------------------------------
 // grade_clause_severity
 // -----------------------------------------------------------------------------
 
@@ -172,24 +223,175 @@ RELEVANT NJ TENANT LAW (cite by the bracketed chunk_id):
 ${chunkBlock}`;
 }
 
+/*
+ * Sprint 34.1 — humanise a corpus chunk-pointer into a domain-readable
+ * label. The corpus convention is `slug-with-dashes#section:N` (e.g.
+ * `late-fees-general#section:5`). We:
+ *   - drop the `-general` suffix (top-level chunk marker, not a name);
+ *   - capitalise the first word; keep the rest lower-case;
+ *   - append the section number as `§N` so the user sees the source.
+ * Examples:
+ *   late-fees-general#section:5      → "Late fees (NJ tenant-law corpus, §5)"
+ *   early-termination-general#section:4 → "Early termination (NJ tenant-law corpus, §4)"
+ *   parking-and-storage#section:5    → "Parking and storage (NJ tenant-law corpus, §5)"
+ * If the input doesn't match the canonical chunk-pointer pattern, return
+ * it unchanged (defensive: future shapes shouldn't be silently mangled).
+ */
+const CHUNK_POINTER_RE = /^([a-z0-9-]+)#section:(\d+)$/;
+
+// Sprint 34.2 — the slug words behind a chunk pointer, e.g.
+// "attorneys-fees-clauses#section:1" → ["attorneys", "fees", "clauses"].
+// Shared by humaniseChunkPointer (label form) and the D.2 title match so
+// the slug→words rule lives in one place.
+function chunkSlugWords(chunkId: string): string[] {
+  const match = CHUNK_POINTER_RE.exec(chunkId);
+  if (!match) return [];
+  return match[1]
+    .replace(/-general$/, '')
+    .split('-')
+    .filter(Boolean);
+}
+
+// Sprint 34.2 — normalise a citation/title to a comparable token stream:
+// lowercase, collapse any non-alphanumeric run to a single space, trim.
+function normaliseCitation(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Sprint 34.3 (E.1) — normalise a chunk body / citation for the grounding
+// substring match: lowercase, strip markdown emphasis markers (*, _, `)
+// — they're presentation, not content, and the corpus emphasises citations
+// inconsistently (`**whole citation**` vs `*case name*,`) — then collapse
+// whitespace. Stripping only REMOVES characters, so a citation newly
+// matches ONLY when the sole difference was emphasis/whitespace; a citation
+// genuinely absent from the body still fails.
+function normaliseForGrounding(s: string): string {
+  return s.toLowerCase().replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function humaniseChunkPointer(chunkId: string): string {
+  const match = CHUNK_POINTER_RE.exec(chunkId);
+  if (!match) return chunkId;
+  const words = chunkSlugWords(chunkId);
+  if (words.length === 0) return chunkId;
+  const phrase = words
+    .map((w, i) => (i === 0 ? (w[0]?.toUpperCase() ?? '') + w.slice(1) : w))
+    .join(' ');
+  return `${phrase} (NJ tenant-law corpus, §${match[2]})`;
+}
+
 function validateGrading(
   raw: GradingPayload,
   retrieved: RetrievedChunk[],
 ): GradingPayload {
   const cited = retrieved.find((c) => c.chunkId === raw.chunk_id);
+  // Sprint 34.0 — enrichment for the route-level `[chat-diag s32.2]`
+  // log. The route catch site only sees the thrown error message; it
+  // can't see the rejected citation, the cited chunk's heading, or a
+  // peek at the chunk body. Emit a sibling `[chat-diag s32.2-reject]`
+  // line here, gated on NODE_ENV like the route diagnostic, so the
+  // grading-rejection failure mode is debuggable without rerunning.
   if (!cited) {
+    logger.debug(
+      {
+        rejectedCitation: raw.statute_citation,
+        citedChunkId: raw.chunk_id,
+        rejectionReason: 'chunk_id_not_retrieved',
+      },
+      'grade.citation_rejected',
+    );
     throw new Error(
       `grade_clause_severity: cited chunk_id "${raw.chunk_id}" was not in the retrieved set — citation not grounded in corpus.`,
     );
   }
-  const haystack = cited.content.toLowerCase().replace(/\s+/g, ' ');
-  const needle = raw.statute_citation.toLowerCase().replace(/\s+/g, ' ');
-  if (!haystack.includes(needle)) {
-    throw new Error(
-      `grade_clause_severity: statute_citation "${raw.statute_citation}" does not appear in the cited chunk's text — citation not grounded.`,
-    );
+
+  // Sprint 34.1 — chunk-pointer canonicalisation. The Sprint 34.0
+  // diagnostic showed ~75% of rejections are this pattern: the model
+  // passes the chunk_id literally as `statute_citation`. The chunk_id
+  // is already validated against the retrieved set above, so this IS
+  // a grounded reference — just in the wrong form. Accept and rewrite
+  // the citation to a humanised, domain-readable label so the right-
+  // pane card surfaces something meaningful (e.g. "Late fees (NJ
+  // tenant-law corpus, §5)") instead of the raw chunk identifier.
+  //
+  // Sprint 34.2 (D.1) — generalised from `=== chunk_id` to
+  // `includes(chunk_id)`: the model also wraps the pointer in a label
+  // (e.g. "Early Termination — early-termination-general#section:1").
+  // The chunk_id (slug#section:N) won't occur coincidentally in a real
+  // statute string, so an includes-match is still a grounded chunk
+  // reference. Exact match is a subset → behaviour-preserving for 34.1.
+  if (raw.statute_citation.includes(raw.chunk_id)) {
+    return { ...raw, statute_citation: humaniseChunkPointer(raw.chunk_id) };
   }
-  return raw;
+
+  // Sprint 34.1 — concatenated multi-statute citation. When the model
+  // joins multiple statute strings with `;`, ` & `, or ` and `, accept
+  // if ANY part appears verbatim in the chunk body. Canonicalise the
+  // stored citation to the first matching part so the card shows the
+  // grounded portion, not the concatenated soup.
+  // Sprint 34.2 (D.3) — also split on a whitespace-bounded dash (em `—`,
+  // en `–`, or spaced hyphen ` - `), so a "Label — NJSA …" concatenation
+  // isolates the grounded statute part. Spaces on BOTH sides are required
+  // so intra-token hyphens (NJSA 56:8-1, repair-and-deduct) are untouched.
+  const parts = raw.statute_citation
+    .split(/\s*[;&]\s*|\s+(?:and|[—–-])\s+/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  // Sprint 34.3 — the citation is grounded if a part appears (modulo
+  // markdown emphasis + whitespace, per normaliseForGrounding — E.1) in the
+  // body of ANY chunk the model was shown (E.2), not only the labeled one.
+  // Try the cited chunk first (preferred attribution), then the rest; on a
+  // cross-chunk hit, re-point chunk_id to where the evidence actually lives.
+  const orderedChunks = [
+    cited,
+    ...retrieved.filter((c) => c.chunkId !== cited.chunkId),
+  ];
+  for (const chunk of orderedChunks) {
+    const haystack = normaliseForGrounding(chunk.content);
+    for (const part of parts) {
+      const needle = normaliseForGrounding(part);
+      // `needle &&` guards against a part that is only emphasis/whitespace
+      // normalising to '' (includes('') is always true) — a false accept.
+      if (needle && haystack.includes(needle)) {
+        // Single-part match → citation unchanged; multi-part → canonicalise
+        // to the matched part; cross-chunk → re-point chunk_id.
+        const citation = parts.length === 1 ? raw.statute_citation : part;
+        return { ...raw, statute_citation: citation, chunk_id: chunk.chunkId };
+      }
+    }
+  }
+
+  // Sprint 34.2 (D.2) — de-slugged chunk title. The model sometimes cites
+  // the chunk by its own NAME (the de-slugged chunk_id, e.g. "Attorneys'
+  // Fees Clauses") rather than verbatim statute text. That still refers to
+  // the already-validated cited chunk, so accept and canonicalise to the
+  // humanised label. EXACT normalised equality only — a partial or looser
+  // match falls through to rejection so a fabricated citation can't sneak
+  // in by coincidentally overlapping the slug words.
+  const slugPhrase = chunkSlugWords(raw.chunk_id).join(' ');
+  if (
+    slugPhrase &&
+    normaliseCitation(raw.statute_citation) === normaliseCitation(slugPhrase)
+  ) {
+    return { ...raw, statute_citation: humaniseChunkPointer(raw.chunk_id) };
+  }
+
+  logger.debug(
+    {
+      rejectedCitation: raw.statute_citation,
+      citedChunkId: raw.chunk_id,
+      chunkHeading: cited.heading ?? null,
+      chunkBodyLength: cited.content.length,
+      rejectionReason: 'citation_not_in_body',
+    },
+    'grade.citation_rejected',
+  );
+  throw new Error(
+    `grade_clause_severity: statute_citation "${raw.statute_citation}" does not appear in the cited chunk's text — citation not grounded.`,
+  );
 }
 
 export function createGradeClauseSeverityTool(
@@ -208,6 +410,11 @@ export function createGradeClauseSeverityTool(
           description:
             'The clause_id returned by extract_clauses for the clause to grade.',
         },
+        force_regrade: {
+          type: 'boolean',
+          description:
+            'Set true to re-grade a clause that was already graded (e.g. the user explicitly asks to re-scan). Defaults false — an already-graded clause returns its stored grading without a re-grade.',
+        },
       },
       required: ['clause_id'],
     },
@@ -219,6 +426,25 @@ export function createGradeClauseSeverityTool(
         throw new Error('grade_clause_severity: clause_id is required');
       }
       const clause = loadOwnedLeaseFromClauseId(db, clauseId, ctx);
+
+      // Sprint 45 — already-graded short-circuit. If the clause was graded in a
+      // prior turn, return the STORED grading (no retrieve, no Anthropic) — so
+      // even if the model ignores the prompt and re-fires the scan, each call is
+      // a cheap DB read instead of a ~3-4s retrieve+LLM round-trip. An explicit
+      // user re-scan passes force_regrade:true to recompute.
+      if (clause.graded_at != null && input.force_regrade !== true) {
+        return {
+          clause_id: clauseId,
+          clause_type: clause.clause_type,
+          clause_index: clause.clause_index,
+          page_number: clause.page_number,
+          severity: clause.severity,
+          statute_citation: clause.statute_citation,
+          chunk_id: clause.chunk_id,
+          reasoning: clause.reasoning,
+          recommended_action: clause.recommended_action,
+        };
+      }
 
       const retrieved = await retrieve(clause.text, db, {
         workspaceId: ctx.workspaceId,
@@ -271,9 +497,25 @@ export function createGradeClauseSeverityTool(
       // AFTER validation so a failed citation grounding never poisons
       // the clauses table with an unverified grade. Idempotent: a
       // re-grade overwrites the prior severity in place.
+      // Sprint 45 — persist the FULL grading (citation/chunk/reasoning/action +
+      // graded_at), not just severity, so the chat reads findings via
+      // get_lease_findings WITHOUT re-running the scan. graded_at is the
+      // "has been graded" sentinel (powers the read tool + the short-circuit).
       db.prepare(
-        `UPDATE clauses SET severity = ? WHERE id = ? AND workspace_id = ?`,
-      ).run(validated.severity, clauseId, ctx.workspaceId);
+        `UPDATE clauses
+            SET severity = ?, statute_citation = ?, chunk_id = ?,
+                reasoning = ?, recommended_action = ?, graded_at = ?
+          WHERE id = ? AND workspace_id = ?`,
+      ).run(
+        validated.severity,
+        validated.statute_citation,
+        validated.chunk_id,
+        validated.reasoning,
+        validated.recommended_action,
+        Math.floor(Date.now() / 1000),
+        clauseId,
+        ctx.workspaceId,
+      );
 
       return {
         clause_id: clauseId,

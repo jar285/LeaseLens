@@ -1,6 +1,6 @@
 # Sprint 27 — Production Pivot (FAB Persistence · Tenant-Only UI · 6-Stage Loading)
 
-**Status:** Implemented locally on `feature/cockpit`, awaiting human QA + commit.
+**Status:** Shipped on main (Sprint 27, 2026-05-19).
 **Date:** 2026-05-19.
 **Branch:** `feature/cockpit` (continuation from Sprint 26c).
 **Parent plan:** [`~/.claude/plans/leaselens-refactor-robust-sutton.md`](../../../).

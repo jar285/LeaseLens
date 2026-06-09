@@ -1,6 +1,8 @@
 # Sprint 23d — Risk Radar (Right Pane Redesign)
 
-**Status:** Draft, awaiting human QA per charter §7 step 1.
+> **STATUS: SHELVED** — Designed on the `feature/ui` branch and never merged. The parser-first pivot in Sprint 26b (`RedFlagReport` inside `ParserResultsShell`'s results stack) superseded the Risk Radar right-pane direction. Kept here as historical design exploration; do not implement.
+
+**Status:** Shelved (not merged; superseded by Sprint 26b).
 **Date:** 2026-05-13.
 **Branch:** `feature/ui`.
 **Parent handoff:** [handoff.md](../../../handoff.md) §14 (right pane direction), §19 (accessibility), §6 (visual direction to preserve).

@@ -23,6 +23,8 @@ export const AssistantFab = dynamic(
     // Sprint 26c.10 — loading placeholder mirrors the bumped real pill
     // (h-16/w-16, inner spinner h-5/w-5) so first paint doesn't shift
     // layout when the real component hydrates.
+    // Sprint 29.6 — also mirror the lg+ wider rounded-pill so the
+    // desktop label hydration doesn't reflow.
     loading: () => (
       <button
         type="button"
@@ -30,11 +32,15 @@ export const AssistantFab = dynamic(
         data-state="loading"
         aria-label="Open assistant"
         disabled
-        className="fixed right-6 bottom-6 z-overlay inline-flex h-16 w-16 items-center justify-center rounded-full bg-accent-600 text-white shadow-lg dark:bg-accent-500"
+        className="fixed right-6 bottom-6 z-overlay inline-flex h-16 w-16 items-center justify-center rounded-full bg-accent-600 text-white shadow-lg dark:bg-accent-500 lg:h-14 lg:w-auto lg:gap-2 lg:px-5"
       >
         <span
           aria-hidden="true"
           className="inline-block h-5 w-5 animate-pulse rounded-full bg-white/40"
+        />
+        <span
+          aria-hidden="true"
+          className="hidden h-4 w-24 animate-pulse rounded bg-white/40 lg:inline-block"
         />
       </button>
     ),

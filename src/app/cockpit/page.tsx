@@ -124,7 +124,10 @@ export default async function CockpitPage() {
         scroll. The chat page header is pinned by its h-dvh + flex-col
         layout; cockpit uses natural document scroll and needs sticky.
       */}
-      <header className="sticky top-0 z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800">
+      <header
+        data-theme-surface
+        className="sticky top-0 z-raised flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface-card px-8 py-3 dark:border-neutral-800"
+      >
         <div className="flex items-center gap-4">
           <Link
             href="/"

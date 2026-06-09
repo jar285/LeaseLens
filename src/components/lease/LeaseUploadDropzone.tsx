@@ -43,6 +43,13 @@ export interface LeaseUploadDropzoneProps {
   onUploaded: (result: UploadResult, file: File) => void;
   onError?: (message: string) => void;
   conversationId?: string | null;
+  /**
+   * Sprint 29.x — `hero` softens idle chrome on Mode A so the tray
+   * blends with the ambient blob instead of stacking a heavy card on
+   * top. Default `tray` keeps the document-dock treatment everywhere
+   * else (workspace shell, re-upload paths).
+   */
+  presentation?: 'tray' | 'hero';
 }
 
 type Status = 'idle' | 'dragover' | 'uploading' | 'error' | 'success';
@@ -57,6 +64,7 @@ export function LeaseUploadDropzone({
   onUploaded,
   onError,
   conversationId,
+  presentation = 'tray',
 }: LeaseUploadDropzoneProps): React.JSX.Element {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -159,8 +167,12 @@ export function LeaseUploadDropzone({
   const isError = status === 'error';
   const isSuccess = status === 'success';
 
+  const isHero = presentation === 'hero';
+
   // Sprint 15 Phase 7 — dragover takes a solid accent border (drops the
   // dashed treatment); idle keeps dashed. Other states keep a solid edge.
+  // Sprint 29.x — hero idle uses a lighter hairline + translucent fill so
+  // the tray reads as part of the ambient landing field, not a second card.
   const borderStyle = isDragOver
     ? 'border-2 border-solid border-accent-400 bg-accent-50/60 ring-2 ring-accent-100 dark:border-accent-400 dark:bg-accent-500/10 dark:ring-accent-500/15'
     : isUploading
@@ -169,7 +181,9 @@ export function LeaseUploadDropzone({
         ? 'border-2 border-solid border-danger-100 bg-danger-100/40 dark:border-danger-600/40 dark:bg-danger-600/5'
         : isSuccess
           ? 'border-2 border-solid border-success-100 bg-success-100/40 dark:border-success-600/40 dark:bg-success-600/5'
-          : 'border-2 border-dashed border-neutral-200 bg-surface-card hover:border-accent-300 hover:bg-surface-muted dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-accent-500/40 dark:hover:bg-neutral-800/60';
+          : isHero
+            ? 'border border-dashed border-border-default/70 bg-surface-elevated/50 shadow-hairline backdrop-blur-[3px] motion-safe:[@media(hover:hover)]:hover:shadow-md hover:border-accent-300/70 hover:bg-surface-elevated/65 dark:border-border-default/50 dark:bg-surface-elevated/20 dark:motion-safe:[@media(hover:hover)]:hover:shadow-md dark:hover:border-accent-500/30 dark:hover:bg-surface-elevated/28'
+            : 'border-2 border-dashed border-neutral-200 bg-surface-card hover:border-accent-300 hover:bg-surface-muted dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-accent-500/40 dark:hover:bg-neutral-800/60';
 
   const iconWrapperClass = classNames(
     'flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-colors duration-200',
@@ -185,7 +199,9 @@ export function LeaseUploadDropzone({
       !isUploading &&
       !isError &&
       !isSuccess &&
-      'bg-neutral-100 text-fg-subtle group-hover:bg-accent-50 group-hover:text-accent-500 dark:bg-neutral-800 dark:text-neutral-400 dark:group-hover:bg-accent-500/15 dark:group-hover:text-accent-300',
+      (isHero
+        ? 'bg-surface-elevated/70 text-fg-muted group-hover:bg-accent-50/80 group-hover:text-accent-500 dark:bg-surface-elevated/40 dark:text-fg-subtle dark:group-hover:bg-accent-500/15 dark:group-hover:text-accent-300'
+        : 'bg-neutral-100 text-fg-subtle group-hover:bg-accent-50 group-hover:text-accent-500 dark:bg-neutral-800 dark:text-neutral-400 dark:group-hover:bg-accent-500/15 dark:group-hover:text-accent-300'),
   );
 
   const iconNode = isUploading ? (
@@ -202,6 +218,7 @@ export function LeaseUploadDropzone({
     <section
       data-testid="lease-upload-dropzone"
       data-status={status}
+      data-presentation={presentation}
       onDragOver={(e) => e.preventDefault()}
       onDragEnter={onDragEnter}
       onDragLeave={onDragLeave}
@@ -209,6 +226,7 @@ export function LeaseUploadDropzone({
       aria-label="Lease PDF upload area"
       className={classNames(
         'group relative flex w-full flex-1 flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl p-6 text-center transition-all duration-200',
+        isHero && 'min-h-[13.5rem] sm:min-h-[15rem]',
         borderStyle,
       )}
     >
@@ -266,7 +284,9 @@ export function LeaseUploadDropzone({
             'cursor-pointer rounded-md border px-3.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
             isError
               ? 'border-danger-100 bg-surface-card text-danger-600 hover:border-danger-100/80 hover:bg-danger-100/40 focus-visible:ring-danger-100 dark:border-danger-600/40 dark:bg-neutral-900 dark:text-danger-100 dark:hover:bg-danger-600/15'
-              : 'border-neutral-200 bg-surface-card text-fg-default hover:border-neutral-300 hover:bg-surface-muted focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-neutral-600 dark:hover:bg-neutral-800',
+              : isHero
+                ? 'border-border-hairline bg-surface-elevated/60 text-fg-default hover:border-accent-300/60 hover:bg-surface-elevated/80 focus-visible:ring-accent-300 dark:border-border-default/60 dark:bg-surface-elevated/30 dark:hover:border-accent-500/35 dark:hover:bg-surface-elevated/45'
+                : 'border-neutral-200 bg-surface-card text-fg-default hover:border-neutral-300 hover:bg-surface-muted focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-neutral-600 dark:hover:bg-neutral-800',
           )}
         >
           {isError ? 'Try another file' : 'Choose a file'}

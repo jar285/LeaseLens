@@ -14,8 +14,11 @@
 'use client';
 
 import { MessageSquare } from 'lucide-react';
-import { useMemo } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAssistantFab } from '@/components/chat/AssistantFabContext';
+import { DURATION, EASE } from '@/lib/motion/presets';
+import { cappedStaggerStep } from '@/lib/motion/stagger';
 import {
   clauseLabel,
   type GradingResult,
@@ -64,6 +67,16 @@ export function ClausesList(): React.JSX.Element {
   const { toolEvents, pdfViewerRef, setActiveClauseId, activeLease } =
     useLeaseParser();
   const fab = useAssistantFab();
+  // Sprint 43.4 — staggered-entrance gating. `mounted` so a REHYDRATED list
+  // (rows already present on first render) does not cascade on page load — only
+  // a list that POPULATES after mount (the scan's extract landing) does.
+  // reduced-motion collapses the cascade to instant.
+  const reduced = useReducedMotion();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const animate = mounted && !reduced;
 
   const rows = useMemo<ClauseRow[]>(() => {
     // Sprint 26c.9 — lease-aware extract resolution. Use the latest
@@ -155,6 +168,24 @@ export function ClausesList(): React.JSX.Element {
     }
   }
 
+  // Sprint 43.4 — capped cascade. The step shrinks as the list grows so the
+  // whole reveal lands within the budget (a long list never withholds its tail).
+  // The whole row (label + page + SeverityBadge) fades+rises as one unit, so
+  // severity icon+text are never absent while only its colour band is visible.
+  const staggerStep = cappedStaggerStep(rows.length);
+  const listVariants = {
+    hidden: {},
+    visible: { transition: { staggerChildren: staggerStep } },
+  };
+  const rowVariants = {
+    hidden: { opacity: 0, y: 4 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: { duration: DURATION.fast, ease: EASE.standard },
+    },
+  };
+
   return (
     <section
       data-testid="clauses-list"
@@ -170,21 +201,33 @@ export function ClausesList(): React.JSX.Element {
         </h3>
         <span className="text-[11px] text-fg-subtle">{rows.length} total</span>
       </header>
-      <ul className="flex flex-col divide-y divide-neutral-100 dark:divide-neutral-800">
+      <motion.ul
+        className="flex flex-col divide-y divide-neutral-100 dark:divide-neutral-800"
+        variants={listVariants}
+        initial={animate ? 'hidden' : false}
+        animate="visible"
+      >
         {rows.map((row) => {
           const label = clauseLabel({
             clause_type: row.clause_type,
             clause_index: row.clause_index,
           });
           return (
-            <li key={row.clause_id} className="flex items-center gap-1">
+            <motion.li
+              key={row.clause_id}
+              variants={rowVariants}
+              className="flex items-center gap-1"
+            >
               <button
                 type="button"
                 data-testid="clauses-list-row"
                 data-clause-id={row.clause_id}
                 data-severity={row.severity ?? 'pending'}
                 onClick={() => handleRowClick(row)}
-                className="flex flex-1 items-center justify-between gap-3 py-2 text-left transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:hover:bg-neutral-800"
+                // Sprint 43.5 — sober CSS tap-press (matches the FAB pill's
+                // active:scale-[0.98]); transform joins the transition, and
+                // reduced-motion disables both the transition and the scale.
+                className="flex flex-1 items-center justify-between gap-3 py-2 text-left transition-[background-color,transform] hover:bg-surface-muted active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:active:scale-100 dark:hover:bg-neutral-800"
               >
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="truncate text-[13px] text-fg-default">
@@ -232,10 +275,10 @@ export function ClausesList(): React.JSX.Element {
               >
                 <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
-            </li>
+            </motion.li>
           );
         })}
-      </ul>
+      </motion.ul>
     </section>
   );
 }

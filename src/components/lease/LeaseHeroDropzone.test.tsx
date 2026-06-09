@@ -26,11 +26,12 @@ describe('LeaseHeroDropzone', () => {
     expect(headline.querySelector('em')?.textContent).toMatch(/negotiate/i);
   });
 
-  it('renders a supporting subhead that names the parser action', () => {
+  it('renders a value-prop subhead without duplicating dropzone upload copy (Sprint 29.x)', () => {
     render(<LeaseHeroDropzone onUploaded={() => {}} />);
     const subhead = screen.getByTestId('lease-hero-subhead');
     expect(subhead).toBeInTheDocument();
-    expect(subhead.textContent?.toLowerCase()).toMatch(
+    expect(subhead.textContent?.toLowerCase()).toMatch(/parse clauses/);
+    expect(subhead.textContent?.toLowerCase()).not.toMatch(
       /drop your nj residential lease/,
     );
   });
@@ -40,6 +41,15 @@ describe('LeaseHeroDropzone', () => {
     // The inner dropzone retains its public test id so file-handling
     // tests in LeaseUploadDropzone.test.tsx still describe the behavior.
     expect(screen.getByTestId('lease-upload-dropzone')).toBeInTheDocument();
+  });
+
+  it('uses hero presentation on the inner dropzone so it blends with the ambient blob (Sprint 29.x)', () => {
+    render(<LeaseHeroDropzone onUploaded={() => {}} />);
+    expect(screen.getByTestId('lease-upload-dropzone')).toHaveAttribute(
+      'data-presentation',
+      'hero',
+    );
+    expect(screen.getByTestId('lease-hero-dropzone-tray')).toBeInTheDocument();
   });
 
   it('forwards onUploaded to the inner dropzone via props', () => {

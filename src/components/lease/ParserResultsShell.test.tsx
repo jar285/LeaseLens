@@ -5,8 +5,18 @@
 // active-lease + tool events; reuses RedFlagReport, ClausesList,
 // ScanTimeline, ChatUI, PdfViewer, AssistantFabStub, useLeftPaneState.
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  type PdfBinaryRepository,
+  setPdfBinaryRepository,
+} from '@/lib/lease/pdf-binary-repository';
 
 // PdfViewer is a dynamic import that touches DOMMatrix / Worker. Mock
 // it to a minimal stub so the shell composition test focuses on layout.
@@ -35,10 +45,46 @@ vi.mock('@/components/chat/AssistantFab', () => ({
 
 import { ParserResultsShell } from './ParserResultsShell';
 
+// Sprint 28.15 — Replace now opens a real in-app <dialog> (ConfirmDialog)
+// instead of window.confirm. happy-dom doesn't implement showModal/close, so
+// mirror the PdfFocusDialog.test.tsx polyfill.
+beforeAll(() => {
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute('open', '');
+    };
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function () {
+      this.removeAttribute('open');
+      this.dispatchEvent(new Event('close'));
+    };
+  }
+});
+
 afterEach(() => {
   cleanup();
+  // Sprint 28.15 — restore the lazy PdfBinaryRepository singleton between
+  // tests that inject a spy repo to assert IndexedDB eviction.
+  setPdfBinaryRepository(null);
   vi.restoreAllMocks();
 });
+
+// Sprint 28.15 — local spy repo (mirrors useLeftPaneState.test.tsx:30). Keeps
+// `delete` (the Replace-path evict) and `evictExcept` (the mount-time prune)
+// as SEPARATE spies so the mount eviction can't create a false positive on
+// the destructive-reset assertion.
+function makeRepo(
+  overrides: Partial<PdfBinaryRepository> = {},
+): PdfBinaryRepository {
+  return {
+    put: vi.fn().mockResolvedValue(undefined),
+    get: vi.fn().mockResolvedValue(null),
+    delete: vi.fn().mockResolvedValue(undefined),
+    evictExcept: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
 
 const baseProps = {
   initialMessages: [],
@@ -70,55 +116,121 @@ describe('ParserResultsShell', () => {
     expect(header.textContent).toMatch(/13\s*clauses?/i);
   });
 
-  it('Replace button asks for confirmation before resetting the workspace', () => {
-    // Sprint 28.9 — Replace is the destructive path. Per Don Norman's
-    // "prevent accidental destructive action", we require an explicit
-    // confirm before tearing down the workspace.
-    const confirmSpy = vi.fn().mockReturnValue(true);
-    vi.stubGlobal('confirm', confirmSpy);
-    const onReplace = vi.fn();
-    render(<ParserResultsShell {...baseProps} onReplace={onReplace} />);
-    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+  // Sprint 28.15 — Replace now opens a styled in-app alertdialog instead of
+  // window.confirm. The destructive sequence (revoke Blob → evict IndexedDB →
+  // resetParser → onReplace) is unchanged; only the confirmation surface
+  // moved. These tests drive the modal through accessible roles (Kent C.
+  // Dodds) and — unlike the old window.confirm stubs — finally assert the
+  // previously-unverified IndexedDB eviction.
+  describe('Sprint 28.15 — Replace confirmation alertdialog', () => {
+    it('opens an in-app alertdialog (no window.confirm) and touches nothing until confirmed', () => {
+      // Don Norman two-step: merely opening the dialog must not destroy.
+      const confirmSpy = vi.fn();
+      vi.stubGlobal('confirm', confirmSpy);
+      const revokeSpy = vi.fn();
+      global.URL.revokeObjectURL = revokeSpy;
+      const deleteSpy = vi.fn().mockResolvedValue(undefined);
+      setPdfBinaryRepository(makeRepo({ delete: deleteSpy }));
+      const onReplace = vi.fn();
+      render(<ParserResultsShell {...baseProps} onReplace={onReplace} />);
 
-    fireEvent.click(screen.getByTestId('results-replace-button'));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('results-replace-button'));
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    // The confirmation copy must name what's about to be lost so a
-    // first-time user understands the click is destructive.
-    expect(confirmSpy.mock.calls[0][0]).toMatch(/lease/i);
-    expect(onReplace).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
-  });
+      const dialog = screen.getByRole('alertdialog');
+      expect(dialog).toBeInTheDocument();
+      // The accessible name names what's at stake (replaces the old
+      // confirmSpy.mock.calls[0][0] copy assertion).
+      expect(dialog.textContent).toMatch(/lease/i);
+      // Native confirm must be gone; nothing destroyed on open.
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(revokeSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalled();
+      expect(onReplace).not.toHaveBeenCalled();
+      expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+    });
 
-  it('Replace button is a no-op when the confirm prompt is cancelled', () => {
-    // Sprint 28.9 — cancelling the confirm leaves the workspace intact.
-    const confirmSpy = vi.fn().mockReturnValue(false);
-    vi.stubGlobal('confirm', confirmSpy);
-    const onReplace = vi.fn();
-    render(<ParserResultsShell {...baseProps} onReplace={onReplace} />);
-    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+    it('confirming performs the destructive reset exactly once (revoke + evict + onReplace)', () => {
+      const revokeSpy = vi.fn();
+      global.URL.revokeObjectURL = revokeSpy;
+      const deleteSpy = vi.fn().mockResolvedValue(undefined);
+      setPdfBinaryRepository(makeRepo({ delete: deleteSpy }));
+      const onReplace = vi.fn();
+      render(<ParserResultsShell {...baseProps} onReplace={onReplace} />);
 
-    fireEvent.click(screen.getByTestId('results-replace-button'));
+      fireEvent.click(screen.getByTestId('results-replace-button'));
+      const dialog = screen.getByRole('alertdialog');
+      fireEvent.click(
+        within(dialog).getByRole('button', { name: /reset workspace/i }),
+      );
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(onReplace).not.toHaveBeenCalled();
-    // PDF still visible — workspace preserved.
-    expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
-  });
+      expect(revokeSpy).toHaveBeenCalledWith('blob:mock-pdf');
+      // Previously unverified: the Replace-path IndexedDB eviction.
+      expect(deleteSpy).toHaveBeenCalledWith('lease-1');
+      expect(deleteSpy).toHaveBeenCalledTimes(1);
+      expect(onReplace).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('pdf-viewer-mock')).not.toBeInTheDocument();
+    });
 
-  it('Replace revokes the active Blob URL after the user confirms', () => {
-    // Sprint 28.9 — the Blob URL lifecycle moved from chat-thread
-    // resets (Sprint 4 removed that path) onto the explicit Reset
-    // workspace flow. Revoking here prevents the leak that the old
-    // ChatUI commit-boundary revoke used to handle.
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true));
-    const revokeSpy = vi.fn();
-    global.URL.revokeObjectURL = revokeSpy;
-    render(<ParserResultsShell {...baseProps} />);
+    it('Cancel closes the dialog and preserves the workspace', () => {
+      const revokeSpy = vi.fn();
+      global.URL.revokeObjectURL = revokeSpy;
+      const deleteSpy = vi.fn().mockResolvedValue(undefined);
+      setPdfBinaryRepository(makeRepo({ delete: deleteSpy }));
+      const onReplace = vi.fn();
+      render(<ParserResultsShell {...baseProps} onReplace={onReplace} />);
 
-    fireEvent.click(screen.getByTestId('results-replace-button'));
+      fireEvent.click(screen.getByTestId('results-replace-button'));
+      const dialog = screen.getByRole('alertdialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
 
-    expect(revokeSpy).toHaveBeenCalledWith('blob:mock-pdf');
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(revokeSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalled();
+      expect(onReplace).not.toHaveBeenCalled();
+      expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+    });
+
+    it('Escape closes the dialog and preserves the workspace', () => {
+      const revokeSpy = vi.fn();
+      global.URL.revokeObjectURL = revokeSpy;
+      const deleteSpy = vi.fn().mockResolvedValue(undefined);
+      setPdfBinaryRepository(makeRepo({ delete: deleteSpy }));
+      const onReplace = vi.fn();
+      render(<ParserResultsShell {...baseProps} onReplace={onReplace} />);
+
+      fireEvent.click(screen.getByTestId('results-replace-button'));
+      // Native <dialog> Esc surfaces as a `close` event (PdfFocusDialog:117).
+      fireEvent(screen.getByTestId('confirm-dialog'), new Event('close'));
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(revokeSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalled();
+      expect(onReplace).not.toHaveBeenCalled();
+      expect(screen.getByTestId('pdf-viewer-mock')).toBeInTheDocument();
+    });
+
+    it('returns focus to the Replace button after cancelling', () => {
+      render(<ParserResultsShell {...baseProps} />);
+      const trigger = screen.getByTestId('results-replace-button');
+      // Focus the trigger first (fireEvent.click doesn't move focus in
+      // happy-dom) so we can assert the dialog returns focus to it on close.
+      trigger.focus();
+      fireEvent.click(trigger);
+      const dialog = screen.getByRole('alertdialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it('does not borrow the Clear-chat aria-live copy (distinct destructive semantic)', () => {
+      render(<ParserResultsShell {...baseProps} />);
+      fireEvent.click(screen.getByTestId('results-replace-button'));
+      const dialog = screen.getByRole('alertdialog');
+      expect(dialog.textContent).not.toContain('Assistant chat cleared');
+      expect(dialog.textContent).not.toContain(
+        'Your lease review was preserved',
+      );
+    });
   });
 
   it('mounts PdfViewer in the left pane when activeLease has a pdfUrl', () => {

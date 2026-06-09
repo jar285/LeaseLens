@@ -1,6 +1,12 @@
 import '@testing-library/jest-dom/vitest';
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatMessageProps } from './ChatMessage';
 import { ChatTranscript } from './ChatTranscript';
@@ -156,6 +162,55 @@ describe('ChatTranscript', () => {
     expect(
       screen.getByRole('button', { name: /standard scan/i }),
     ).toBeInTheDocument();
+  });
+
+  // Sprint 29.2 — when ChatTranscript is mounted inside the FAB drawer
+  // (caller passes `emptyStateVariant="compact"`), the full ChatEmptyState
+  // hero is suppressed and replaced by a compact in-drawer header. The
+  // big "Find what to negotiate, before you sign" hero is the parser
+  // landing page's identity; rendering it inside the FAB drawer makes
+  // the assistant compete with the parser surface instead of supporting
+  // it (Dieter Rams: less but better). The compact variant strips the
+  // hero to a one-line heading + subhead.
+  describe('Sprint 29.2 — emptyStateVariant', () => {
+    it('default ("hero") still renders the full ChatEmptyState hero', () => {
+      // Regression guard for any non-FAB consumer (e.g. legacy
+      // LeaseLensWorkspaceShell) that mounts ChatTranscript directly.
+      render(
+        withChatStream(
+          <ChatTranscript messages={[]} workspaceName="LeaseLens" />,
+        ),
+      );
+      expect(screen.getByTestId('chat-empty-state')).toBeInTheDocument();
+      expect(
+        screen.queryByTestId('assistant-drawer-empty-header'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('"compact" variant suppresses the hero and renders just the orienting subhead (no duplicate title)', () => {
+      render(
+        withChatStream(
+          <ChatTranscript
+            messages={[]}
+            workspaceName="LeaseLens"
+            emptyStateVariant="compact"
+          />,
+        ),
+      );
+      // The big landing hero is gone…
+      expect(screen.queryByTestId('chat-empty-state')).not.toBeInTheDocument();
+      // …replaced by a small in-drawer header that shows only the
+      // one-line orienting subhead.
+      const header = screen.getByTestId('assistant-drawer-empty-header');
+      expect(header).toBeInTheDocument();
+      expect(header.textContent ?? '').toMatch(
+        /ask about your lease, clauses, red flags, or citations/i,
+      );
+      // Sprint 37.1 — the duplicate "LeaseLens Assistant" heading was
+      // removed (the drawer chrome header carries the wordmark). The
+      // compact empty state must not render its own title heading.
+      expect(within(header).queryByRole('heading')).not.toBeInTheDocument();
+    });
   });
 
   it('renders follow-up chips under the latest assistant message', () => {
@@ -327,12 +382,12 @@ describe('ChatTranscript', () => {
         ),
       );
 
-      // Summary message body — "I finished scanning your lease" plus
-      // a "1 red flag" tally.
-      expect(
-        screen.getByText(/I finished scanning your lease/i),
-      ).toBeInTheDocument();
-      // Summary suggested-action chips appear under the summary.
+      // Sprint 33.A.2 — minimal scan-complete receipt that points to the
+      // right pane (1 graded high-severity clause → "1 finding"), not the
+      // old verbose tally.
+      expect(screen.getByText(/scan complete/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 finding on the right/i)).toBeInTheDocument();
+      // Summary suggested-action chips still appear under the receipt.
       expect(
         screen.getByRole('button', { name: /explain highest-risk issue/i }),
       ).toBeInTheDocument();
@@ -510,6 +565,60 @@ describe('ChatTranscript', () => {
       expect(
         screen.getByText(/may need manual review|I had trouble/i),
       ).toBeInTheDocument();
+    });
+  });
+
+  // Sprint 33.A.2 — the minimal scan-complete receipt is the chat's
+  // single, deterministic "scan complete" signal for a normal
+  // (complete/partial) scan. Unlike the old verbose tally it can't
+  // contradict the cards, so it renders regardless of the model's ack
+  // length — retiring the Sprint 20 SUBSTANTIVE_REPLY_MIN_CHARS heuristic
+  // for these states (the fatal copy keeps its S20.7 guard, tested above).
+  describe('Sprint 33.A.2 — deterministic receipt not suppressed by a long ack', () => {
+    const LEASE = { lease_id: 'lease-s33a2', filename: 'lease.pdf' };
+    const extractEvent = {
+      tool_name: 'extract_clauses',
+      input: { lease_id: LEASE.lease_id },
+      result: {
+        clauses: [{ clause_id: 'c1', clause_type: 'security_deposit' }],
+      },
+      audit_id: 'ex-1',
+    };
+    const gradeHigh = {
+      tool_name: 'grade_clause_severity',
+      input: { clause_id: 'c1' },
+      result: {
+        clause_id: 'c1',
+        severity: 'high' as const,
+        statute_citation: 'NJSA 46:8-19',
+        chunk_id: 'k',
+        reasoning: 'r',
+        recommended_action: 'a',
+        clause_type: 'security_deposit',
+      },
+      audit_id: undefined,
+    };
+
+    it('renders the minimal receipt even when the last assistant message is long (complete scan)', () => {
+      const messages: ChatMessageProps[] = [
+        { id: 'u-1', role: 'user', content: 'Run a standard scan.' },
+        {
+          id: 'a-1',
+          role: 'assistant',
+          // A long (>80 char) closing reply — pre-33.A.2 this suppressed
+          // the synthetic summary entirely.
+          content:
+            'I went through every clause in your lease and graded each one against the relevant NJ tenant-law sources; the results are now on the right.',
+        },
+      ];
+      render(
+        withChatStream(
+          <ChatTranscript messages={messages} workspaceName="Test" />,
+          { activeLease: LEASE, initialEvents: [extractEvent, gradeHigh] },
+        ),
+      );
+      expect(screen.getByText(/scan complete/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 finding on the right/i)).toBeInTheDocument();
     });
   });
 });

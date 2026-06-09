@@ -1,6 +1,6 @@
 # Sprint 26a — Parser-First Landing (Mode A)
 
-**Status:** Draft, awaiting human QA.
+**Status:** Shipped on main (Sprint 26a, 2026-05-17).
 **Date:** 2026-05-17.
 **Branch:** `feature/cockpit` (continuation; will branch to `feature/parser-first` if PR scoping requires).
 **Parent plan:** [agile-hugging-forest plan in ~/.claude/plans/](../../../) — LeaseLens UI Pivot.

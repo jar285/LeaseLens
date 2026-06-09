@@ -1,6 +1,6 @@
 # Sprint 23f — NegotiationEmailCard (Tenant-Mode Email Surface)
 
-**Status:** Draft, awaiting human QA per charter §7 step 1.
+**Status:** Shipped — `NegotiationEmailCard` is live at [`src/components/lease/NegotiationEmailCard.tsx`](../../../src/components/lease/NegotiationEmailCard.tsx). See [`impl-qa.md`](impl-qa.md).
 **Date:** 2026-05-13.
 **Branch:** `feature/ui`.
 **Predecessors:** [sprint-23a](../sprint-23a-ui-foundation/spec.md), [sprint-23b](../sprint-23b-document-dock/spec.md), [sprint-23c](../sprint-23c-conversation-workspace/spec.md), [sprint-23d](../sprint-23d-risk-radar/spec.md), [sprint-23e](../sprint-23e-chat-memory/spec.md) (all committed).

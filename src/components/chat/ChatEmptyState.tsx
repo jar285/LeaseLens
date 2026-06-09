@@ -5,6 +5,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
 import { LEASELENS_DISCLAIMER } from '@/lib/lease/disclaimer';
+import { LEASELENS_TRUST_METRICS } from '@/lib/lease/trust-metrics';
 import { EASE_OUT_SOFT, SPRING_SNAPPY } from '@/lib/motion/presets';
 
 interface SuggestedPrompt {
@@ -63,11 +64,6 @@ function buildSuggestedPrompts(_workspaceName: string): SuggestedPrompt[] {
 // Open Design reference, which uses Arabic numerals throughout
 // ("01 / OD-26", "01 DETECT 02 DISCOVER ..."). Reads as editorial
 // section numbering, not as ordinal priority.
-const TRUST_METRICS = [
-  { numeral: '01', text: '15+ clauses checked' },
-  { numeral: '02', text: 'Every flag cites NJSA' },
-  { numeral: '03', text: 'Plain-English explanations' },
-] as const;
 
 interface ChatEmptyStateProps {
   workspaceName: string;
@@ -265,7 +261,7 @@ export function ChatEmptyState({
         data-testid="chat-empty-trust-metrics"
         className="mt-10 flex w-full max-w-lg flex-wrap items-baseline justify-center gap-x-3 gap-y-1.5 text-[11px] text-fg-subtle"
       >
-        {TRUST_METRICS.map((metric, index) => (
+        {LEASELENS_TRUST_METRICS.map((metric, index) => (
           <span
             key={metric.text}
             className="inline-flex items-baseline gap-3 whitespace-nowrap"
@@ -282,7 +278,7 @@ export function ChatEmptyState({
               </span>
               <span>{metric.text}</span>
             </span>
-            {index < TRUST_METRICS.length - 1 ? (
+            {index < LEASELENS_TRUST_METRICS.length - 1 ? (
               <span aria-hidden="true" className="text-fg-subtle/50">
                 ·
               </span>

@@ -15,6 +15,11 @@
  * Writes happen OUTSIDE the mutating-tool transaction so even a failed
  * mutation produces a tool_calls row recording the attempt. The
  * `status` column distinguishes success/error.
+ *
+ * Sprint 44B — `error_message` now holds a SAFE error NAME (e.g. 'SyntaxError'),
+ * never the raw message (a JSON.parse failure on a draft-email body / clause
+ * text would embed tenant PII). `error_code` is the enumerated failure code.
+ * See `safe-tool-error.ts`.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -30,7 +35,10 @@ export interface ToolCallInput {
   conversation_id: string | null;
   workspace_id: string;
   status: 'success' | 'error';
+  /** Sprint 44B — a SAFE error NAME (never the raw message). */
   error_message: string | null;
+  /** Sprint 44B — enumerated failure code (see toSafeToolError). */
+  error_code: string | null;
   latency_ms: number;
 }
 
@@ -42,11 +50,11 @@ export function writeToolCall(
   db.prepare(
     `INSERT INTO tool_calls (
        id, tool_name, tool_use_id, actor_user_id, actor_role,
-       conversation_id, workspace_id, status, error_message,
+       conversation_id, workspace_id, status, error_message, error_code,
        latency_ms, created_at
      ) VALUES (
        @id, @tool_name, @tool_use_id, @actor_user_id, @actor_role,
-       @conversation_id, @workspace_id, @status, @error_message,
+       @conversation_id, @workspace_id, @status, @error_message, @error_code,
        @latency_ms, @created_at
      )`,
   ).run({
@@ -59,6 +67,7 @@ export function writeToolCall(
     workspace_id: input.workspace_id,
     status: input.status,
     error_message: input.error_message,
+    error_code: input.error_code,
     latency_ms: input.latency_ms,
     created_at: Math.floor(Date.now() / 1000),
   });

@@ -1,11 +1,11 @@
-# Agent Guidelines — ContentOps
+# Agent Guidelines — LeaseLens
 
 **Status:** Active
-**Companion to:** [`agent-charter.md`](agent-charter.md) (v1.8+)
+**Companion to:** [`agent-charter.md`](agent-charter.md) (v1.13+), [`CLAUDE.md`](../../CLAUDE.md)
 
-This file is the *how to write code* doc. The charter is the *how to run the project* doc. When they conflict, the charter wins.
+This file is the *how to write code* doc. The charter is the *how to run the project* doc. When they conflict, the charter wins. For sprint-by-sprint operating rules (FAB drawer, provider tree, parser-first invariants), `CLAUDE.md` is the live source.
 
-Stack-specific rules are grouped first, then ContentOps-specific patterns, then style/discipline. Every rule below is grounded in code that exists in the repo today — not aspirational. If a rule cites a pattern, the same pattern should already be present in [src/](../../src/).
+Stack-specific rules are grouped first, then LeaseLens-specific patterns, then style/discipline. Every rule below is grounded in code that exists in the repo today — not aspirational. If a rule cites a pattern, the same pattern should already be present in [src/](../../src/).
 
 ---
 
@@ -29,7 +29,7 @@ Stack-specific rules are grouped first, then ContentOps-specific patterns, then 
 
 - **Tool-use loop is bounded** — [`src/app/api/chat/route.ts`](../../src/app/api/chat/route.ts) caps at `MAX_TOOL_ITERATIONS` iterations. Each iteration: non-streaming `messages.create` to get `tool_use` blocks → execute via `toolRegistry.execute` → append `tool_result` → re-call. Final answer streams via `messages.stream` + `.on('text')`. The cap was 3 through Sprint 12; Sprint 13 raised it to 15 to support per-clause grading flows where a 13-clause lease scan needs roughly `1 + N` tool calls in one turn (`extract_clauses` plus one `grade_clause_severity` per clause). The real cost guard is the daily spend ceiling (charter §11b), not the per-turn cap. Don't tighten the cap back below 15 without a real reason; runaway-loop protection is already covered by `recordSpend` + the ceiling.
 - **System prompt is parameterized on `{ role, workspace, context }`** — see [`src/lib/chat/system-prompt.ts`](../../src/lib/chat/system-prompt.ts). Never hard-code brand-specific copy in the prompt; pass `workspace.name` / `workspace.description` through.
-- **Model is pinned via `env.CONTENTOPS_ANTHROPIC_MODEL`.** Don't hardcode `'claude-haiku-4-5'` in code; read from env. The pin is a demo-mode cost guardrail.
+- **Model is pinned via `env.LEASELENS_ANTHROPIC_MODEL`.** Don't hardcode `'claude-haiku-4-5'` in code; read from env. The pin is a demo-mode cost guardrail.
 - **Tool results that come from a *mutating* tool carry `audit_id` in the result envelope.** Don't strip it — the UI uses it to enable the Undo button and `POST /api/audit/{id}/rollback`.
 
 ### better-sqlite3 12
@@ -63,18 +63,18 @@ Stack-specific rules are grouped first, then ContentOps-specific patterns, then 
 ### Vitest 4
 
 - **Tests next to source.** [`src/lib/db/schema.ts`](../../src/lib/db/schema.ts) ↔ [`src/lib/db/schema.test.ts`](../../src/lib/db/schema.test.ts). Integration tests append `.integration.test.ts` so the file name signals scope.
-- **In-memory SQLite for unit tests** via [`src/lib/test/`](../../src/lib/test/) helpers. Don't write tests against `./data/contentops.db` — tests must be hermetic.
-- **No real Anthropic calls.** Use [`src/lib/anthropic/e2e-mock.ts`](../../src/lib/anthropic/e2e-mock.ts) gated by `CONTENTOPS_E2E_MOCK=1`. Real-API tests are reserved for the operator's manual smoke flow.
+- **In-memory SQLite for unit tests** via [`src/lib/test/`](../../src/lib/test/) helpers. Don't write tests against `./data/leaselens.db` — tests must be hermetic.
+- **No real Anthropic calls.** Use [`src/lib/anthropic/e2e-mock.ts`](../../src/lib/anthropic/e2e-mock.ts) gated by `LEASELENS_E2E_MOCK=1`. Real-API tests are reserved for the operator's manual smoke flow.
 - **Use `Promise` and proper async assertions.** Don't `setTimeout` or `Process.sleep` to wait for state — restructure the test to await the actual signal.
 
 ### Playwright
 
-- **`tests/e2e/*.spec.ts`** with `webServer.env.CONTENTOPS_E2E_MOCK=1` — see [`playwright.config.ts`](../../playwright.config.ts). Single worker, no parallelism, 120s server-startup timeout. Don't increase parallelism without a real reason; the dev server isn't built for it.
+- **`tests/e2e/*.spec.ts`** with `webServer.env.LEASELENS_E2E_MOCK=1` — see [`playwright.config.ts`](../../playwright.config.ts). Single worker, no parallelism, 120s server-startup timeout. Don't increase parallelism without a real reason; the dev server isn't built for it.
 
 ### MCP server
 
-- **Same code path as the chat route.** [`mcp/contentops-server.ts`](../../mcp/contentops-server.ts) wraps `toolRegistry.execute()` — never re-implement tool logic in the MCP wrapper.
-- **Hardcoded sample workspace + Admin role.** Multi-workspace MCP is post-Sprint-13.
+- **Same code path as the chat route.** [`mcp/leaselens-server.ts`](../../mcp/leaselens-server.ts) wraps `toolRegistry.execute()` — never re-implement tool logic in the MCP wrapper.
+- **Hardcoded sample workspace + Admin role.** Multi-workspace MCP is on the backlog.
 
 ### Biome 2
 
@@ -83,7 +83,7 @@ Stack-specific rules are grouped first, then ContentOps-specific patterns, then 
 
 ---
 
-## 2. ContentOps-specific patterns
+## 2. LeaseLens-specific patterns
 
 ### Workspace scoping is non-negotiable
 
@@ -91,11 +91,14 @@ Every per-data table query MUST filter by `workspace_id`:
 
 | Table | Filter required |
 |---|---|
-| `documents`, `chunks`, `audit_log`, `content_calendar`, `approvals`, `conversations` | `WHERE workspace_id = ?` (or `= @workspace_id`) |
+| `documents`, `chunks`, `audit_log`, `conversations`, `leases`, `clauses` | `WHERE workspace_id = ?` (or `= @workspace_id`) |
+| `negotiation_emails` | scoped via `clauses.workspace_id` |
 | `messages` | inherits via `conversation_id`'s workspace |
 | `users`, `workspaces`, `spend_log`, `rate_limit` | global, no workspace filter |
 
-The composite UNIQUE on `documents (slug, workspace_id)` means slug `"brand-identity"` can exist in many workspaces. Don't write code that assumes slug is globally unique.
+`content_calendar` and `approvals` are ContentOps-era legacy tables — schema-resident but written by no tool today. Don't query them from new code.
+
+The composite UNIQUE on `documents (slug, workspace_id)` means slug `"nj-tenant-truth-in-renting"` can exist in many workspaces. Don't write code that assumes slug is globally unique.
 
 ### Chunk IDs are namespaced by documentId
 
@@ -105,7 +108,10 @@ Format: `${documentId}#${level}:${index}` — see [`src/lib/rag/chunk-document.t
 
 Mutating tools return `MutationOutcome { result, compensatingActionPayload }` ([`src/lib/tools/domain.ts`](../../src/lib/tools/domain.ts)). The `compensatingActionPayload` is **plain JSON** — no callbacks, no closures. The descriptor's `compensatingAction` function is a pure function from `(payload, context, db) → void` that runs on rollback.
 
-Examples:
+Live example (Sprint 13 onwards):
+- `draft_negotiation_email` → payload `{ email_id }` → action `DELETE FROM negotiation_emails WHERE id = ?`. The Anthropic call lives in `prepare` (outside the transaction); the INSERT + audit-row insert run together inside the sync `db.transaction(...)`.
+
+Historical (pre-Sprint-13, no longer in the registry but the compensating-action handlers remain so old audit rows can still roll back):
 - `schedule_content_item` → payload `{ schedule_id }` → action `DELETE FROM content_calendar WHERE id = ?`
 - `approve_draft` → payload `{ approval_id }` → action `DELETE FROM approvals WHERE id = ?`
 
@@ -135,34 +141,28 @@ Calling code MUST handle the `null` case by falling back to the sample workspace
 ### Demo-mode guardrails are server-side
 
 - **Rate limit:** 10 requests/hour per session, [`src/lib/db/rate-limit.ts`](../../src/lib/db/rate-limit.ts).
-- **Spend ceiling:** `CONTENTOPS_DAILY_SPEND_CEILING_USD` (default $2/day), [`src/lib/db/spend.ts`](../../src/lib/db/spend.ts).
-- **Model pin:** `CONTENTOPS_ANTHROPIC_MODEL`, never user-selectable.
+- **Spend ceiling:** `LEASELENS_DAILY_SPEND_CEILING_USD` (default $2/day), [`src/lib/db/spend.ts`](../../src/lib/db/spend.ts).
+- **Model pin:** `LEASELENS_ANTHROPIC_MODEL`, never user-selectable.
 - **Anonymous role:** No anonymous role today; if added, it should not have access to mutating tools.
 
-These are enforced **only when `CONTENTOPS_DEMO_MODE=true`**. Local dev runs without them. Don't disable in demo mode "temporarily" — they're the gate that keeps a public deploy from burning your API key.
+These are enforced **only when `LEASELENS_DEMO_MODE=true`**. Local dev runs without them. Don't disable in demo mode "temporarily" — they're the gate that keeps a public deploy from burning your API key.
 
 ### Workspaces TTL is lazy
 
 `purgeExpiredWorkspaces()` ([`src/lib/workspaces/cleanup.ts`](../../src/lib/workspaces/cleanup.ts)) runs only on `POST /api/workspaces`. There is no cron. The sample workspace (`is_sample = 1`) is excluded by the WHERE clause. **Don't add a background job** unless a sprint specs it — eventual consistency is a feature.
 
-The cleanup helper deletes children before parents (chunks → audit_log → content_calendar → approvals → documents → messages → conversations → workspaces). With FK enforcement on, this order matters. Don't rearrange.
+The cleanup helper deletes children before parents (negotiation_emails → clauses → leases → chunks → audit_log → content_calendar → approvals → documents → messages → conversations → workspaces). With FK enforcement on, this order matters. Don't rearrange.
 
-### Three-pane shell scroll containment (Sprint 13 / Phase 10.5)
+### Scroll containment (Sprint 13 / Phase 10.5 → Sprint 26b refresh)
 
-The LeaseLens home is a fixed-height grid: each pane scrolls independently inside the viewport, and the page itself never scrolls. The scroll-containment chain is fragile — every parent above a `overflow-y-auto` leaf must declare `min-h-0` (or `flex-1 min-h-0`), and the shell root must be a **grid**, not `flex-wrap`. With `flex-wrap` on a single-row container, default `align-content: normal` sizes each row to *content* height, which silently defeats every `min-h-0` below it.
+Pre-Sprint-26, the LeaseLens home was a fixed-height three-pane grid. Sprint 26b replaced it with `ParserResultsShell` (PDF on the left, results stack on the right, FAB drawer bottom-right). Sprint 28.13 then dropped the page-must-not-scroll invariant — the workspace is now a window-scrolled document with a sticky header.
 
-Canonical chain (mirrors `docs/_references/ai_mcp_chat_ordo`):
+The scroll-containment principles still apply at the pane level inside `ParserResultsShell`'s PDF column and inside the FAB drawer's transcript: every parent above an `overflow-y-auto` leaf must declare `min-h-0` (or `flex-1 min-h-0`); a row container should be a **grid**, not `flex-wrap`. With `flex-wrap` on a single-row container, default `align-content: normal` sizes each row to *content* height, which silently defeats every `min-h-0` below it.
 
-```
-<main flex h-dvh flex-col overflow-hidden>
-  <header shrink-0>
-  <div grid min-h-0 flex-1 grid-cols-[20rem_minmax(0,1fr)_20rem] overflow-hidden>
-    <section flex min-h-0 flex-col overflow-hidden>
-      <header shrink-0>
-      <div flex flex-1 min-h-0 overflow-y-auto overscroll-contain>  ← scrolls
-```
+Two pitfalls captured in past bugs (preserve them):
 
-`overscroll-contain` on each leaf prevents one pane from rubber-band-scrolling its neighbor. [`LeaseLensWorkspaceShell.test.tsx`](../../src/components/lease/LeaseLensWorkspaceShell.test.tsx) pins the grid + no-flex-wrap decision.
+1. **Don't put `pb-*` on a scroll container** for FAB clearance — it inflates `scrollHeight` permanently and creates an empty scroll area below the last card. Use a `shrink-0 h-28` sentinel as the last child instead.
+2. **`overscroll-contain` on each leaf** prevents one pane from rubber-band-scrolling its neighbor.
 
 ### Browser-only modules need polyfills + a `next/dynamic({ssr:false})` boundary (Sprint 13 / Phase 10 hotfix series)
 
@@ -219,7 +219,7 @@ const id = `${documentId}#${level}:${index}`;
 - **Premature abstraction.** Three similar lines beats a generic helper that needs a config object.
 - **Backwards-compat shims for hypothetical futures.** No `// @deprecated, kept for compat` placeholders.
 - **Silent defaults on required state.** If a component needs `workspaceName`, the type should make absence a compile error.
-- **Mutation without an audit trail.** If a tool changes `documents`, `content_calendar`, or `approvals` and doesn't go through the registry, the change isn't visible in the cockpit. Always go through the registry.
+- **Mutation without an audit trail.** If a tool changes `negotiation_emails`, `clauses`, `leases`, `documents`, or any other workspace-scoped table and doesn't go through the registry, the change isn't visible in the cockpit. Always go through the registry.
 - **Cross-workspace queries.** Even if the calling code "knows" the workspace, the SQL must filter. Defense in depth.
 
 ### Commit discipline

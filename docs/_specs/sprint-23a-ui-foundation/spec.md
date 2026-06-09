@@ -1,6 +1,8 @@
 # Sprint 23a — UI Foundation (Shell Boundaries, Token Closure, Motion Audit)
 
-**Status:** Draft, awaiting human QA per charter §7 step 1.
+> **STATUS: SHELVED** — Designed on the `feature/ui` branch and never merged. The parser-first pivot in Sprint 26 (`WorkspaceRouterShell` + `ParserResultsShell` + `AssistantFab`) superseded the UI Foundation direction. Kept here as historical design exploration; do not implement.
+
+**Status:** Shelved (not merged; superseded by Sprint 26).
 **Date:** 2026-05-13.
 **Branch:** `feature/ui`.
 **Parent handoff:** [handoff.md](../../../handoff.md) §3, §8, §21.

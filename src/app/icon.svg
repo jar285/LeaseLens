@@ -1,0 +1,16 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="LeaseLens">
+  <!-- Sprint 42 — browser favicon. The LeaseLensMark glyph (document + scan
+       magnifier) as a white lockup on the brand accent-600 (#cc6347) rounded
+       square, mirroring the masthead brand box so the tab icon matches the
+       header. Strokes are slightly bolder than the in-app mark so it stays
+       legible at 16px. -->
+  <rect width="32" height="32" rx="7" fill="#CC6347" />
+  <g transform="translate(3.5 4)" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="4" y="3" width="13" height="18" rx="1.5" />
+    <line x1="7" y1="8" x2="14" y2="8" stroke-width="1.8" />
+    <line x1="7" y1="11.5" x2="14" y2="11.5" stroke-width="1.8" />
+    <line x1="7" y1="15" x2="11.5" y2="15" stroke-width="1.8" />
+    <circle cx="17" cy="17" r="3" />
+    <line x1="19.2" y1="19.2" x2="21" y2="21" stroke-width="2.6" />
+  </g>
+</svg>

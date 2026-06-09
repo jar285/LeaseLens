@@ -1,6 +1,6 @@
 # Sprint 28 — Bug Triage (Bug 1 Follow-Through · Window-Scroll Pivot · Sticky PDF · z-index Tokens)
 
-**Status:** Implemented locally on `feature/cockpit`, awaiting commit.
+**Status:** Shipped on main (Sprint 28, 2026-05-24 → 2026-05-26).
 **Date range:** 2026-05-24 → 2026-05-26.
 **Branch:** `feature/cockpit` (continuation from Sprint 27).
 **Parent plan:** [`~/.claude/plans/leaselens-bug-triage-synchronous-hoare.md`](../../../).

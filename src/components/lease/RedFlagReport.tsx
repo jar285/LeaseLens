@@ -17,10 +17,11 @@
 'use client';
 
 import {
+  BookOpen,
   ChevronDown,
   ExternalLink,
+  Languages,
   Mail,
-  MessageSquare,
   Paperclip,
 } from 'lucide-react';
 import {
@@ -48,6 +49,10 @@ import { RedFlagSkeletonCard } from './RedFlagSkeletonCard';
 import { RedFlagsLoadingState } from './RedFlagsLoadingState';
 import { SeverityBadge } from './SeverityBadge';
 import { useScanLifecycle } from './scan-lifecycle';
+import {
+  shouldEmphasizeVerdict,
+  VERDICT_SETTLE_TRANSITION,
+} from './verdict-emphasis';
 
 // Sprint 26c — prompt templates for the FAB drawer. Centralized so the
 // copy stays consistent and a single test pins the wording.
@@ -62,6 +67,18 @@ export function draftEmailPromptFor(g: GradingResult): string {
   return `Draft a polite negotiation email to the landlord about ${label}. Cite ${g.statute_citation} and propose a specific edit.`;
 }
 
+// Sprint 35 — plain-English explanation, the tenant-facing sibling of
+// explainPromptFor (which is a statute-verbatim walkthrough). The grounding
+// contract is load-bearing: keep the verbatim ${statute_citation} and instruct
+// the model to simplify the LANGUAGE, never to change or soften what the law
+// requires. A sibling test pins this wording so the source-grounding can't drift.
+export function plainEnglishPromptFor(g: GradingResult): string {
+  const label = clauseLabel(g);
+  const severityWord = SEVERITY_LABEL[g.severity].toLowerCase();
+  return `Explain the ${severityWord} concern with ${label} in plain English, without legal jargon, as if to a tenant with no legal background. Stay grounded in ${g.statute_citation}: do not change or soften what the law actually requires — just make the meaning easy to understand. Tell me in everyday terms what this means for me as a tenant and what I can do about it.`;
+}
+
+import { computeScanVerdict } from '@/lib/lease/scan-verdict';
 import { partitionByLatestExtract, useScanProgress } from './use-scan-progress';
 
 // Phase 10.8 — how long the page-level highlight + active-card ring
@@ -132,6 +149,49 @@ export function RedFlagReport(): React.JSX.Element {
     for (const g of gradings) c[g.severity] += 1;
     return c;
   }, [gradings]);
+
+  // Sprint 33.B — synthesized verdict headline + ungraded count.
+  //
+  // The headline answers "is this lease bad and what should I worry
+  // about first" — a question the count strip can't. Computed
+  // deterministically by computeScanVerdict from the same gradings
+  // the cards render, so the headline can never disagree with the
+  // cards (unlike the model-authored chat table this replaces).
+  //
+  // The ungraded count surfaces clauses whose grade_clause_severity
+  // tool errored (e.g. citation grounding rejected). Without this,
+  // the count strip silently undersells the scan ("9 OK" hides "4
+  // clauses we couldn't speak to"). [Jakob Nielsen visibility +
+  // Don Norman recovery: every absence the user might notice gets
+  // a label and a path to learn more.]
+  const ungradedCount = useMemo(() => {
+    const activeLeaseId = activeLease?.lease_id ?? null;
+    const { extract } = partitionByLatestExtract(toolEvents, activeLeaseId);
+    const allowedClauseIds = extract
+      ? new Set(extract.clauses.map((c) => c.clause_id))
+      : null;
+    const seen = new Set<string>();
+    let count = 0;
+    for (const event of toolEvents) {
+      if (event.tool_name !== 'grade_clause_severity') continue;
+      if (isGradingResult(event.result)) continue;
+      const inputClauseId =
+        typeof (event.input as { clause_id?: unknown })?.clause_id === 'string'
+          ? ((event.input as { clause_id: string }).clause_id as string)
+          : null;
+      if (!inputClauseId) continue;
+      if (allowedClauseIds && !allowedClauseIds.has(inputClauseId)) continue;
+      if (seen.has(inputClauseId)) continue;
+      seen.add(inputClauseId);
+      count += 1;
+    }
+    return count;
+  }, [toolEvents, activeLease?.lease_id]);
+
+  const verdict = useMemo(
+    () => computeScanVerdict(gradings, ungradedCount),
+    [gradings, ungradedCount],
+  );
 
   // Sprint 15 Phase 8 — pulse the summary row once each time the count
   // grows. previousCountRef sees the last-rendered length; if the new
@@ -317,6 +377,16 @@ export function RedFlagReport(): React.JSX.Element {
     </>
   );
 
+  // Sprint 43.6 — emphasize the verdict once review becomes ready (see
+  // verdict-emphasis.ts). The headline is keyed on this flag so it settles a
+  // single time at the review-ready transition, not on every grading tick.
+  const isReviewReady = lifecycle.stage === 'review_ready';
+  const emphasizeVerdict = shouldEmphasizeVerdict(
+    isReviewReady,
+    mounted,
+    reduced,
+  );
+
   return (
     // Sprint 23g — relative positioning is required by AnimatePresence
     // `mode="popLayout"` so exiting cards drop out of layout without
@@ -329,6 +399,29 @@ export function RedFlagReport(): React.JSX.Element {
         className="relative flex flex-col gap-3"
         data-testid="red-flag-report"
       >
+        {/* Sprint 33.B — synthesized verdict headline sits above the count
+            strip. Rendered ONLY when at least one valid grading exists
+            (verdict.tier !== 'idle'), so the empty state stays clean. */}
+        {verdict.tier !== 'idle' ? (
+          <motion.p
+            // Sprint 43.6 — one-shot sober settle when review becomes ready: the
+            // key flips at the review-ready transition so the headline remounts
+            // and animates ONCE. Static during grading and under reduced motion
+            // (initial={false}).
+            key={emphasizeVerdict ? 'verdict-ready' : 'verdict-pending'}
+            data-testid="red-flag-verdict"
+            // Sprint 35.1 — the verdict is the load-bearing "is this lease bad?"
+            // answer, so it earns the brand's editorial-headline face (Source
+            // Serif 4 bold, tracking-tight) per MASTER.md — not body sans. Text
+            // is balanced so the em-dash clause doesn't orphan on wrap.
+            className="text-balance font-serif text-lg font-bold tracking-tight text-fg-default leading-snug"
+            initial={emphasizeVerdict ? { opacity: 0.6, y: 2 } : false}
+            animate={{ opacity: 1, y: 0 }}
+            transition={VERDICT_SETTLE_TRANSITION}
+          >
+            {verdict.headline}
+          </motion.p>
+        ) : null}
         {/* Summary row — at-a-glance severity counts. */}
         {animate ? (
           <motion.div
@@ -418,7 +511,14 @@ export function RedFlagReport(): React.JSX.Element {
                   onClick={toggle}
                   aria-expanded={isExpanded}
                   data-testid="red-flag-card-toggle"
-                  className="flex w-full items-start gap-2 py-3 pr-3 pl-4 text-left transition-colors hover:bg-surface-muted/60 focus-visible:bg-surface-muted/60 focus-visible:outline-none dark:hover:bg-neutral-800/40"
+                  // Sprint 43.5 — sober CSS tap-press (no bounce — tone invariant
+                  // for legal-risk content) + a visible INSET focus ring. A
+                  // ring-offset ring would be clipped by the card's
+                  // overflow-hidden, but ring-inset survives (same idiom as the
+                  // ActiveRing overlay), replacing the too-faint focus
+                  // background-change. reduced-motion disables the transition +
+                  // the scale.
+                  className="flex w-full items-start gap-2 py-3 pr-3 pl-4 text-left transition-[background-color,transform] hover:bg-surface-muted/60 active:scale-[0.99] focus-visible:bg-surface-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 motion-reduce:transition-none motion-reduce:active:scale-100 dark:hover:bg-neutral-800/40 dark:focus-visible:ring-accent-400/50"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
@@ -559,6 +659,14 @@ export function RedFlagReport(): React.JSX.Element {
                           <CardActions
                             grading={g}
                             onJumpToPage={jumpToClausePage}
+                            onExplainPlain={() =>
+                              fab.openWith({
+                                initialPrompt: plainEnglishPromptFor(g),
+                                clauseId: g.clause_id,
+                                severity: g.severity,
+                                statuteCitation: g.statute_citation,
+                              })
+                            }
                             onExplain={() =>
                               fab.openWith({
                                 initialPrompt: explainPromptFor(g),
@@ -595,6 +703,14 @@ export function RedFlagReport(): React.JSX.Element {
                     <CardActions
                       grading={g}
                       onJumpToPage={jumpToClausePage}
+                      onExplainPlain={() =>
+                        fab.openWith({
+                          initialPrompt: plainEnglishPromptFor(g),
+                          clauseId: g.clause_id,
+                          severity: g.severity,
+                          statuteCitation: g.statute_citation,
+                        })
+                      }
                       onExplain={() =>
                         fab.openWith({
                           initialPrompt: explainPromptFor(g),
@@ -679,6 +795,37 @@ export function RedFlagReport(): React.JSX.Element {
               <RedFlagSkeletonCard key={`pending-${i}`} delay={i * 0.08} />
             ))
           : null}
+        {/* Sprint 33.B — errored-clause hand-off. Renders ONLY when at
+            least one grade_clause_severity event came back as an error
+            envelope (e.g. citation grounding rejected). Clicking opens
+            the FAB drawer with a pre-filled question; this keeps the
+            chat as the consistent "ask why" surface for the explanation
+            without forcing the user to type it themselves. */}
+        {ungradedCount > 0 ? (
+          <button
+            type="button"
+            data-testid="red-flag-ungraded-line"
+            onClick={() =>
+              fab.openWith({
+                initialPrompt:
+                  "Why couldn't these clauses be graded? Walk me through which ones and what went wrong.",
+              })
+            }
+            className="flex items-center gap-1.5 self-start rounded-md py-1 text-[12px] text-fg-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
+          >
+            <span>
+              {ungradedCount === 1
+                ? "1 clause couldn't be graded"
+                : `${ungradedCount} clauses couldn't be graded`}
+            </span>
+            <span aria-hidden="true" className="text-fg-subtle">
+              ·
+            </span>
+            <span className="underline-offset-2 hover:underline">
+              view in chat
+            </span>
+          </button>
+        ) : null}
       </div>
     </LayoutGroup>
   );
@@ -700,14 +847,19 @@ export function RedFlagReport(): React.JSX.Element {
  * activeClauseId; once cleared, AnimatePresence runs the exit transition.
  */
 /*
- * Sprint 26c — expanded-card action row.
+ * Sprint 26c / 35 — expanded-card action row.
  *
- * Renders three buttons under the recommended-action paragraph:
- *   1. View on page N — preserved from prior sprints, calls scrollToPage
- *      on the PDF viewer ref.
- *   2. Explain — opens the FAB drawer with a clause-aware prompt
- *      explaining the severity + statute citation.
- *   3. Draft email — opens the FAB drawer with a draft-email prompt.
+ * Renders four buttons under the recommended-action paragraph, ordered by the
+ * tenant's decision flow (orient -> understand simply -> go to source -> act):
+ *   1. View on page N — preserved from prior sprints, calls scrollToPage.
+ *   2. Plain English (Sprint 35) — opens the FAB drawer with a jargon-free,
+ *      tenant-facing prompt (plainEnglishPromptFor). Parser-first / jargon-last,
+ *      so it sits first among the explanation pills.
+ *   3. What the law says — opens the FAB drawer with the statute-verbatim
+ *      walkthrough (explainPromptFor). Sprint 35 relabeled this from "Explain"
+ *      (+ BookOpen icon) to disambiguate it from Plain English; its testid
+ *      (red-flag-explain) + prompt are unchanged so unit + e2e selectors hold.
+ *   4. Draft email — opens the FAB drawer with a draft-email prompt.
  *
  * All buttons stopPropagation so they don't also collapse the card
  * (the parent toggle button covers the header + summary row, and the
@@ -716,11 +868,13 @@ export function RedFlagReport(): React.JSX.Element {
 function CardActions({
   grading,
   onJumpToPage,
+  onExplainPlain,
   onExplain,
   onDraftEmail,
 }: {
   grading: GradingResult;
   onJumpToPage: (g: GradingResult) => void;
+  onExplainPlain: () => void;
   onExplain: () => void;
   onDraftEmail: () => void;
 }): React.JSX.Element {
@@ -745,6 +899,25 @@ function CardActions({
           View on page {grading.page_number}
         </button>
       ) : null}
+      {/* Sprint 35 — plain-English first (parser-first / jargon-last). Distinct
+          Languages glyph + label so it never reads as a twin of the statute
+          pill below. */}
+      <button
+        type="button"
+        data-testid="red-flag-explain-plain"
+        onClick={(e) => {
+          e.stopPropagation();
+          onExplainPlain();
+        }}
+        className={pillClass}
+      >
+        <Languages className="h-3 w-3" aria-hidden="true" />
+        Plain English
+      </button>
+      {/* Sprint 35 — the original "Explain" pill is a statute-verbatim
+          walkthrough, so it's relabeled "What the law says" with a BookOpen
+          (source/statute) glyph to disambiguate from Plain English. Testid +
+          prompt are unchanged so unit + e2e selectors stay green. */}
       <button
         type="button"
         data-testid="red-flag-explain"
@@ -754,8 +927,8 @@ function CardActions({
         }}
         className={pillClass}
       >
-        <MessageSquare className="h-3 w-3" aria-hidden="true" />
-        Explain
+        <BookOpen className="h-3 w-3" aria-hidden="true" />
+        What the law says
       </button>
       <button
         type="button"

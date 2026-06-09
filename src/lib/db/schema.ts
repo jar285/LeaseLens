@@ -121,7 +121,11 @@ export const SCHEMA = `
     conversation_id TEXT,
     workspace_id    TEXT NOT NULL,
     status          TEXT NOT NULL CHECK(status IN ('success', 'error')) DEFAULT 'success',
+    -- Sprint 44B: error_message holds a SAFE error NAME (e.g. 'SyntaxError'),
+    -- never the raw message (which can embed lease/draft PII); error_code is the
+    -- enumerated failure code (parse_error | tool_error | access_denied | ...).
     error_message   TEXT,
+    error_code      TEXT,
     latency_ms      INTEGER,
     created_at      INTEGER NOT NULL
   );
@@ -175,6 +179,15 @@ export const SCHEMA = `
     -- validation succeeds. NULL until the clause has been graded.
     -- Source of truth for the cockpit SeverityDistribution panel.
     severity      TEXT CHECK(severity IN ('high', 'medium', 'low', 'ok')),
+    -- Sprint 45 — the rest of the grading persisted alongside severity so the
+    -- chat can read findings via get_lease_findings WITHOUT re-running the scan
+    -- (reasoning/citation otherwise live only in trimmed conversation history).
+    -- All NULL until graded; graded_at is the "has been graded" sentinel.
+    statute_citation   TEXT,
+    chunk_id           TEXT,
+    reasoning          TEXT,
+    recommended_action TEXT,
+    graded_at          INTEGER,
     created_at    INTEGER NOT NULL
   );
 

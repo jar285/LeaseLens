@@ -12,6 +12,34 @@ export interface ChatTranscriptProps {
   isStreaming?: boolean;
   onSelectPrompt?: (prompt: string) => void;
   workspaceName: string;
+  /**
+   * Sprint 29.2 — selects the empty-state surface.
+   *
+   * `'hero'` (default): the full `ChatEmptyState` landing-page hero —
+   * "Find what to negotiate, before you sign" plus prompt cards. The
+   * right shape for any non-FAB consumer where the chat IS the page
+   * (e.g. legacy `LeaseLensWorkspaceShell`).
+   *
+   * `'compact'`: a small in-drawer header — heading + one-line subhead
+   * only. Used inside the FAB drawer so the assistant stops competing
+   * with the parser surface for visual weight (Dieter Rams: less but
+   * better; Don Norman: secondary tools should look secondary).
+   */
+  emptyStateVariant?: 'hero' | 'compact';
+  /**
+   * Sprint 29.4 — override for the compact-variant subhead. Lets the
+   * FAB pass job-aware copy ("No lease attached yet…", "Scanning your
+   * lease…", "Ask about this lease…") that mirrors the chip set
+   * shown below the composer. Ignored when `emptyStateVariant !==
+   * 'compact'`. Default is a generic fallback.
+   */
+  emptyStateSubhead?: string;
+  /**
+   * Sprint 37.3 — forwarded to each assistant `ChatMessage` so a long
+   * answer can offer "Read in full view" (→ the FAB's expanded-reading
+   * mode). Undefined for non-FAB consumers / when already expanded.
+   */
+  onRequestExpand?: () => void;
 }
 
 /*
@@ -83,29 +111,39 @@ export function ChatTranscript({
   isStreaming = false,
   onSelectPrompt,
   workspaceName,
+  emptyStateVariant = 'hero',
+  emptyStateSubhead = 'Ask about your lease, clauses, red flags, or citations.',
+  onRequestExpand,
 }: ChatTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 
   const { intro, summary } = useScanNarrative();
   const { activeLease } = useLeaseParser();
-  // S20.7 + S20.8 — when the model has already produced a substantive
-  // closing assistant message, the synthetic summary is at best
-  // redundant and at worst contradicts the model (e.g. model writes a
-  // detailed "Red-Flag Scan Complete" + findings, synthetic appends
-  // "I had trouble completing the scan"). Defer to the model's voice
-  // when it exists; the synthetic remains as the safety net for the
-  // out-of-tokens case where the model produces no closing text.
+  // S20.8 — hold the synthetic back WHILE the assistant is streaming so
+  // it doesn't flicker in between "scan events finished" and the model's
+  // closing text arriving (flash-and-swap).
   //
-  // S20.8 — additionally hold the synthetic back WHILE the assistant
-  // is streaming. Without this guard, the synthetic flickers in for a
-  // moment between "scan events finished" and "assistant text reaches
-  // 80 chars", producing a flash-and-swap. The synthetic only renders
-  // after the stream finishes, by which point we know whether the
-  // model wrote a substantive reply or fell silent.
+  // Sprint 33.A.2 — the complete/partial summary is now a MINIMAL,
+  // deterministic receipt ("Scan complete. N findings on the right…").
+  // Because it points to the right pane instead of reprinting a tally,
+  // it can't contradict the cards, so it is the single source of truth
+  // and renders regardless of the model's ack length. This retires the
+  // Sprint 20 SUBSTANTIVE_REPLY_MIN_CHARS heuristic for those states —
+  // it was the drift vector (a short post-Sprint-33.A ack < 80 chars let
+  // the OLD verbose tally re-appear). The 'scan-fatal' copy ("I had
+  // trouble completing the scan") CAN still contradict a model that
+  // wrongly claims success, so it keeps the S20.7 guard: defer to a
+  // substantive model close.
   const effectiveSummary = useMemo(() => {
     if (isStreaming) return null;
-    if (modelProducedClosingReply(messages)) return null;
+    if (!summary) return null;
+    if (
+      summary.source === 'scan-fatal' &&
+      modelProducedClosingReply(messages)
+    ) {
+      return null;
+    }
     return summary;
   }, [messages, summary, isStreaming]);
   const merged = useMemo(
@@ -167,10 +205,32 @@ export function ChatTranscript({
         data-testid="chat-transcript-scroll"
         className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain"
       >
-        <ChatEmptyState
-          onSelectPrompt={onSelectPrompt}
-          workspaceName={workspaceName}
-        />
+        {emptyStateVariant === 'compact' ? (
+          // Sprint 29.2 — compact in-drawer header. No prompt cards
+          // (the FAB's own `suggestedPrompts` chip row renders below
+          // the composer for that role).
+          // Sprint 29.4 — subhead is prop-driven so the FAB can swap
+          // copy per parser stage (no-lease / mid-scan / scan-complete).
+          // Sprint 37.1 — dropped the "LeaseLens Assistant" heading: the
+          // drawer chrome header already shows the wordmark, so a second
+          // title here was a duplicate (Dieter Rams: less, but better).
+          // The orienting subhead now stands alone as the single line of
+          // empty-state copy; the Upload CTA + "Try asking" chips below
+          // carry the action.
+          <header
+            data-testid="assistant-drawer-empty-header"
+            className="flex flex-col gap-1 px-4 py-4 text-center"
+          >
+            <p className="text-[13px] leading-relaxed text-balance text-fg-muted">
+              {emptyStateSubhead}
+            </p>
+          </header>
+        ) : (
+          <ChatEmptyState
+            onSelectPrompt={onSelectPrompt}
+            workspaceName={workspaceName}
+          />
+        )}
       </div>
     );
   }
@@ -233,6 +293,7 @@ export function ChatTranscript({
                 isStreaming={
                   isStreaming && idx === lastIndex && lastIsRealAssistant
                 }
+                onRequestExpand={onRequestExpand}
               />
             );
           })}

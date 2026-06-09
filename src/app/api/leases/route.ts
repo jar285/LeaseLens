@@ -32,6 +32,7 @@ import { MIN_PAGE_TEXT_CHARS, parsePdf } from '@/lib/lease/parse-pdf';
 import { insertClause, insertLease, setActiveLease } from '@/lib/lease/queries';
 import { segmentClauses } from '@/lib/lease/segment-clauses';
 import { validateLeaseUpload } from '@/lib/lease/validate-upload';
+import { logger } from '@/lib/log/logger';
 import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
@@ -217,7 +218,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { status: 200 },
     );
   } catch (err) {
-    console.error('Lease upload failed:', err);
+    logger.error({ err }, 'lease.upload_failed');
     return NextResponse.json({ error: 'Lease upload failed' }, { status: 500 });
   }
 }

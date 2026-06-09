@@ -36,6 +36,18 @@ function spyContext(): {
 }
 
 describe('AssistantFabContext', () => {
+  it('Sprint 36 — does NOT expose drawer-size state (compact/expanded lives local to the FAB)', () => {
+    // The context owns the open/close lifecycle + selection only. Drawer
+    // display-mode / expansion is pure presentation and stays as local state
+    // in AssistantFab.client — keep it OUT of the context so the open/close
+    // machinery and the parser/chat boundary stay clean.
+    const ctx = spyContext();
+    const keys = Object.keys(ctx.current ?? {});
+    expect(keys).not.toContain('expanded');
+    expect(keys).not.toContain('setExpanded');
+    expect(keys).not.toContain('displayMode');
+  });
+
   it('starts in the closed state with no pending prompt or selection', () => {
     const ctx = spyContext();
     expect(ctx.current).not.toBeNull();
@@ -164,6 +176,40 @@ describe('AssistantFabContext', () => {
     // Pending prompt + selection are gone — no contamination from
     // the prior clause context.
     expect(ctx.current?.pendingPrompt).toBeNull();
+    expect(ctx.current?.selection.clauseId).toBeNull();
+    expect(ctx.current?.selection.severity).toBeUndefined();
+    expect(ctx.current?.selection.statuteCitation).toBeUndefined();
+  });
+
+  // Sprint 29.3 — third clearing-style method, narrower than
+  // clearPendingContext. Used by the new in-drawer context bar's
+  // "Detach clause" ✕ button. Drops ONLY the selection (clauseId +
+  // severity + statuteCitation); keeps pendingPrompt and drawer state
+  // intact so the user can detach a clause focus without losing their
+  // typed draft or being kicked out of the drawer.
+  it('Sprint 29.3 — detachSelection drops selection ONLY (preserves pendingPrompt + drawer state)', () => {
+    const ctx = spyContext();
+    act(() => {
+      ctx.current?.openWith({
+        initialPrompt: 'Explain this clause',
+        clauseId: 'c-deposit',
+        severity: 'high',
+        statuteCitation: 'NJ Stat 46:8-19',
+      });
+    });
+    expect(ctx.current?.state).toBe<AssistantFabState>('drawer');
+    expect(ctx.current?.pendingPrompt).toBe('Explain this clause');
+    expect(ctx.current?.selection.clauseId).toBe('c-deposit');
+
+    act(() => {
+      ctx.current?.detachSelection();
+    });
+    // Drawer stays open — the user is still mid-interaction.
+    expect(ctx.current?.state).toBe<AssistantFabState>('drawer');
+    // pendingPrompt SURVIVES — distinguishes detachSelection from
+    // clearPendingContext (which drops both).
+    expect(ctx.current?.pendingPrompt).toBe('Explain this clause');
+    // Selection is gone — the clause context is detached.
     expect(ctx.current?.selection.clauseId).toBeNull();
     expect(ctx.current?.selection.severity).toBeUndefined();
     expect(ctx.current?.selection.statuteCitation).toBeUndefined();

@@ -13,7 +13,7 @@
 'use client';
 
 import { FileText, RotateCcw } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AssistantFab } from '@/components/chat/AssistantFab';
 import { AssistantFabProvider } from '@/components/chat/AssistantFabContext';
 import {
@@ -26,6 +26,7 @@ import type { Role } from '@/lib/auth/types';
 import { getPdfBinaryRepository } from '@/lib/lease/pdf-binary-repository';
 import { AutoScanRunner } from './AutoScanRunner';
 import { ClausesList } from './ClausesList';
+import { ConfirmDialog } from './ConfirmDialog';
 import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 import { PdfViewer } from './PdfViewer';
 import { RedFlagReport } from './RedFlagReport';
@@ -86,6 +87,10 @@ function ResultsShellInner({
 }: ParserResultsShellProps): React.JSX.Element {
   const { appendToolEvent, activeLease, resetParser } = useLeaseParser();
   const leftPaneState = useLeftPaneState();
+  // Sprint 28.15 — Replace opens a styled in-app confirm instead of the
+  // native window.confirm. Local boolean only: the dialog is a dumb presenter
+  // and the destructive sequence stays in this orchestrator (Uncle Bob / DIP).
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Sprint 25 — cache eviction on mount mirrors the legacy shell so the
   // global IDB store stays bounded. The current lease is retained;
@@ -107,17 +112,22 @@ function ResultsShellInner({
     });
   }
 
-  function handleReplace(): void {
-    // Sprint 28.9 — Replace is the destructive path that resets the
-    // entire workspace (lease, extracted clauses, red flags). Don
-    // Norman: prevent accidental destructive action by requiring an
-    // explicit confirm. The copy names the lease so a first-time user
-    // understands what's about to be lost.
-    const confirmed = window.confirm(
-      'Reset workspace? This removes the uploaded lease, extracted clauses, and red flags. This cannot be undone.',
-    );
-    if (!confirmed) return;
+  // Sprint 28.9 — Replace is the destructive path that resets the entire
+  // workspace (lease, extracted clauses, red flags). Don Norman: prevent
+  // accidental destructive action by requiring an explicit confirm.
+  // Sprint 28.15 — the intent-capture step now just opens the styled
+  // ConfirmDialog (its copy names the three artifacts a first-time user is
+  // about to lose); the destructive body below runs only on explicit confirm.
+  function requestReplace(): void {
+    setConfirmOpen(true);
+  }
 
+  function cancelReplace(): void {
+    setConfirmOpen(false);
+  }
+
+  function confirmReplace(): void {
+    setConfirmOpen(false);
     // Sprint 28.9 — Blob URL lifecycle moved here from ChatUI's
     // chat-thread reset (Sprint 4 removed that path). Revoke the
     // current lease's pdfUrl and evict its cached PDF bytes so the
@@ -153,7 +163,7 @@ function ResultsShellInner({
       >
         <ResultsHeader
           leftPaneState={leftPaneState}
-          onReplace={handleReplace}
+          onReplace={requestReplace}
         />
         {/* Sprint 28.13 — the responsive grid pattern from 28.10
             stays (PDF + cards side-by-side on lg+, stacked below)
@@ -215,6 +225,20 @@ function ResultsShellInner({
       <AutoScanRunner
         enabled={triggerAutoScan === true}
         conversationId={conversationId ?? null}
+      />
+      {/* Sprint 28.15 — destructive-reset confirmation. The dialog is a dumb
+          presenter; confirmReplace owns the revoke/evict/reset sequence. Copy
+          names the three artifacts + irreversibility (carried from the old
+          window.confirm). It must NOT borrow Clear-chat's "review preserved"
+          string — this action destroys the review. */}
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Reset workspace?"
+        description="This removes the uploaded lease, its extracted clauses, and all red flags. This cannot be undone."
+        confirmLabel="Reset workspace"
+        destructive
+        onConfirm={confirmReplace}
+        onCancel={cancelReplace}
       />
     </>
   );

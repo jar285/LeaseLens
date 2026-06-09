@@ -1,20 +1,14 @@
 // Sprint 26a Phase 4 — red test.
 //
 // Pure client-side switch between Mode A (ParserLandingShell) and Mode B
-// (LeaseLensWorkspaceShell). The decision is based on initialActiveLease:
-// null → landing; non-null → legacy three-pane shell (until Sprint 26b
-// replaces it with ParserResultsShell).
-//
-// We mock LeaseLensWorkspaceShell to keep this test focused on the router
-// decision. The real shell pulls in react-pdf + IndexedDB lookups which
-// are not the subject of this test.
+// (ParserResultsShell). The decision is based on initialActiveLease:
+// null → landing; non-null → parser results workspace.
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// Sprint 26b — post-upload branch routes to ParserResultsShell, not the
-// legacy three-pane LeaseLensWorkspaceShell. Mock the new shell to keep
-// the router test focused on the routing decision + prop forwarding.
+// Sprint 26b — post-upload branch routes to ParserResultsShell. Mock it
+// to keep the router test focused on the routing decision + prop forwarding.
 // The mock surfaces a Replace button that fires onReplace so the
 // "back to Mode A" path is observable.
 vi.mock('./ParserResultsShell', () => ({
@@ -36,16 +30,6 @@ vi.mock('./ParserResultsShell', () => ({
         Replace
       </button>
     </div>
-  ),
-}));
-
-// Keep the legacy shell mocked so the upload-lift test (which still
-// references `shell-root` as the post-upload observable in 26a) keeps
-// working. Sprint 26b updates the lift test to assert
-// `parser-results-shell` instead.
-vi.mock('./LeaseLensWorkspaceShell', () => ({
-  LeaseLensWorkspaceShell: () => (
-    <div data-testid="shell-root">legacy three-pane shell</div>
   ),
 }));
 

@@ -1,6 +1,6 @@
 # Sprint 23e — Chat Memory: Preserve Tool History on Follow-Up Turns
 
-**Status:** Draft, awaiting human QA per charter §7 step 1.
+**Status:** Shipped — see [`impl-qa.md`](impl-qa.md). Tool-history preservation is live in `buildMessagesForAnthropic` ([`src/app/api/chat/route.ts`](../../../src/app/api/chat/route.ts)).
 **Date:** 2026-05-13.
 **Branch:** `feature/ui`.
 **Predecessors:** [sprint-23a](../sprint-23a-ui-foundation/spec.md), [sprint-23b](../sprint-23b-document-dock/spec.md), [sprint-23c](../sprint-23c-conversation-workspace/spec.md), [sprint-23d](../sprint-23d-risk-radar/spec.md) (all committed).

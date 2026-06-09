@@ -125,6 +125,17 @@ export function AutoScanRunner({
           body: JSON.stringify({
             message: STANDARD_SCAN_PROMPT,
             conversationId,
+            // Sprint 32.1 — force Anthropic tool_choice:{type:'any'} on
+            // iteration 1 server-side so the model cannot return a
+            // text-only hallucinated "scan complete" reply (Sprint 32.0
+            // diagnostic confirmed tool_use_count=0 on the broken path).
+            forceScan: true,
+            // Sprint 33.0 — every auto-scan is a NEW conversation. The
+            // domain reality is "one conversation per lease scan," not
+            // "one durable session per workspace." Without this, prior
+            // lease tool blocks leak into the new scan's context window
+            // and corrupt Q&A answers even after the chat-trim refactor.
+            startNewConversation: true,
           }),
           // No AbortController signal — we want the stream to run to
           // completion even if the React effect's cleanup fires from

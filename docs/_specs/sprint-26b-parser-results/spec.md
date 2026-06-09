@@ -1,6 +1,6 @@
 # Sprint 26b — Parser-First Results Layout (Mode B)
 
-**Status:** Draft, awaiting human QA.
+**Status:** Shipped on main (Sprint 26b, 2026-05-17).
 **Date:** 2026-05-17.
 **Branch:** `feature/cockpit` (continuation from Sprint 26a).
 **Parent plan:** [agile-hugging-forest plan in ~/.claude/plans/](../../../) — LeaseLens UI Pivot.

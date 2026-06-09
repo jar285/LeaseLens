@@ -6,6 +6,7 @@
 // fab-assistant.spec.ts (26c), and parser-mobile.spec.ts (26d).
 
 import { expect, type Page } from '@playwright/test';
+import { clearRateLimit } from './seed-gradings';
 
 export const SAMPLE_LEASE_PATH =
   'src/corpus/sample-lease/sample-nj-residential-lease.pdf';
@@ -34,11 +35,21 @@ export async function uploadSampleLease(
   const filePath = opts.filePath ?? SAMPLE_LEASE_PATH;
   const timeout = opts.timeout ?? 30_000;
 
-  await page.getByTestId('lease-upload-input').setInputFiles(filePath);
+  // Demo-mode rate limit (10/hour/session) persists in the shared dev DB and
+  // would otherwise 429 the upload once the suite's repeated uploads exhaust
+  // it — failing silently with no Mode B. Reset it so each upload is clean.
+  clearRateLimit();
 
-  // Wait for whichever post-upload shell mounts first.
   const postUploadShell = page.locator(
     '[data-testid="parser-results-shell"], [data-testid="shell-root"]',
   );
-  await expect(postUploadShell.first()).toBeVisible({ timeout });
+  // Retry the file-set until Mode B mounts. In `next dev`, setInputFiles can
+  // dispatch the file `change` event BEFORE React attaches the dropzone's
+  // onChange (a hydration race) — the first attempt is then silently dropped
+  // and the upload never fires. toPass re-dispatches until the handler is live
+  // and the post-upload shell appears.
+  await expect(async () => {
+    await page.getByTestId('lease-upload-input').setInputFiles(filePath);
+    await expect(postUploadShell.first()).toBeVisible({ timeout: 4000 });
+  }).toPass({ timeout, intervals: [500, 1000, 1000, 2000] });
 }

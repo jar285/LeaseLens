@@ -20,11 +20,15 @@ import { db } from '@/lib/db';
 import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
 import { isSpendCeilingExceeded, recordSpend } from '@/lib/db/spend';
 import { env } from '@/lib/env';
+import { errorResponse } from '@/lib/http/error-response';
 import { getLease } from '@/lib/lease/queries';
 import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
+import { logger } from '@/lib/log/logger';
+import { requestIdFrom } from '@/lib/log/request-id';
 import { retrieve } from '@/lib/rag/retrieve';
 import { createToolRegistry } from '@/lib/tools/create-registry';
 import type { AnthropicTool } from '@/lib/tools/domain';
+import { toSafeToolError } from '@/lib/tools/safe-tool-error';
 import {
   decodeWorkspace,
   WORKSPACE_COOKIE_NAME,
@@ -36,6 +40,20 @@ export const runtime = 'nodejs';
 const chatRequestBodySchema = z.object({
   message: z.string().min(1),
   conversationId: z.string().nullable().optional(),
+  // Sprint 32.1 — when true, the route applies Anthropic
+  // tool_choice:{type:'any'} on the FIRST iteration so the model
+  // cannot return a text-only hallucinated "scan complete" reply
+  // instead of calling extract_clauses. Subsequent iterations use
+  // the default 'auto' so the model can stop when grading is done.
+  // Set by AutoScanRunner; regular FAB chat omits it.
+  forceScan: z.boolean().optional(),
+  // Sprint 33.0 — when true, the route IGNORES any conversationId
+  // in the body and ALWAYS creates a fresh conversation row. This is
+  // the canonical "new lease scan started" signal: AutoScanRunner
+  // sets it so a prior conversation's tool blocks never bleed into
+  // a freshly-uploaded lease's Q&A. The flag is separate from
+  // forceScan (composable, no implicit coupling).
+  startNewConversation: z.boolean().optional(),
 });
 
 const SPEND_CEILING_MESSAGE =
@@ -58,10 +76,6 @@ const MAX_TOOL_ITERATIONS = 15;
 // client as a `truncated` event so the user sees a clear notice when it
 // still happens (e.g. a 20-clause lease with verbose grading).
 const MAX_OUTPUT_TOKENS = 8192;
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unknown error';
-}
 
 /**
  * Append `addition` to `existing`, inserting a paragraph separator between
@@ -147,25 +161,32 @@ function buildMessagesForAnthropic(
 }
 
 export async function POST(req: NextRequest) {
+  // Sprint 44A.2 — request-scoped logger carrying the correlation id the
+  // middleware forwarded. In scope for both the RAG-failure warning and the
+  // top-level error catch below. The `err` serializer scrubs any PII-bearing
+  // message/stack; we never log raw lease/clause content.
+  const requestId = requestIdFrom(req.headers);
+  const log = logger.child({ requestId });
   try {
     let rawBody: unknown;
     try {
       rawBody = await req.json();
     } catch (_e) {
-      return NextResponse.json(
-        { error: 'Invalid or missing JSON body' },
-        { status: 400 },
-      );
+      return errorResponse('VALIDATION', {
+        requestId,
+        message: 'Invalid or missing JSON body',
+      });
     }
 
     const parsedBody = chatRequestBodySchema.safeParse(rawBody);
     if (!parsedBody.success) {
-      return NextResponse.json(
-        { error: 'Message is required' },
-        { status: 400 },
-      );
+      return errorResponse('VALIDATION', {
+        requestId,
+        message: 'Message is required',
+      });
     }
-    const { message, conversationId } = parsedBody.data;
+    const { message, conversationId, forceScan, startNewConversation } =
+      parsedBody.data;
 
     // Resolve userId and role from session cookie; fall back to default Creator
     const sessionCookie = req.cookies.get('leaselens_session');
@@ -181,7 +202,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return errorResponse('UNAUTHENTICATED', {
+        requestId,
+        message: 'Unauthorized',
+      });
     }
 
     // Sprint 11 (revised) — workspace cookie. If missing or expired,
@@ -240,10 +264,10 @@ export async function POST(req: NextRequest) {
     if (env.LEASELENS_DEMO_MODE) {
       const rateLimit = checkAndIncrementRateLimit(userId);
       if (!rateLimit.allowed) {
-        return NextResponse.json(
-          { error: 'Rate limit exceeded. Try again in the next hour.' },
-          { status: 429 },
-        );
+        return errorResponse('RATE_LIMITED', {
+          requestId,
+          message: 'Rate limit exceeded. Try again in the next hour.',
+        });
       }
       if (rateLimit.remaining <= 2) {
         quotaRemaining = rateLimit.remaining;
@@ -276,7 +300,11 @@ export async function POST(req: NextRequest) {
     // Round 3 — conversation lookup AND insert are scoped to workspace_id
     // so a conversationId from a foreign workspace falls through to a fresh
     // conversation in the current workspace. Spec §20.
-    let activeConversationId = conversationId ?? null;
+    // Sprint 33.0 — when startNewConversation:true, ignore any body
+    // conversationId and force-create a fresh row downstream. The
+    // existing lookup-or-create branch already treats null as "create."
+    let activeConversationId =
+      startNewConversation === true ? null : (conversationId ?? null);
     db.transaction(() => {
       const existingConv = activeConversationId
         ? db
@@ -305,10 +333,10 @@ export async function POST(req: NextRequest) {
     })();
 
     if (!activeConversationId) {
-      return NextResponse.json(
-        { error: 'Failed to initialize conversation' },
-        { status: 500 },
-      );
+      return errorResponse('INTERNAL', {
+        requestId,
+        message: 'Failed to initialize conversation',
+      });
     }
 
     const resolvedConversationId = activeConversationId;
@@ -318,7 +346,7 @@ export async function POST(req: NextRequest) {
     try {
       ragContext = await retrieve(message, db, { workspaceId: workspace.id });
     } catch (err) {
-      console.error('RAG retrieval failed, proceeding without context:', err);
+      log.warn({ err }, 'rag.retrieve_failed: proceeding without context');
     }
 
     // Phase 10.8.2 — active-lease awareness. Resolve the lease for
@@ -351,11 +379,20 @@ export async function POST(req: NextRequest) {
             'SELECT COUNT(*) AS n FROM clauses WHERE lease_id = ? AND workspace_id = ?',
           )
           .get(lease.id, workspace.id) as { n: number } | undefined;
+        // Sprint 45 — graded count drives the prompt's graded-vs-ungraded
+        // awareness branch (graded → answer via get_lease_findings, don't
+        // re-scan).
+        const gradedCountRow = db
+          .prepare(
+            'SELECT COUNT(*) AS n FROM clauses WHERE lease_id = ? AND workspace_id = ? AND graded_at IS NOT NULL',
+          )
+          .get(lease.id, workspace.id) as { n: number } | undefined;
         activeLease = {
           id: lease.id,
           filename: lease.filename,
           page_count: lease.page_count,
           clause_count: clauseCountRow?.n ?? 0,
+          graded_count: gradedCountRow?.n ?? 0,
         };
       }
     } catch {
@@ -406,6 +443,10 @@ export async function POST(req: NextRequest) {
         let tokensIn = 0;
         let tokensOut = 0;
         let hasMoreIterations = true;
+        // Sprint 32.0 — dev-only counter to diagnose "hallucinated scan" failures
+        // where the model returns a text summary without ever calling tools.
+        // Logged after the agentic loop ends; gated on NODE_ENV !== 'production'.
+        let toolUseCount = 0;
 
         try {
           while (hasMoreIterations && iterations < MAX_TOOL_ITERATIONS) {
@@ -464,11 +505,14 @@ export async function POST(req: NextRequest) {
               // bubble. The event is emitted before `controller.close()`
               // so the frontend processes it on the same stream.
               if (finalMessage.stop_reason === 'max_tokens') {
-                console.warn('[chat] response truncated by max_tokens', {
-                  conversation_id: resolvedConversationId,
-                  output_tokens: finalMessage.usage.output_tokens,
-                  cap: MAX_OUTPUT_TOKENS,
-                });
+                log.warn(
+                  {
+                    conversationId: resolvedConversationId,
+                    outputTokens: finalMessage.usage.output_tokens,
+                    cap: MAX_OUTPUT_TOKENS,
+                  },
+                  'chat.response_truncated',
+                );
                 controller.enqueue(
                   encoder.encode(
                     `${JSON.stringify({
@@ -490,6 +534,7 @@ export async function POST(req: NextRequest) {
               ) {
                 // Execute tools and continue loop
                 for (const toolUse of toolUseBlocks) {
+                  toolUseCount += 1;
                   await executeToolAndPersist(
                     toolUse,
                     resolvedConversationId,
@@ -508,6 +553,16 @@ export async function POST(req: NextRequest) {
               hasMoreIterations = false;
             } else {
               // Non-streaming for tool-use iterations
+              //
+              // Sprint 32.1 — when the client sets forceScan:true (auto-scan
+              // path), require the model to call at least one tool on the
+              // FIRST iteration. Without this, the model occasionally
+              // hallucinates a "scan complete" text reply and never calls
+              // extract_clauses (Sprint 32.0 diagnostic: tool_use_count=0).
+              // Apply only on iteration 1 — once any tool has run, let the
+              // model decide whether to call more or finish.
+              const forceToolOnFirstIteration =
+                forceScan === true && iterations === 1;
               const response = await getAnthropicClient().messages.create({
                 model: env.LEASELENS_ANTHROPIC_MODEL,
                 system: systemForRequest,
@@ -518,6 +573,9 @@ export async function POST(req: NextRequest) {
                 messages: contextMessages as MessageParam[],
                 max_tokens: MAX_OUTPUT_TOKENS,
                 tools: toolsForRequest as Tool[] | undefined,
+                ...(forceToolOnFirstIteration
+                  ? { tool_choice: { type: 'any' as const } }
+                  : {}),
               });
 
               tokensIn += response.usage.input_tokens;
@@ -541,6 +599,7 @@ export async function POST(req: NextRequest) {
               if (toolUseBlocks.length > 0) {
                 // Execute tools and continue loop
                 for (const toolUse of toolUseBlocks) {
+                  toolUseCount += 1;
                   await executeToolAndPersist(
                     toolUse,
                     resolvedConversationId,
@@ -569,6 +628,26 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // Sprint 32.0 — dev-only diagnostic. Prints once per /api/chat turn
+          // so we can see whether the model called tools or hallucinated a
+          // text-only summary. The "look for: tool_use=0" pattern is the
+          // hallucination signature (AutoScanRunner stream landed zero
+          // tool_result events; right pane stays empty even though the
+          // chat got a summary). Never ships to prod.
+          // Sprint 44 sweep — was a NODE_ENV-gated console diag with content
+          // heads (final_text_head / user_message_head = PII risk). Now a
+          // structured debug log with lengths only; gated by LEASELENS_LOG_LEVEL.
+          log.debug(
+            {
+              conversationId: resolvedConversationId,
+              iterations,
+              toolUseCount,
+              finalTextLength: finalResponse.length,
+              userMessageLength: message.length,
+            },
+            'chat.turn_complete',
+          );
+
           // Persist final assistant message
           if (finalResponse) {
             db.prepare(
@@ -595,9 +674,13 @@ export async function POST(req: NextRequest) {
             recordSpend(tokensIn, tokensOut);
           }
         } catch (error) {
+          // Sprint 44B.2 — log the detail server-side (the err serializer
+          // scrubs any PII-bearing message/stack), stream only a safe, generic
+          // message; never the raw err.message to the client.
+          log.error({ err: error }, 'chat.stream_error');
           controller.enqueue(
             encoder.encode(
-              `${JSON.stringify({ error: getErrorMessage(error) })}\n`,
+              `${JSON.stringify({ error: 'The response was interrupted. Please try again.' })}\n`,
             ),
           );
         } finally {
@@ -614,18 +697,18 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Chat API Error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 },
-    );
+    log.error({ err: error }, 'chat.api_error');
+    return errorResponse('INTERNAL', { requestId });
   }
 }
 
 /**
  * Execute a tool and persist the tool_use/tool_result to the database.
+ *
+ * Exported for the Sprint 44B.2 redaction test — it is a cohesive,
+ * separately-verifiable unit (run tool → stream result → persist messages).
  */
-async function executeToolAndPersist(
+export async function executeToolAndPersist(
   toolUse: ToolUseBlock,
   conversationId: string,
   userId: string,
@@ -664,8 +747,36 @@ async function executeToolAndPersist(
     toolResult = envelope.result;
     auditId = envelope.audit_id;
   } catch (err) {
-    toolError = err instanceof Error ? err.message : 'Tool execution failed';
-    toolResult = { error: toolError };
+    // Sprint 44B.2 — sanitize at the boundary: only the safe { name, code }
+    // from toSafeToolError crosses into the client NDJSON stream, the persisted
+    // `messages` row, and the LLM context. A raw JSON.parse SyntaxError embeds
+    // the draft-email body / clause text (tenant PII) in its message. The
+    // registry already logged the failure server-side (tool.execute_failed).
+    const safe = toSafeToolError(err);
+    toolError = safe.name;
+    toolResult = { error: safe.name, code: safe.code };
+  }
+
+  // Sprint 32.2.0 — dev-only per-tool-call diagnostic. Disambiguates
+  // Theory A (server-side grading errors) from Theory B (stale clause_id
+  // mismatch from prior conversation history). One line per executed
+  // tool; grep for `[chat-diag s32.2]`. NODE_ENV-gated.
+  // Sprint 44 sweep — structured per-tool-call diagnostic (debug level). All
+  // fields are IDs/enums/the safe error name (44B.2), never content.
+  {
+    const r = (toolResult ?? {}) as Record<string, unknown>;
+    const i = (toolUse.input ?? {}) as Record<string, unknown>;
+    logger.debug(
+      {
+        toolName: toolUse.name,
+        inputClauseId: typeof i.clause_id === 'string' ? i.clause_id : null,
+        resultClauseId: typeof r.clause_id === 'string' ? r.clause_id : null,
+        resultSeverity: typeof r.severity === 'string' ? r.severity : null,
+        hasError: toolError !== undefined,
+        errName: toolError ?? null,
+      },
+      'tool.diag',
+    );
   }
 
   // Emit tool_result event. audit_id and compensating_available are

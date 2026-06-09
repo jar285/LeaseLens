@@ -1,8 +1,8 @@
 # LeaseLens
 
-A NJ residential lease red-flag reviewer. Drop a lease PDF in, get a clause-by-clause severity grading grounded in NJ tenant-law statutes, and ask the assistant to draft a polite negotiation email back to the landlord — every grading carries a verifiable statute citation, every mutating action is auditable and reversible.
+A NJ residential lease red-flag reviewer. Drop a lease PDF in, get a clause-by-clause severity grading grounded in NJ tenant-law statutes, and ask the assistant to explain a clause in plain English or draft a polite negotiation email back to the landlord — every grading carries a verifiable statute citation, and every mutating action is written to an audit trail.
 
-Built to demonstrate how an LLM agent can deliver high-stakes domain judgement under engineering constraints: hybrid RAG against a curated NJ corpus, a tool-use loop with citation grounding enforced inside the tool, RBAC + audit + rollback on every mutation, and a deterministic two-tier eval harness that runs in CI.
+Built to demonstrate how an LLM agent can deliver high-stakes domain judgement under engineering constraints: hybrid RAG against a curated NJ corpus, a tool-use loop with citation grounding enforced inside the tool, RBAC + an audit log on every mutation, and a deterministic two-tier eval harness that runs in CI.
 
 > **Not legal advice.** LeaseLens reviews NJ residential leases and grades clauses against NJ tenant-law sources. It is not a lawyer; its output is not legal advice. Before acting on any clause grading or draft email, consult a tenant attorney or your local NJ legal-aid clinic.
 
@@ -12,7 +12,7 @@ Built to demonstrate how an LLM agent can deliver high-stakes domain judgement u
 
 ## Why This Fits AI Product Engineering
 
-Most chat demos avoid serious domains because grounding is hard. LeaseLens leans into one: NJ tenant law. The model never asserts a statute it cannot point to in the corpus, mutating tool calls are wrapped in compensating actions and an audit log, and a deterministic eval harness measures retrieval quality and severity-grading accuracy on every PR.
+Most chat demos avoid serious domains because grounding is hard. LeaseLens leans into one: NJ tenant law. The model never asserts a statute it cannot point to in the corpus, mutating tool calls are wrapped in an audit log (with an operator-side undo for Reviewers/Admins), and a deterministic eval harness measures retrieval quality and severity-grading accuracy on every PR.
 
 The project emphasises product judgement as much as model integration. Severity grading is grounded by construction — the tool throws if the cited `chunk_id` is not in the retrieved set, or if the statute string does not appear verbatim in that chunk. The negotiation-email tool runs the LLM call *before* opening the SQLite transaction, so a slow generation cannot block writers; the transaction wraps only the row insert and the audit log.
 
@@ -25,7 +25,7 @@ A portfolio piece targeting Forward Deployed, AI Product, and Applied AI enginee
 1. **LLM + agent + RAG composition** — Anthropic streaming chat with a 3-iteration tool-use loop, hybrid retrieval (vector + BM25 + reciprocal rank fusion) against a 28-document NJ tenant-law corpus, and three lease-specific tools wired into the same registry that gates the prompt's tool manifest.
 2. **Citation discipline** — `grade_clause_severity` validates the model's chunk_id and statute string against the live corpus before returning. A failed citation throws and surfaces in the UI; the model has to retry or admit it cannot ground the claim.
 3. **AI evaluation, two tiers** — Tier 1 measures retrieval quality (Precision@K, Recall@K, MRR, Groundedness) on 12 NJ tenant-law golden cases. Tier 2 measures end-to-end severity-grading accuracy on 12 curated lease clauses. Both exit 0/1 and write machine-readable reports the cockpit displays side-by-side.
-4. **Engineering constraints** — Strict RBAC (Tenant / Reviewer / Admin) enforced at the registry filter and re-checked at execute time. Lease ownership is a separate axis (a Tenant only sees leases they uploaded). Mutating tools execute inside a `better-sqlite3` transaction with a paired audit-log insert; the `ToolCard` UI renders an Undo button that runs the compensating action atomically.
+4. **Engineering constraints** — Strict RBAC (Tenant / Reviewer / Admin) enforced at the registry filter and re-checked at execute time. Lease ownership is a separate axis (a Tenant only sees leases they uploaded). Mutating tools execute inside a `better-sqlite3` transaction with a paired audit-log insert. The tenant-facing draft-email result is a copy-to-clipboard card; the Undo / compensating-action path is an **operator** affordance — the Reviewer/Admin `ToolCard` and the cockpit audit feed run `POST /api/audit/[id]/rollback` atomically.
 
 ---
 
@@ -44,8 +44,8 @@ A portfolio piece targeting Forward Deployed, AI Product, and Applied AI enginee
 │  │  └────────┬───────┘ └──────────────┬───────────┘    │  │
 │  │  Chat lives in a floating AssistantFab drawer       │  │
 │  │  (anchored bottom-right; preserves draft + thread   │  │
-│  │  across close→open; "New conversation" only resets  │  │
-│  │  the chat thread, never the lease/results).         │  │
+│  │  across close→open; "Clear assistant chat" resets   │  │
+│  │  only the chat thread, never the lease/results).    │  │
 │  └────────┼─────────────────────────────┼──────────────┘  │
 │           │                             │                  │
 │   POST /api/leases             POST /api/chat              │
@@ -96,9 +96,15 @@ A portfolio piece targeting Forward Deployed, AI Product, and Applied AI enginee
 
 **Citation grounding.** `grade_clause_severity` runs `retrieve()` against the corpus, asks the model to cite both a `chunk_id` and a human-readable `statute_citation`, and validates both before returning: the chunk_id must be in the retrieved set, and the statute string must appear (case-insensitive, whitespace-collapsed) inside that chunk's text. Either failure throws.
 
-**Audit + rollback invariants.** `draft_negotiation_email` is the single mutating tool. The Anthropic `messages.create` call runs in an async `prepare` step *before* the transaction, so the SQLite write window is short. The transaction wraps the `negotiation_emails` insert and the `audit_log` insert — if either fails, both roll back. The `ToolCard` UI renders an Undo button; clicking it runs `POST /api/audit/[id]/rollback`, which executes the compensating action (`DELETE FROM negotiation_emails WHERE id = ?`) and updates the audit row's status atomically.
+**Audit invariants.** `draft_negotiation_email` is the single mutating tool. The Anthropic `messages.create` call runs in an async `prepare` step *before* the transaction, so the SQLite write window is short. The transaction wraps the `negotiation_emails` insert and the `audit_log` insert — if either fails, both roll back. In the tenant product the result renders as a copy-to-clipboard `NegotiationEmailCard` (no Undo). The compensating-action **undo** is an operator affordance: the Reviewer/Admin `ToolCard` and the cockpit audit feed expose an Undo button that runs `POST /api/audit/[id]/rollback`, which executes the compensating action (`DELETE FROM negotiation_emails WHERE id = ?`) and updates the audit row's status atomically.
 
 **Custom MCP server** at [`mcp/leaselens-server.ts`](mcp/leaselens-server.ts) exposes the registry over stdio for Claude Desktop, Cursor, or any MCP client.
+
+<img width="1439" height="717" alt="Screenshot 2026-06-02 at 1 11 51 AM" src="https://github.com/user-attachments/assets/30f53823-8a1d-49db-b55c-3a51c49332b0" />
+
+<img width="2048" height="1014" alt="image" src="https://github.com/user-attachments/assets/6480d62c-4e2c-4742-8c74-ac4598598d23" />
+
+
 
 ---
 
@@ -181,7 +187,7 @@ The seed script is idempotent — it skips work if `chunks` is already populated
 
 ## Trying It Out
 
-The home page opens in **Mode A** — a parser-first landing screen with a hero dropzone, the five-step flow (Upload → Parse → Extract clauses → Flag risks → Review), and trust metrics. Drop a PDF and the page transitions to **Mode B**: a two-column workspace with the PDF viewer on the left and a results stack (red flags + full clause list) on the right. Chat lives in a floating AssistantFab drawer anchored bottom-right — open it to ask follow-up questions, draft a negotiation email, or run the standard scan again. The drawer preserves typed drafts and the FAB-side clause selection across close→open cycles; "New conversation" only resets the chat thread, leaving the lease and results intact. The destructive "Replace" button in the workspace header is the only path that retires the active lease, and it requires confirmation.
+The home page opens in **Mode A** — a parser-first landing screen with a hero dropzone, the five-step flow (Upload → Parse → Extract clauses → Flag risks → Review), and trust metrics. Drop a PDF and the page transitions to **Mode B**: a two-column workspace with the PDF viewer on the left and a results stack (red flags + full clause list) on the right. Chat lives in a floating AssistantFab drawer anchored bottom-right — open it to ask follow-up questions, draft a negotiation email, or run the standard scan again. The drawer preserves typed drafts and the FAB-side clause selection across close→open cycles; "Clear assistant chat" resets only the chat thread (announced via aria-live: *"Assistant chat cleared. Your lease review was preserved."*), leaving the lease and results intact. The destructive "Replace" button in the workspace header is the only path that retires the active lease, and it requires confirmation via a styled `alertdialog` (with a calm fade/scale, disabled under `prefers-reduced-motion`).
 
 The default workspace is the seeded sample, so you have a lease to inspect immediately.
 
@@ -191,9 +197,9 @@ The Tenant sees only leases they uploaded. The full lease toolset is available �
 
 Try, in this order:
 
-- *"Run the standard scan."* — the assistant calls `extract_clauses`, then `grade_clause_severity` for each non-trivial clause in turn. The right-hand red-flag report fills in as gradings come back; each card shows the severity, a NJ statute citation, the assistant's plain-English reasoning, and a recommended action. Click a citation chip to scroll the PDF viewer to the cited clause.
+- *"Run the standard scan."* — the assistant calls `extract_clauses`, then `grade_clause_severity` for each non-trivial clause in turn. The right-hand red-flag report fills in as gradings come back; each card shows the severity, a NJ statute citation, the assistant's plain-English reasoning, and a recommended action. Click a citation chip to scroll the PDF viewer to the cited clause. Expand a card for one-click quick actions that pre-seed the drawer: **Plain English** (jargon-free, tenant-facing explanation), **What the law says** (statute-verbatim walkthrough), and **Draft email** — plus **View on page N** to jump the PDF.
 - *"What does NJ law say about security-deposit caps?"* — direct corpus search via `search_corpus`. Every answer is grounded in retrieved chunks.
-- *"Draft a polite email to my landlord about the security deposit clause."* — the assistant calls `draft_negotiation_email` with the most-recent grading's reasoning + statute citation as context. The result renders inline as a `ToolCard` with an Undo button.
+- *"Draft a polite email to my landlord about the security deposit clause."* — the assistant calls `draft_negotiation_email` with the most-recent grading's reasoning + statute citation as context. For a Tenant the result renders inline as a copy-to-clipboard `NegotiationEmailCard` (subject + body); Reviewers/Admins see the raw `ToolCard` with an Undo affordance instead. Either way the write is captured in the audit log.
 
 ### As Reviewer / Admin
 
@@ -248,7 +254,7 @@ A library of prompts that exercise different parts of the tool surface. Each map
 
 #### Negotiation drafting
 
-- *"Draft a polite email to my landlord about the security deposit clause."* — `draft_negotiation_email` (mutating; produces an audited row with an Undo button).
+- *"Draft a polite email to my landlord about the security deposit clause."* — `draft_negotiation_email` (mutating; produces an audited row — a copy-to-clipboard card for Tenants, the `ToolCard` + Undo affordance for Reviewers/Admins).
 - *"Draft a firmer email about the late-fee structure — this isn't negotiable for me."* — same tool with `tone: "firm"`.
 - *"Use a formal tone and request a redline of the early-termination clause."* — `tone: "formal"`. Demonstrates the three-tone copy library.
 
@@ -281,9 +287,9 @@ The same registry that filters the prompt's tool manifest also gates execution �
 
 `grade_clause_severity` retrieves NJ tenant-law chunks for a clause, asks the model to grade severity (`high` / `medium` / `low` / `ok`) and cite a chunk + statute, and validates both before returning. The validator throws if the cited `chunk_id` is not in the retrieved set, or if the `statute_citation` string does not appear inside that chunk's text. The Tier 1 eval enforces a ≥ 0.90 groundedness rate in CI.
 
-### Auditable Mutations + Undo
+### Auditable Mutations
 
-`draft_negotiation_email` is the only mutating tool. The async LLM call runs in a `prepare` step *before* the SQLite transaction; the transaction wraps the `negotiation_emails` insert and the audit-row insert atomically. The `ToolCard` UI renders an Undo button; `POST /api/audit/[id]/rollback` runs the compensating action (`DELETE FROM negotiation_emails WHERE id = ?`) and the status flip in one transaction. Idempotent on already-rolled-back rows.
+`draft_negotiation_email` is the only mutating tool. The async LLM call runs in a `prepare` step *before* the SQLite transaction; the transaction wraps the `negotiation_emails` insert and the audit-row insert atomically, so every draft is captured in the audit trail. The tenant-facing surface is a copy-to-clipboard `NegotiationEmailCard` — no destructive control. The compensating-action **undo** is scoped to operators: the Reviewer/Admin `ToolCard` and the cockpit audit feed expose an Undo button that calls `POST /api/audit/[id]/rollback`, running the compensating action (`DELETE FROM negotiation_emails WHERE id = ?`) and the status flip in one transaction. Idempotent on already-rolled-back rows.
 
 ### Operator Cockpit
 
@@ -393,9 +399,12 @@ ContentOps/
 │   │   ├── cockpit/                      # /cockpit dashboard (Reviewer + Admin)
 │   │   └── page.tsx                      # Home — parser-first workspace shell (Mode A→B router)
 │   ├── components/
-│   │   ├── chat/                         # ChatUI, ChatMessage, ToolCard, MermaidDiagram
+│   │   ├── chat/                         # AssistantFab + drawer, ChatUI, ChatTranscript,
+│   │   │                                 # ChatMessage, ToolCard, MermaidDiagram
 │   │   ├── cockpit/                      # AuditFeed, Schedule, Spend, EvalHealth panels
-│   │   ├── lease/                        # PdfViewer, RedFlagReport, CitationChip, dropzone
+│   │   ├── lease/                        # WorkspaceRouterShell, ParserLandingShell,
+│   │   │                                 # ParserResultsShell, PdfViewer, RedFlagReport,
+│   │   │                                 # ClausesList, AutoScanRunner, CitationChip
 │   │   └── workspaces/                   # workspace switcher + onboarding
 │   ├── corpus/
 │   │   ├── nj-tenant-law/                # 28 NJ tenant-law markdown sources
@@ -420,9 +429,10 @@ ContentOps/
 │   └── MASTER.md                         # design tokens, typography, motion presets,
 │                                         # accessibility rules, anti-patterns
 └── docs/
+    ├── _architecture/                    # power-words, dev + UI/UX design philosophy
     ├── _meta/                            # charter, guidelines, architecture snapshot
-    └── _specs/                           # spec.md + spec-qa.md + sprint.md
-                                          # + sprint-qa.md + impl-qa.md per sprint
+    └── _specs/                           # per-sprint spec.md + impl.md (QA report);
+                                          # sub-sprints use N.x-spec.md / N.x-impl.md
 ```
 
 ---
@@ -431,7 +441,7 @@ ContentOps/
 
 LeaseLens is built sprint-by-sprint with a spec → QA → sprint plan → implementation → QA loop. All artifacts live in [`docs/_specs/`](docs/_specs/).
 
-Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases while preserving every architectural invariant. Sprint 14 hardened the eval harness with Tier 2 lease grading. Sprints 15–22 built out the design system (Tailwind v4 tokens, MASTER.md, Source Serif 4), the tenant-friendly conversational scan UX, and PDF reading controls. The Sprint 23 series modernised the three-pane workspace pane by pane — UI foundation tokens (23a), document dock (23b), conversation workspace (23c), risk-radar rail (23d), chat memory (23e), negotiation-email card (23f) — and 23g–k landed an Open-Design-inspired editorial brand refresh: cream-paper + terracotta palette in both modes, Source Serif 4 weight 700 + italic for the display-serif hero, ink-blue citation token, motion-preset module, accessible PDF page navigation (Prev/Next buttons + ArrowLeft/Right keyboard), and an `animate-ping` ripple on the LIVE status indicator. Vercel deployment and the Loom walkthrough remain the closeout work.
+Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases while preserving every architectural invariant. Sprint 14 hardened the eval harness with Tier 2 lease grading. Sprints 15–22 built out the design system (Tailwind v4 tokens, MASTER.md, Source Serif 4), the tenant-friendly conversational scan UX, and PDF reading controls. The Sprint 23 series modernised what was then a three-pane workspace pane by pane (23a–23f), then 23g–k landed an Open-Design-inspired editorial brand refresh: cream-paper + terracotta palette, Source Serif 4 weight 700 + italic, ink-blue citation token, motion-preset module, accessible PDF page navigation, and an `animate-ping` ripple on the LIVE status indicator. **Sprints 26a–26c pivoted the workspace from the three-pane shell to the parser-first router (`WorkspaceRouterShell` → `ParserLandingShell` for Mode A / `ParserResultsShell` for Mode B), with chat extracted into a floating `AssistantFab` drawer.** Sprints 27–28 hardened FAB persistence, added the tenant-only production header, and ran a bug-triage round. Sprint 29 (29.1–29.13) refactored the FAB + chat assistant production UX. Sprint 30 switched the theme flip to the View Transitions API with a double-rAF fallback. Sprint 31 disambiguated lease metadata in the system prompt to stop the "scan already done" hallucination. Sprint 32 forced `tool_choice` on auto-scan and added a dev-only per-call diagnostic. Sprint 33 (`feature/fab-menu`) iterates on the FAB chat surface — 33.A.2 gated the redundant in-chat scan timeline off the auto-scan turn and replaced the model-authored summary with a deterministic scan-complete receipt. Sprint 34 (34.1–34.3) closed the citation-grounding gap *validator-side* — embedded-pointer + de-slugged-title recovery, then markdown-emphasis-aware + cross-chunk matching — driving live scan rejections to zero while still rejecting genuinely ungrounded citations. The Sprint 28 series later added **28.15**, which replaced the native `window.confirm` Replace prompt with a styled `alertdialog` (calm enter/exit motion, WCAG-grounded) and stopped tracking the autogenerated `next-env.d.ts`. Sprint 35 added a **"Plain English"** red-flag card action (a jargon-free, tenant-facing explanation that stays statute-grounded) and relabeled the existing statute-walkthrough pill "Explain" → "What the law says" to disambiguate the two. Vercel deployment and the Loom walkthrough remain the closeout work.
 
 | Sprint | Scope | Status |
 |--------|-------|--------|
@@ -467,7 +477,14 @@ Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG 
 | 26b | Parser results (Mode B) — ParserResultsShell, ClausesList, AutoScanRunner | Complete |
 | 26c | Floating AssistantFab — FAB context + card/row action prompts (Explain, Draft email) | Complete |
 | 27 | FAB persistence (draft + conversation survive close→open), tenant-only header, six-stage scan loading | Complete |
-| 28 | Bug triage — scan animation lifecycle (Bug 2), parser/assistant state split into `LeaseParserContext` (Bug 3), `ParserResultsShell` layout restructure (Bug 1), aria-live announcement on "New conversation", confirmation gate on Replace | Complete |
+| 28 | Bug triage — scan animation lifecycle (Bug 2), parser/assistant state split into `LeaseParserContext` (Bug 3), `ParserResultsShell` layout restructure (Bug 1), aria-live announcement on "Clear assistant chat", confirmation gate on Replace; **28.15** later restyled the Replace confirm as an `alertdialog` (enter/exit motion) + gitignored autogenerated `next-env.d.ts` | Complete |
+| 29 | FAB + chat assistant production UX refactor (29.1–29.13) — focus management, drawer transitions, composer behavior, accessibility polish | Complete |
+| 30 | Smoother theme flip via View Transitions API + double-rAF fallback for browsers without support | Complete |
+| 31 | Disambiguate lease metadata in the system prompt to stop the "scan already done" hallucination | Complete |
+| 32 | Force `tool_choice` on auto-scan turns + dev-only per-call diagnostic | Complete |
+| 33 | FAB chat pivot (`feature/fab-menu`) — 33.A.2 gates the redundant in-chat scan timeline off the auto-scan turn + deterministic scan-complete receipt | In progress (33.A.2 shipped) |
+| 34 | Citation grounding, validator-side — chunk-identity + dash-concat recovery (34.1–34.2), markdown-aware + cross-chunk matching (34.3); live scan rejections → 0 | Complete |
+| 35 | "Plain English" red-flag card action (jargon-free, statute-grounded) + relabel "Explain" → "What the law says" | Complete |
 
 ---
 

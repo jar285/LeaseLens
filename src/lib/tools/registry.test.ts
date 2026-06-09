@@ -431,15 +431,78 @@ describe('ToolRegistry', () => {
       }
     });
 
-    it('Sprint 13: total tool count is 7 (4 retained + 3 new)', async () => {
+    it('Sprint 13 + 45: total tool count is 8 (4 retained + 3 new + get_lease_findings)', async () => {
       const { createToolRegistry } = await import('./create-registry');
       const db = createTestDb();
       const registry = createToolRegistry(db);
 
       // 4 retained: search_corpus, get_document_summary, list_documents, render_workflow_diagram
       // 3 new:      extract_clauses, grade_clause_severity, draft_negotiation_email
+      // Sprint 45:  get_lease_findings (read-only findings reader)
       // 2 removed:  schedule_content_item, approve_draft
-      expect(registry.getToolNames()).toHaveLength(7);
+      expect(registry.getToolNames()).toContain('get_lease_findings');
+      expect(registry.getToolNames()).toHaveLength(8);
+    });
+  });
+
+  // ==========================================================================
+  // Sprint 44B — tool-failure redaction. A failed tool persists a SAFE record
+  // (error name + code), NEVER the raw message (which can embed lease PII).
+  // ==========================================================================
+  describe('execute (tool-failure redaction — Sprint 44B)', () => {
+    it('persists a safe { name, code } error record, never the raw PII message', async () => {
+      const db = createTestDb();
+      const registry = new ToolRegistry(db);
+      registry.register({
+        name: 'parse_tool',
+        description: 'mirrors a JSON.parse failure on raw model output',
+        inputSchema: { type: 'object', properties: {} },
+        roles: 'ALL',
+        category: 'system',
+        execute: async () => {
+          // Like draft_negotiation_email parsing the model's reply: the
+          // SyntaxError message embeds the (PII-bearing) draft body.
+          throw new SyntaxError(
+            'Unexpected token in JSON: DRAFT-BODY-PII-xyz tenant Jane Doe $2200',
+          );
+        },
+      });
+
+      await expect(
+        registry.execute(
+          'parse_tool',
+          {},
+          {
+            role: 'Tenant',
+            userId: 'user-1',
+            conversationId: 'conv-1',
+            workspaceId: SAMPLE_WORKSPACE.id,
+          },
+        ),
+      ).rejects.toThrow(SyntaxError);
+
+      const row = db
+        .prepare('SELECT status, error_message, error_code FROM tool_calls')
+        .get() as {
+        status: string;
+        error_message: string | null;
+        error_code: string | null;
+      };
+      expect(row.status).toBe('error');
+      expect(row.error_message).toBe('SyntaxError'); // the safe NAME, not the message
+      expect(row.error_code).toBe('parse_error');
+
+      // The gating assertion: no substring of the model output is persisted.
+      const serialized = JSON.stringify(row);
+      expect(serialized).not.toContain('DRAFT-BODY-PII-xyz');
+      expect(serialized).not.toContain('Jane Doe');
+      expect(serialized).not.toContain('2200');
+
+      // audit_log stays mutations-only — no failure rows written there.
+      const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
+        n: number;
+      };
+      expect(aud.n).toBe(0);
     });
   });
 });

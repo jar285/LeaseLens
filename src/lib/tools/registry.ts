@@ -9,6 +9,7 @@
 
 import type Database from 'better-sqlite3';
 import type { Role } from '@/lib/auth/types';
+import { logger } from '@/lib/log/logger';
 import { writeAuditRow } from './audit-log';
 import type {
   AnthropicTool,
@@ -18,6 +19,7 @@ import type {
   ToolExecutionResult,
 } from './domain';
 import { ToolAccessDeniedError, UnknownToolError } from './errors';
+import { toSafeToolError } from './safe-tool-error';
 import { writeToolCall } from './tool-calls';
 
 export class ToolRegistry {
@@ -92,7 +94,12 @@ export class ToolRegistry {
     // still produces a record of the attempt.
     const startMs = Date.now();
     let toolCallStatus: 'success' | 'error' = 'success';
-    let toolCallError: string | null = null;
+    // Sprint 44B — persist a SAFE error record, NOT the raw message. A
+    // JSON.parse SyntaxError from a tool embeds model output (draft body /
+    // clause text = tenant PII) in its message; we keep only the error NAME +
+    // an enumerated code.
+    let toolCallErrorName: string | null = null;
+    let toolCallErrorCode: string | null = null;
 
     try {
       if (descriptor.compensatingAction) {
@@ -138,7 +145,22 @@ export class ToolRegistry {
       return { result: rawResult, audit_id: undefined };
     } catch (err) {
       toolCallStatus = 'error';
-      toolCallError = err instanceof Error ? err.message : String(err);
+      const safe = toSafeToolError(err);
+      toolCallErrorName = safe.name;
+      toolCallErrorCode = safe.code;
+      // Sprint 44B — structured failure event; allowlist fields only (no raw
+      // message/stack). Joinable to the originating request via conversation_id.
+      logger.error(
+        {
+          toolName: name,
+          status: 'error',
+          code: safe.code,
+          errName: safe.name,
+          conversationId: context.conversationId ?? null,
+          workspaceId: context.workspaceId,
+        },
+        'tool.execute_failed',
+      );
       throw err;
     } finally {
       // Sprint 24.5 — best-effort tool_calls write. Wrapped in its own
@@ -154,7 +176,8 @@ export class ToolRegistry {
             conversation_id: context.conversationId ?? null,
             workspace_id: context.workspaceId,
             status: toolCallStatus,
-            error_message: toolCallError,
+            error_message: toolCallErrorName,
+            error_code: toolCallErrorCode,
             latency_ms: Date.now() - startMs,
           });
         } catch {

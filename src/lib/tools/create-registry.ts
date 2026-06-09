@@ -17,6 +17,7 @@ import {
   type AnthropicLike,
   createDraftNegotiationEmailTool,
   createExtractClausesTool,
+  createGetLeaseFindingsTool,
   createGradeClauseSeverityTool,
 } from './lease-tools';
 import { ToolRegistry } from './registry';
@@ -50,6 +51,9 @@ export function createToolRegistry(
   // the lazy resolution and the test-injection path share one shape.
   const llm = anthropic ?? lazyAnthropic();
   registry.register(createExtractClausesTool(db));
+  // Sprint 45 — read-only findings tool (no llm): lets the chat answer
+  // finding questions from stored gradings instead of re-running the scan.
+  registry.register(createGetLeaseFindingsTool(db));
   registry.register(createGradeClauseSeverityTool(db, llm));
   registry.register(createDraftNegotiationEmailTool(db, llm));
 

@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 import { env } from '@/lib/env';
+import { logger } from '@/lib/log/logger';
 import { migrate } from './migrate';
 import { SCHEMA } from './schema';
 
@@ -32,8 +33,9 @@ if (!env.LEASELENS_DEMO_MODE) {
       | { n: number }
       | undefined;
     if ((row?.n ?? 0) === 0) {
-      console.warn(
-        '[leaselens] WARNING: chunks table is empty. NJ tenant-law corpus is not loaded. Run `npm run db:seed` to fix.',
+      logger.warn(
+        { hint: 'run `npm run db:seed`' },
+        'db.corpus_empty: chunks table empty — NJ tenant-law corpus not loaded',
       );
     }
   } catch {

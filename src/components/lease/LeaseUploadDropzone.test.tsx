@@ -244,6 +244,35 @@ describe('LeaseUploadDropzone', () => {
     });
   });
 
+  // Sprint 29.x — hero landing uses a lighter tray that sits inside the
+  // ambient blob instead of reading as a heavy card stacked on top.
+  describe('Sprint 29.x — hero presentation', () => {
+    it('defaults to tray presentation for workspace / re-upload surfaces', () => {
+      render(<LeaseUploadDropzone onUploaded={() => {}} />);
+      expect(screen.getByTestId('lease-upload-dropzone')).toHaveAttribute(
+        'data-presentation',
+        'tray',
+      );
+    });
+
+    it('hero idle state uses translucent elevated fill and hairline border', () => {
+      render(<LeaseUploadDropzone onUploaded={() => {}} presentation="hero" />);
+      const section = screen.getByTestId('lease-upload-dropzone');
+      expect(section).toHaveAttribute('data-presentation', 'hero');
+      expect(section.className).toMatch(/bg-surface-elevated\/50/);
+      expect(section.className).toMatch(/border-border-default/);
+      expect(section.className).toMatch(/dark:bg-surface-elevated\/20/);
+      expect(section.className).not.toMatch(/bg-surface-card/);
+    });
+
+    it('hero presentation uses a taller drop target (CloudConvert-style)', () => {
+      render(<LeaseUploadDropzone onUploaded={() => {}} presentation="hero" />);
+      expect(screen.getByTestId('lease-upload-dropzone').className).toMatch(
+        /min-h-\[13\.5rem\]/,
+      );
+    });
+  });
+
   // Sprint 23b Phase 6.2 — drag-drop file passthrough. The drop path
   // bypasses the <input> element entirely (file goes straight into
   // handleFile), so callers can't recover the File via the DOM. The

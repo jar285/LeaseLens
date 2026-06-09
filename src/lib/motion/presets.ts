@@ -61,3 +61,36 @@ export const EASE_OUT_SOFT = [0.22, 1, 0.36, 1] as const;
  * transitions (a value that grows and then settles back).
  */
 export const EASE_IN_OUT_SOFT = [0.45, 0, 0.55, 1] as const;
+
+/*
+ * Sprint 43.1 — motion tokens. The springs above cover physical/interactive
+ * motion; these cover *tween* motion (fades, flips, staggered reveals) so
+ * durations and easings stop being inlined magic numbers. Values are in
+ * SECONDS (Motion's `duration` unit), not ms.
+ */
+
+/**
+ * Duration scale, ascending. `enter` doubles as the ceiling for the Mode A->B
+ * workspace flip (Sprint 43.3) — orientation, not a wait.
+ */
+export const DURATION = {
+  fast: 0.15,
+  base: 0.25,
+  enter: 0.4,
+} as const;
+
+/**
+ * Easing tokens — aliases onto the existing cubic arcs so motion-driven and
+ * CSS-driven transitions share one curve. `standard` for entrances/most moves,
+ * `exit` for symmetric grow-and-settle.
+ */
+export const EASE = {
+  standard: EASE_OUT_SOFT,
+  exit: EASE_IN_OUT_SOFT,
+} as const;
+
+/**
+ * Per-sibling delay for list-entrance stagger (Sprint 43.4). Kept small and
+ * bounded so a long list never withholds high-severity content behind a reveal.
+ */
+export const STAGGER = 0.05;

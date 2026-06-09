@@ -1,6 +1,8 @@
 # Sprint 23b — Document Dock (Left Pane Redesign)
 
-**Status:** Draft, awaiting human QA per charter §7 step 1.
+> **STATUS: SHELVED** — Designed on the `feature/ui` branch and never merged. The parser-first pivot in Sprint 26 (`ParserResultsShell` is the live left-pane PDF column) superseded the Document Dock direction. Kept here as historical design exploration; do not implement.
+
+**Status:** Shelved (not merged; superseded by Sprint 26).
 **Date:** 2026-05-13.
 **Branch:** `feature/ui`.
 **Parent handoff:** [handoff.md](../../../handoff.md) §12, §21.

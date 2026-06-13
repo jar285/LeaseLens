@@ -314,7 +314,19 @@ function LeaseHeroEntrance({
  * low opacity via the `idleShimmer` prop. Reduced motion skips both
  * animations and renders the static mark, matching the empty-state
  * contract from earlier sprints.
+ *
+ * Sprint 49 — premium lift, in the hero's OWN register (deliberately NOT
+ * the masthead's solid terracotta tile, which would fight the ambient glow
+ * behind the lockup). Stays pale + accent-glyphed (airy first impression),
+ * and gains depth the same way the trust-metric medallions do: a subtle
+ * within-family gradient (accent-50 → accent-100), an inset top highlight
+ * (catch-light), a soft warm lift shadow, and a hairline edge. Glyph stays
+ * accent-coloured and crisp (Wathan/Schoger depth, Dieter Rams restraint;
+ * readability preserved per ui-ux-philosophy). Shared by both the animated
+ * and static branches so they can't drift.
  */
+const HERO_BADGE_CLASS =
+  'flex h-12 w-12 items-center justify-center rounded-2xl border border-border-hairline bg-gradient-to-br from-accent-50 to-accent-100 text-accent-500 shadow-[inset_0_1px_0_rgb(255_255_255/0.6),0_8px_20px_-10px_rgb(40_28_16/0.25)] dark:border-accent-500/20 dark:from-accent-500/15 dark:to-accent-500/25 dark:text-accent-300 dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.1),0_8px_20px_-10px_rgb(0_0_0/0.55)]';
 function LeaseHeroBrandBadge(): React.JSX.Element {
   const reduced = useReducedMotion();
   // Mount gate avoids a hydration mismatch — the first SSR pass renders
@@ -331,7 +343,7 @@ function LeaseHeroBrandBadge(): React.JSX.Element {
       <motion.div
         aria-hidden="true"
         data-testid="parser-landing-badge"
-        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-50 text-accent-500 dark:bg-accent-500/15 dark:text-accent-300"
+        className={HERO_BADGE_CLASS}
         animate={{ scale: [1, 1.04, 1], opacity: [0.9, 1, 0.9] }}
         transition={{
           duration: 4,
@@ -344,10 +356,7 @@ function LeaseHeroBrandBadge(): React.JSX.Element {
     );
   }
   return (
-    <div
-      data-testid="parser-landing-badge"
-      className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-50 text-accent-500 dark:bg-accent-500/15 dark:text-accent-300"
-    >
+    <div data-testid="parser-landing-badge" className={HERO_BADGE_CLASS}>
       <LeaseLensMark size={28} animated={false} />
     </div>
   );

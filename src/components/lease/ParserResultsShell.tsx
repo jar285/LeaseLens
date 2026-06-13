@@ -28,6 +28,7 @@ import { AutoScanRunner } from './AutoScanRunner';
 import { ClausesList } from './ClausesList';
 import { ConfirmDialog } from './ConfirmDialog';
 import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
+import { PdfHighlightProvider } from './PdfHighlightContext';
 import { PdfViewer } from './PdfViewer';
 import { RedFlagReport } from './RedFlagReport';
 import { RedFlagsPaneHeader } from './RedFlagsPaneHeader';
@@ -70,9 +71,14 @@ export function ParserResultsShell(
         initialEvents={props.initialToolEvents}
         activeLease={props.initialActiveLease}
       >
-        <ChatStreamProvider viewerRole={props.viewerRole}>
-          <ResultsShellInner {...props} />
-        </ChatStreamProvider>
+        {/* Sprint 46.3 — highlight UI state sits under the parser provider
+            (so it can sit beside activeClauseId) and around the chat
+            provider, without disturbing the pinned three-provider order. */}
+        <PdfHighlightProvider>
+          <ChatStreamProvider viewerRole={props.viewerRole}>
+            <ResultsShellInner {...props} />
+          </ChatStreamProvider>
+        </PdfHighlightProvider>
       </LeaseParserProvider>
     </AssistantFabProvider>
   );

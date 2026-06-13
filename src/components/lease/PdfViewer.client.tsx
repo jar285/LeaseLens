@@ -25,7 +25,7 @@
 // imports are evaluated in source order; this side-effect import
 // patches the global before the next import line touches pdfjs.
 import './url-parse-polyfill';
-import { MapPin, Maximize2, ScrollText } from 'lucide-react';
+import { Maximize2, ScrollText } from 'lucide-react';
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
@@ -38,13 +38,25 @@ import {
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import type { HighlightTextItem } from '@/lib/lease/highlight-match';
+import {
+  buildHighlightLabel,
+  buildItemHtml,
+  computePageItemMarks,
+  type HighlightDrawTarget,
+  type ItemMark,
+} from './highlight-render';
 import { useLeaseParser } from './LeaseParserContext';
+import { PdfEvidenceGutter } from './PdfEvidenceGutter';
+import { PdfEvidenceOverlay } from './PdfEvidenceOverlay';
 import { PdfFocusDialog } from './PdfFocusDialog';
+import { useHighlightSettings } from './PdfHighlightContext';
 import {
   PDF_ZOOM_MAX,
   PDF_ZOOM_MIN,
   PdfReadingControls,
 } from './PdfReadingControls';
+import { useClauseHighlights } from './use-clause-highlights';
 
 // Worker is served as a static asset from /public. The
 // `new URL('pdfjs-dist/...', import.meta.url)` pattern that
@@ -63,25 +75,6 @@ const MIN_PAGE_WIDTH = 280;
 // the document at a comfortable reading width.
 const MAX_PAGE_WIDTH = 1100;
 const FALLBACK_WIDTH = 560;
-
-// Phase 10.8 — keep these in sync with the operator-facing labels
-// in RedFlagReport so the sticky callout reads the same.
-const CLAUSE_TYPE_LABEL: Record<string, string> = {
-  security_deposit: 'Security deposit',
-  late_fee: 'Late fee',
-  early_termination: 'Early termination',
-  sublet: 'Subletting',
-  repair: 'Repairs',
-  entry: 'Landlord entry',
-  retaliation: 'Retaliation',
-  automatic_renewal: 'Auto-renewal',
-  attorneys_fees: "Attorneys' fees",
-  indemnification: 'Indemnification',
-  jury_waiver: 'Jury trial waiver',
-  pet: 'Pets',
-  parking: 'Parking',
-  unknown: 'Other clause',
-};
 
 export interface PdfViewerClientProps {
   pdfUrl: string | null;
@@ -102,6 +95,23 @@ function pluralize(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
+// Sprint 46.5 — escape a clause id for use in a [data-clause-id="…"]
+// selector. Ids are server slugs, but escape defensively.
+function cssEscape(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value);
+  }
+  return value.replace(/["\\]/g, '\\$&');
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
 export function PdfViewerClient({
   pdfUrl,
   filename,
@@ -110,9 +120,33 @@ export function PdfViewerClient({
   hideFocusToggle = false,
 }: PdfViewerClientProps): React.JSX.Element {
   const { pdfViewerRef, activeClauseId, toolEvents } = useLeaseParser();
+  // Sprint 46.4 — graded clauses to highlight (per page) + visibility/filter.
+  const { byPage, count: highlightCount } = useClauseHighlights();
+  const {
+    showHighlights,
+    severityFilter,
+    isSeverityVisible,
+    hoveredClauseId,
+    setHoveredClauseId,
+  } = useHighlightSettings();
   const [numPages, setNumPages] = useState<number>(pageCountProp ?? 0);
   const [containerWidth, setContainerWidth] = useState<number>(FALLBACK_WIDTH);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Pages whose text layer is empty (scanned / image-only) — highlights
+  // can't be drawn there, so we surface a graceful "unavailable" notice.
+  const [emptyTextPages, setEmptyTextPages] = useState<Set<number>>(
+    () => new Set(),
+  );
+  // Raw text-layer items per page, captured from onGetTextSuccess. A ref
+  // (not state) because they don't drive layout — customTextRenderer reads
+  // them at call time, and react-pdf populates them before it runs the
+  // renderer within the same text-layer pass.
+  const pageItemsRef = useRef<Map<number, HighlightTextItem[]>>(new Map());
+  // Per-page memo of computed marks, keyed by a signature so the matcher
+  // runs once per (page, items, targets, filter) — not once per text item.
+  const markCacheRef = useRef<
+    Map<number, { sig: string; perItem: Map<number, ItemMark[]> }>
+  >(new Map());
 
   // S20.2 — reading-control state.
   const [zoom, setZoom] = useState<number>(1);
@@ -171,12 +205,215 @@ export function PdfViewerClient({
     }
     return null;
   }, [activeClauseId, toolEvents]);
+  // Still used to ring the active page; the clause label/§ now live on the
+  // floating evidence label (Sprint 47.3), so we no longer derive them here.
   const activePageNumber = activeFinding?.page_number;
-  const activeLabel = activeFinding?.clause_type
-    ? (CLAUSE_TYPE_LABEL[activeFinding.clause_type] ??
-      CLAUSE_TYPE_LABEL.unknown)
-    : null;
-  const activeClauseIndex = activeFinding?.clause_index;
+
+  // Sprint 46.4 — draw targets per page (clause text + severity + a
+  // prebuilt aria-label), derived from the graded clauses.
+  const drawTargetsByPage = useMemo(() => {
+    const map = new Map<number, HighlightDrawTarget[]>();
+    for (const [page, targets] of byPage) {
+      map.set(
+        page,
+        targets.map((t) => ({
+          clauseId: t.clauseId,
+          text: t.text,
+          severity: t.severity,
+          label: buildHighlightLabel({
+            clauseType: t.clauseType,
+            severity: t.severity,
+            pageNumber: page,
+          }),
+        })),
+      );
+    }
+    return map;
+  }, [byPage]);
+
+  // Signature of the visibility state; part of the per-page mark cache key.
+  const filterSig = `${showHighlights}|${severityFilter.high}${severityFilter.medium}${severityFilter.low}${severityFilter.ok}`;
+
+  // Compute (and cache) the per-item marks for a page. Reads items from the
+  // ref so it picks up the text layer once react-pdf has loaded it; the sig
+  // includes items.length so a late text-layer load invalidates the cache.
+  const buildPerItem = useCallback(
+    (
+      pageNumber: number,
+      targets: HighlightDrawTarget[],
+      isVisible: (s: Parameters<typeof isSeverityVisible>[0]) => boolean,
+      sigPrefix: string,
+    ): Map<number, ItemMark[]> => {
+      const items = pageItemsRef.current.get(pageNumber) ?? [];
+      const sig = `${items.length}|${sigPrefix}|${targets
+        .map((t) => `${t.clauseId}:${t.severity}`)
+        .join(',')}`;
+      const cached = markCacheRef.current.get(pageNumber);
+      if (cached && cached.sig === sig) return cached.perItem;
+      const perItem = computePageItemMarks(items, targets, isVisible);
+      markCacheRef.current.set(pageNumber, { sig, perItem });
+      return perItem;
+    },
+    [],
+  );
+
+  // Per-page customTextRenderer. Identity changes when the targets, filter,
+  // or master toggle change, so react-pdf re-renders the text layer and
+  // re-runs the renderer (that's the moment marks appear / disappear).
+  const textRenderers = useMemo(() => {
+    const map = new Map<
+      number,
+      (item: { str: string; itemIndex: number }) => string
+    >();
+    for (let page = 1; page <= numPages; page++) {
+      const targets = drawTargetsByPage.get(page) ?? [];
+      map.set(page, ({ str, itemIndex }) => {
+        if (!showHighlights || targets.length === 0) {
+          return buildItemHtml(str, []);
+        }
+        const perItem = buildPerItem(
+          page,
+          targets,
+          isSeverityVisible,
+          filterSig,
+        );
+        return buildItemHtml(str, perItem.get(itemIndex) ?? []);
+      });
+    }
+    return map;
+  }, [
+    numPages,
+    drawTargetsByPage,
+    showHighlights,
+    isSeverityVisible,
+    filterSig,
+    buildPerItem,
+  ]);
+
+  // Capture a page's text-layer items + track scanned (empty) pages.
+  // pdfjs items are TextItem | TextMarkedContent; the latter has no `str`,
+  // so we read defensively (marked-content entries become '' and never
+  // match). `unknown[]` sidesteps TS's weak-type check on the union.
+  const handleGetTextSuccess = useCallback(
+    (pageNumber: number, items: readonly unknown[]) => {
+      const normalized: HighlightTextItem[] = items.map((raw) => {
+        const i = raw as { str?: unknown; hasEOL?: unknown };
+        return {
+          str: typeof i.str === 'string' ? i.str : '',
+          hasEOL: i.hasEOL === true,
+        };
+      });
+      pageItemsRef.current.set(pageNumber, normalized);
+      const usable = normalized.some((i) => i.str.trim().length > 0);
+      setEmptyTextPages((prev) => {
+        const has = prev.has(pageNumber);
+        if (usable && has) {
+          const next = new Set(prev);
+          next.delete(pageNumber);
+          return next;
+        }
+        if (!usable && !has) {
+          const next = new Set(prev);
+          next.add(pageNumber);
+          return next;
+        }
+        return prev; // identity-stable: no needless re-render
+      });
+    },
+    [],
+  );
+
+  // True when at least one page that SHOULD carry highlights has no text
+  // layer — drives the "highlighting unavailable" notice without hiding
+  // the page itself (page navigation still works).
+  const highlightsUnavailable =
+    showHighlights &&
+    byPage.size > 0 &&
+    Array.from(byPage.keys()).some((page) => emptyTextPages.has(page));
+
+  // Sprint 47.4 — one-shot soft reveal of passive highlights when they first
+  // appear (the scan's 0→N transition). Gated on motion; never replays on
+  // zoom/filter (count is the graded total, unaffected by those). Replace
+  // resets count to 0, so a new lease reveals again.
+  const [revealing, setRevealing] = useState(false);
+  const prevHighlightCountRef = useRef(0);
+  useEffect(() => {
+    const prev = prevHighlightCountRef.current;
+    prevHighlightCountRef.current = highlightCount;
+    if (prev === 0 && highlightCount > 0 && !prefersReducedMotion()) {
+      setRevealing(true);
+      const timer = window.setTimeout(() => setRevealing(false), 420);
+      return () => window.clearTimeout(timer);
+    }
+  }, [highlightCount]);
+
+  // Sprint 46.5 — emphasize the active clause's highlight. Highlights are
+  // persistent, so the marks already exist when a card sets activeClauseId;
+  // we scroll the first matched mark into view and pulse it. Scoped to THIS
+  // viewer instance's scroll area so the inline + focus viewers don't fight.
+  // Reduced motion swaps the pulse for a static outline. The activeClauseId
+  // lifecycle (set on click, auto-cleared after 4s) is owned by RedFlagReport
+  // — we add NO second timer, just react to the value. When no mark matches
+  // (filtered-out severity, no text match, scanned page) the existing
+  // scrollToPage from the card click already handled page-level orientation.
+  useEffect(() => {
+    const root = scrollAreaRef.current;
+    if (!root || !activeClauseId) return;
+    const selector = `mark[data-clause-id="${cssEscape(activeClauseId)}"]`;
+    const marks = root.querySelectorAll<HTMLElement>(selector);
+    if (marks.length === 0) return;
+    const reduce = prefersReducedMotion();
+    const cls = reduce ? 'll-hl--active' : 'll-hl--pulse';
+    for (const mark of marks) mark.classList.add(cls);
+    marks[0].scrollIntoView({
+      behavior: reduce ? 'auto' : 'smooth',
+      block: 'center',
+    });
+    return () => {
+      for (const mark of marks) {
+        mark.classList.remove('ll-hl--pulse', 'll-hl--active');
+      }
+    };
+  }, [activeClauseId]);
+
+  // Sprint 46.6 — PDF→card hover: a delegated listener (react-pdf strips
+  // inline handlers, so we read the bubbled event's nearest [data-clause-id])
+  // publishes the hovered clause. The card side reacts via hoveredClauseId.
+  // Mouse OR keyboard focus over a mark publishes the hovered clause.
+  // (Pairing focus with the mouse handler also satisfies a11y and is
+  // forward-compatible with keyboard-focusable marks.)
+  const handleMarkEnter = useCallback(
+    (event: React.SyntheticEvent) => {
+      const mark = (event.target as HTMLElement | null)?.closest?.(
+        '[data-clause-id]',
+      );
+      const id = mark?.getAttribute('data-clause-id');
+      if (id) setHoveredClauseId(id);
+    },
+    [setHoveredClauseId],
+  );
+  const handleMarkLeave = useCallback(
+    (event: React.SyntheticEvent) => {
+      const mark = (event.target as HTMLElement | null)?.closest?.(
+        '[data-clause-id]',
+      );
+      if (mark) setHoveredClauseId(null);
+    },
+    [setHoveredClauseId],
+  );
+
+  // card→PDF (and PDF→PDF) hover emphasis: toggle a light outline on the
+  // hovered clause's marks. No scroll — hover only emphasizes.
+  useEffect(() => {
+    const root = scrollAreaRef.current;
+    if (!root || !hoveredClauseId) return;
+    const selector = `mark[data-clause-id="${cssEscape(hoveredClauseId)}"]`;
+    const marks = root.querySelectorAll<HTMLElement>(selector);
+    for (const mark of marks) mark.classList.add('ll-hl--hover');
+    return () => {
+      for (const mark of marks) mark.classList.remove('ll-hl--hover');
+    };
+  }, [hoveredClauseId]);
 
   // Sprint 23g (kept in 23h) — extracted into a callback so both the
   // imperative handle (for external scrollToPage calls from CitationChip
@@ -440,6 +677,13 @@ export function PdfViewerClient({
         // biome-ignore lint/a11y/noNoninteractiveTabindex: tabIndex is required so the <section> can receive keyboard focus for ArrowLeft/Right page nav.
         tabIndex={0}
         onKeyDown={handleScrollAreaKeyDown}
+        // Sprint 46.6 — delegated hover bridge (marks can't carry inline
+        // handlers; react-pdf strips them). Reads the nearest [data-clause-id].
+        // focus is paired with mouse so keyboard focus on a mark links too.
+        onMouseOver={handleMarkEnter}
+        onMouseOut={handleMarkLeave}
+        onFocus={handleMarkEnter}
+        onBlur={handleMarkLeave}
         // Sprint 23h root-cause fix — `overflow-auto` (was
         // `overflow-y-auto`) allows the section to scroll both axes.
         // When the user zooms past fit-width, the page canvases become
@@ -450,30 +694,35 @@ export function PdfViewerClient({
         // until the user actually zooms in.
         className="relative flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-inset"
       >
-        {/* Phase 10.8 — sticky callout. Pinned to the top of the
-            scroll area while a clause is active, fades out with the
-            highlight. Communicates the connection between the right-
-            pane card and the left-pane page without a redesign. */}
-        {activeClauseId && activePageNumber ? (
+        {/* Sprint 47.3 — the Phase-10.8 top sticky callout was relocated into
+            the floating evidence label (PdfEvidenceOverlay), anchored right at
+            the clause instead of pinned to the top of the pane. The scanned-
+            page fallback below remains. */}
+
+        {/* Sprint 46.4 — graceful fallback: a scanned / no-text-layer page
+            can't carry highlights. Say so plainly (Nielsen: visibility of
+            system status) without hiding the page or breaking navigation. */}
+        {highlightsUnavailable ? (
           <div
-            data-testid="pdf-viewer-active-callout"
+            data-testid="pdf-highlights-unavailable"
+            role="status"
             className="pointer-events-none sticky top-0 z-raised mb-2 flex justify-center"
           >
-            <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-accent-200 bg-surface-card/95 px-3 py-1 text-[11px] font-medium text-accent-700 shadow-sm backdrop-blur dark:border-accent-500/40 dark:bg-neutral-900/95 dark:text-accent-300">
-              <MapPin className="h-3 w-3" aria-hidden="true" />
-              {activeLabel ?? 'Clause'}
-              {typeof activeClauseIndex === 'number'
-                ? ` · §${activeClauseIndex + 1}`
-                : null}
-              {' · page '}
-              {activePageNumber}
+            <div className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-warning-200 bg-surface-card/95 px-3 py-1 text-[11px] font-medium text-warning-700 shadow-sm backdrop-blur dark:border-warning-500/40 dark:bg-neutral-900/95 dark:text-warning-200">
+              <ScrollText className="h-3 w-3" aria-hidden="true" />
+              Highlights unavailable on scanned pages (no selectable text).
             </div>
           </div>
         ) : null}
 
         <div
           ref={pageContainerRef}
-          className={`mx-auto flex w-full flex-col gap-3 ${
+          data-testid="pdf-page-container"
+          // Sprint 47.4 — `ll-reveal` is added for one beat when highlights
+          // first appear, triggering the opacity reveal on the passive marks.
+          // Sprint 48.1 — `ll-focus-mode` recedes the non-active passive marks
+          // while a clause is selected, so the user focuses on one issue.
+          className={`mx-auto flex w-full flex-col gap-3 ${revealing ? 'll-reveal' : ''} ${activeClauseId ? 'll-focus-mode' : ''} ${
             // S20.7 — inline mode caps page-container width at
             // max-w-5xl (1024px) so the lease doesn't render wider
             // than is comfortable in the side pane. Focus mode (the
@@ -542,12 +791,33 @@ export function PdfViewerClient({
                     pageNumber={pageNumber}
                     width={effectivePageWidth}
                     renderAnnotationLayer={false}
+                    customTextRenderer={textRenderers.get(pageNumber)}
+                    onGetTextSuccess={({
+                      items,
+                    }: {
+                      items: readonly unknown[];
+                    }) => handleGetTextSuccess(pageNumber, items)}
                   />
                 </div>
               );
             })}
           </Document>
         </div>
+
+        {/* Sprint 47.2 — evidence frame overlay. Direct child of the scroll
+            section (its containing block + scroll container) so the frames
+            scroll with the pages; do NOT wrap in an absolute inset-0 box. */}
+        <PdfEvidenceOverlay
+          scrollAreaRef={scrollAreaRef}
+          effectivePageWidth={effectivePageWidth}
+        />
+
+        {/* Sprint 48.2 — Turnitin-style gutter markers, also direct children
+            of the scroll section so they scroll with the pages. */}
+        <PdfEvidenceGutter
+          scrollAreaRef={scrollAreaRef}
+          effectivePageWidth={effectivePageWidth}
+        />
       </section>
       {!hideFocusToggle ? (
         <PdfFocusDialog

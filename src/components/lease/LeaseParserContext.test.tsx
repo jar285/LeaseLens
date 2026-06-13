@@ -201,6 +201,7 @@ describe('LeaseParserContext', () => {
     const { AssistantFabProvider } = await import(
       '@/components/chat/AssistantFabContext'
     );
+    const { PdfHighlightProvider } = await import('./PdfHighlightContext');
     const { RedFlagReport } = await import('./RedFlagReport');
     const { render: rtlRender, screen } = await import(
       '@testing-library/react'
@@ -225,11 +226,13 @@ describe('LeaseParserContext', () => {
 
     rtlRender(
       <LeaseParserProvider initialEvents={[gradingEvent]}>
-        <ChatStreamProvider>
-          <AssistantFabProvider>
-            <RedFlagReport />
-          </AssistantFabProvider>
-        </ChatStreamProvider>
+        <PdfHighlightProvider>
+          <ChatStreamProvider>
+            <AssistantFabProvider>
+              <RedFlagReport />
+            </AssistantFabProvider>
+          </ChatStreamProvider>
+        </PdfHighlightProvider>
       </LeaseParserProvider>,
     );
 

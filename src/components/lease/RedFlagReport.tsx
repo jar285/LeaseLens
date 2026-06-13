@@ -45,6 +45,7 @@ import {
   type Severity,
 } from './grading';
 import { useLeaseParser } from './LeaseParserContext';
+import { useHighlightSettings } from './PdfHighlightContext';
 import { RedFlagSkeletonCard } from './RedFlagSkeletonCard';
 import { RedFlagsLoadingState } from './RedFlagsLoadingState';
 import { SeverityBadge } from './SeverityBadge';
@@ -100,6 +101,11 @@ export function RedFlagReport(): React.JSX.Element {
   // (and inside Vitest tests that mount both providers), so this is
   // always defined in practice.
   const fab = useAssistantFab();
+  // Sprint 46.6 — the card↔PDF hover bridge. hoveredClauseId is the
+  // transient, symmetric channel (distinct from the sticky activeClauseId
+  // click-focus): hovering a card emphasizes its PDF highlight and vice
+  // versa, without scrolling or clipping the 4s active ring.
+  const { hoveredClauseId, setHoveredClauseId } = useHighlightSettings();
   const scan = useScanProgress();
   const lifecycle = useScanLifecycle();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -453,6 +459,16 @@ export function RedFlagReport(): React.JSX.Element {
           {gradings.map((g) => {
             const isExpanded = expandedIds.has(g.clause_id);
             const isActive = activeClauseId === g.clause_id;
+            const isHovered = hoveredClauseId === g.clause_id;
+            // Sprint 46.6 — emphasize this card when its PDF highlight is
+            // hovered/focused (and vice versa). Active (the click ring) takes
+            // precedence, so the hover ring only shows when not active.
+            const hoverHandlers = {
+              onMouseEnter: () => setHoveredClauseId(g.clause_id),
+              onMouseLeave: () => setHoveredClauseId(null),
+              onFocusCapture: () => setHoveredClauseId(g.clause_id),
+              onBlurCapture: () => setHoveredClauseId(null),
+            };
             const toggle = () => {
               setExpandedIds((prev) => {
                 const next = new Set(prev);
@@ -488,8 +504,11 @@ export function RedFlagReport(): React.JSX.Element {
             // border; a separately-rendered <ActiveRing /> overlay handles
             // the highlight with a 200ms fade-in → 3.6s hold → 200ms
             // fade-out (driven by HIGHLIGHT_DURATION_MS in the setTimeout).
-            const cardClass =
-              'relative overflow-hidden rounded-lg border border-neutral-200 bg-surface-card shadow-hairline transition-shadow hover:shadow-lift dark:border-neutral-800 dark:bg-neutral-900';
+            const cardClass = `relative overflow-hidden rounded-lg border bg-surface-card shadow-hairline transition-shadow hover:shadow-lift dark:bg-neutral-900 ${
+              isHovered && !isActive
+                ? 'border-accent-300 ring-2 ring-accent-300/50 dark:border-accent-400/50'
+                : 'border-neutral-200 dark:border-neutral-800'
+            }`;
 
             const cardInner = (
               <>
@@ -740,6 +759,8 @@ export function RedFlagReport(): React.JSX.Element {
                 data-severity={g.severity}
                 data-expanded={isExpanded ? 'true' : 'false'}
                 data-active={isActive ? 'true' : 'false'}
+                data-hovered={isHovered ? 'true' : 'false'}
+                {...hoverHandlers}
                 className={cardClass}
                 // Sprint 23g — `layout` makes the card spring into place
                 // when siblings exit or when severity reorders the list.
@@ -772,6 +793,8 @@ export function RedFlagReport(): React.JSX.Element {
                 data-severity={g.severity}
                 data-expanded={isExpanded ? 'true' : 'false'}
                 data-active={isActive ? 'true' : 'false'}
+                data-hovered={isHovered ? 'true' : 'false'}
+                {...hoverHandlers}
                 className={cardClass}
               >
                 {cardInner}

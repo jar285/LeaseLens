@@ -16,6 +16,7 @@
  */
 
 import { motion, useReducedMotion } from 'motion/react';
+import { HighlightControls } from './HighlightControls';
 import { useScanProgress } from './use-scan-progress';
 
 export function RedFlagsPaneHeader(): React.JSX.Element {
@@ -58,7 +59,12 @@ export function RedFlagsPaneHeader(): React.JSX.Element {
           )}
           <span className="truncate tabular">{progress.label}</span>
         </div>
-      ) : null}
+      ) : (
+        // Sprint 46.7 — once the scan is done, the right slot carries the
+        // highlight controls (it self-gates on whether any clause was
+        // graded, so it stays empty during idle / pre-scan).
+        <HighlightControls />
+      )}
     </header>
   );
 }

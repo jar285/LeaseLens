@@ -60,6 +60,17 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   ok: 'OK',
 };
 
+// Sprint 48 — title-case "concern" phrasing for the PDF evidence label +
+// gutter markers (e.g. "Late fee · §3 · High concern"). `ok` reads "No
+// concern" so a compliant clause never sounds alarming. Distinct from the
+// lowercase aria phrasing in highlight-render.ts.
+export const SEVERITY_CONCERN: Record<Severity, string> = {
+  high: 'High concern',
+  medium: 'Medium concern',
+  low: 'Low concern',
+  ok: 'No concern',
+};
+
 export const CLAUSE_TYPE_LABEL: Record<string, string> = {
   security_deposit: 'Security deposit',
   late_fee: 'Late fee',

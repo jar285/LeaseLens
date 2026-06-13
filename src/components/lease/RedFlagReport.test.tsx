@@ -22,6 +22,7 @@ import {
 } from '@/components/chat/ChatStreamContext';
 import type { GradingResult } from './grading';
 import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
+import { PdfHighlightProvider } from './PdfHighlightContext';
 import {
   draftEmailPromptFor,
   explainPromptFor,
@@ -45,7 +46,9 @@ function ProviderWithEvents({
   return (
     <AssistantFabProvider>
       <LeaseParserProvider initialEvents={events}>
-        <ChatStreamProvider>{children}</ChatStreamProvider>
+        <PdfHighlightProvider>
+          <ChatStreamProvider>{children}</ChatStreamProvider>
+        </PdfHighlightProvider>
       </LeaseParserProvider>
     </AssistantFabProvider>
   );
@@ -855,10 +858,12 @@ describe('Sprint 26c — RedFlagReport card actions wire into AssistantFabContex
     render(
       <AssistantFabProvider>
         <LeaseParserProvider initialEvents={events}>
-          <ChatStreamProvider>
-            <Probe />
-            <RedFlagReport />
-          </ChatStreamProvider>
+          <PdfHighlightProvider>
+            <ChatStreamProvider>
+              <Probe />
+              <RedFlagReport />
+            </ChatStreamProvider>
+          </PdfHighlightProvider>
         </LeaseParserProvider>
       </AssistantFabProvider>,
     );
@@ -910,10 +915,12 @@ describe('Sprint 35 — Plain English card action', () => {
     render(
       <AssistantFabProvider>
         <LeaseParserProvider initialEvents={events}>
-          <ChatStreamProvider>
-            <Probe />
-            <RedFlagReport />
-          </ChatStreamProvider>
+          <PdfHighlightProvider>
+            <ChatStreamProvider>
+              <Probe />
+              <RedFlagReport />
+            </ChatStreamProvider>
+          </PdfHighlightProvider>
         </LeaseParserProvider>
       </AssistantFabProvider>,
     );
@@ -999,5 +1006,24 @@ describe('Sprint 35 — Plain English card action', () => {
     fireEvent.click(statute);
     expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('statute');
     expect(ctx.fab?.pendingPrompt).toContain('NJ Stat 46:8-21.2');
+  });
+
+  // Sprint 46.6 — card↔PDF hover bridge (card side). Hovering a card sets
+  // hoveredClauseId, which flips the card's own data-hovered flag; the PDF
+  // highlight reacts to the same state (asserted in PdfViewer.highlights).
+  it('marks a card as hovered on mouse-enter and clears it on mouse-leave', () => {
+    render(
+      <ProviderWithEvents events={[grade()]}>
+        <RedFlagReport />
+      </ProviderWithEvents>,
+    );
+    const card = screen.getByTestId('red-flag-card');
+    expect(card.getAttribute('data-hovered')).toBe('false');
+
+    fireEvent.mouseEnter(card);
+    expect(card.getAttribute('data-hovered')).toBe('true');
+
+    fireEvent.mouseLeave(card);
+    expect(card.getAttribute('data-hovered')).toBe('false');
   });
 });

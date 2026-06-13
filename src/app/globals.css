@@ -381,3 +381,343 @@ a[href] {
 :root.dark .parser-landing-shell::before {
   opacity: 0.016;
 }
+
+/*
+ * Sprint 46.4 — PDF clause highlights (Turnitin-style evidence markers).
+ *
+ * These <mark>s live INSIDE react-pdf's text layer, whose glyphs are
+ * transparent and sit over the rendered canvas for selection. So:
+ *   - the tint must be TRANSLUCENT (color-mix → transparent) or it would
+ *     cover the canvas text instead of highlighting it;
+ *   - severity is carried by THREE channels, never colour alone: the tint
+ *     (colour), a per-severity underline STYLE (shape), and an absolutely-
+ *     positioned severity glyph on the clause's first fragment (icon). The
+ *     glyph is position:absolute so it never shifts the transparent glyphs
+ *     out of alignment with the canvas (which would break text selection).
+ */
+/*
+ * Sprint 47.1 — refined passive treatment. Severity sets the tint colour
+ * (`--ll-color`) + a base alpha (`--ll-alpha`); hover/active just bump the
+ * alpha, so the three states are distinct without per-fragment outlines
+ * (the evidence-frame overlay in 47.2 owns the ring/halo/glow). The noisy
+ * per-severity underline is dropped — severity is still conveyed without
+ * colour by the leading glyph (::before), the card SeverityBadge, and the
+ * mark's aria-label.
+ *
+ * Sprint 48.4 — TWO load-bearing fixes after the first browser pass showed
+ * ghosted/doubled text inside highlights:
+ *   1. `color: transparent` — react-pdf's CSS only zeroes the colour on
+ *      `.textLayer span/br`, NOT on our injected <mark>. The UA stylesheet
+ *      gives <mark> an opaque text colour, which made the (imperfectly
+ *      aligned) transparent text-layer glyphs visible ON TOP of the canvas
+ *      glyphs → the doubled look. Forcing the mark transparent keeps the
+ *      canvas the single source of glyphs; only the tint film shows.
+ *   2. The per-line inset edge is removed — on a multi-line clause it drew a
+ *      box on every wrapped line (the "cluttered" look). Passive is now a
+ *      clean continuous tint film; the crisp edge belongs to the ACTIVE
+ *      frame only (passive = quiet, active = framed).
+ */
+.ll-hl {
+  --ll-color: var(--color-info-600);
+  --ll-alpha: 12%;
+  position: relative;
+  color: transparent;
+  border-radius: 3px;
+  background-color: color-mix(
+    in srgb,
+    var(--ll-color) var(--ll-alpha),
+    transparent
+  );
+  /*
+   * Sprint 48.5 — continuous "ribbon" look. pdfjs emits one text item per
+   * word, so a clause becomes many adjacent <mark>s with the inter-word gap
+   * untinted → a fragmented "word-chip" look. The padding bleeds the tint
+   * outward to meet the neighbouring word; the equal NEGATIVE margin cancels
+   * the layout shift, so the (transparent) glyphs stay aligned to the canvas.
+   * box-decoration-break: clone carries the radius/bleed onto every wrapped
+   * line so a multi-line clause reads as one calm phrase ribbon, not a box.
+   * Still EXACT evidence — only matched words are tinted; the bleed just
+   * closes the seams between them.
+   */
+  padding-block: 0.5px;
+  padding-inline: 0.16em;
+  margin-inline: -0.16em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* Sprint 48.1 — passive tints lowered so the page never feels "covered in
+   red". High is visible-but-calm; medium softer; low/ok quieter still (and
+   hidden by default via the severity filter). */
+.ll-hl--high {
+  --ll-color: var(--color-danger-600);
+  --ll-alpha: 14%;
+}
+.ll-hl--medium {
+  --ll-color: var(--color-warning-600);
+  --ll-alpha: 13%;
+}
+.ll-hl--low {
+  --ll-color: var(--color-info-600);
+  --ll-alpha: 12%;
+}
+.ll-hl--ok {
+  --ll-color: var(--color-success-600);
+  --ll-alpha: 10%;
+}
+
+/* Icon channel — one severity glyph per clause, hung off the first
+   fragment, positioned out-of-flow so it never disturbs text alignment. */
+.ll-hl[data-hl-first="true"]::before {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translate(-1.15em, -50%);
+  font-size: 0.8em;
+  line-height: 1;
+  pointer-events: none;
+}
+.ll-hl--high[data-hl-first="true"]::before {
+  content: "\25B2"; /* ▲ */
+  color: var(--color-danger-600);
+}
+.ll-hl--medium[data-hl-first="true"]::before {
+  content: "\25C6"; /* ◆ */
+  color: var(--color-warning-600);
+}
+.ll-hl--low[data-hl-first="true"]::before {
+  content: "\25CF"; /* ● */
+  color: var(--color-info-600);
+}
+.ll-hl--ok[data-hl-first="true"]::before {
+  content: "\2713"; /* ✓ */
+  color: var(--color-success-600);
+}
+
+/*
+ * Sprint 47.1 — hover/active emphasis on the MARK is now just a fill bump
+ * (alpha increase), distinct passive < hover < active. The cohesive ring,
+ * halo, glow, and the single focus pulse live on the evidence-frame overlay
+ * (Sprint 47.2 / 47.4) so a multi-line clause reads as one calm region
+ * instead of a stack of per-line boxes. `--pulse` tracks `--active` here;
+ * the animated pulse is the frame's job.
+ */
+.ll-hl--hover {
+  --ll-alpha: 24%;
+}
+.ll-hl--active,
+.ll-hl--pulse {
+  --ll-alpha: 32%;
+}
+
+/*
+ * Sprint 48.1 — selected-evidence focus. When a clause is selected, the page
+ * container carries `.ll-focus-mode` and the non-active passive marks recede
+ * so the user concentrates on one issue at a time (the active mark + its
+ * frame stay full strength). Reduced motion keeps the dim but skips the
+ * transition (the @media gate below).
+ */
+.ll-focus-mode .ll-hl {
+  opacity: 0.5;
+}
+.ll-focus-mode .ll-hl--active,
+.ll-focus-mode .ll-hl--pulse,
+.ll-focus-mode .ll-hl--hover {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ll-hl {
+    transition: opacity var(--duration-150) var(--ease-out-soft);
+  }
+}
+
+/*
+ * Sprint 47.2 — the evidence frame. One cohesive rounded region per
+ * emphasized clause (active or hovered), carrying the ring + halo + glow so
+ * a multi-line clause reads as a single calm marker. `--ll-color` is the
+ * severity tint; the frame is fill-less (the inline marks own the fill), so
+ * no double-tint. Hover is a quiet 1px ring; active layers a soft halo and
+ * a low, warm glow (Wathan/Schoger depth, Rams restraint — no hard bloom).
+ */
+.ll-evidence-frame {
+  --ll-color: var(--color-info-600);
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+}
+.ll-evidence-frame--high {
+  --ll-color: var(--color-danger-600);
+}
+.ll-evidence-frame--medium {
+  --ll-color: var(--color-warning-600);
+}
+.ll-evidence-frame--low {
+  --ll-color: var(--color-info-600);
+}
+.ll-evidence-frame--ok {
+  --ll-color: var(--color-success-600);
+}
+.ll-evidence-frame--hover {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ll-color) 42%, transparent);
+}
+/* Sprint 48.1 — softer, warmer active frame: a clear 1px severity ring, a
+   gentle halo, and a low ambient glow. Intensities dialed down so it reads
+   as "focused evidence", never a red flash. */
+.ll-evidence-frame--active {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ll-color) 55%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--ll-color) 11%, transparent),
+    0 6px 20px color-mix(in srgb, var(--ll-color) 14%, transparent);
+}
+
+/*
+ * Sprint 48.2 — evidence gutter markers. Small severity-shaped studs in the
+ * right gutter, one per visible red-flagged clause, so a long lease is
+ * scannable without heavy highlights everywhere. Severity is carried by the
+ * glyph (shape) + colour, never colour alone; the button has an accessible
+ * "Jump to …" label. Translated up by half so it centers on the clause.
+ */
+.ll-gutter-marker {
+  --ll-color: var(--color-info-600);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ll-color) 45%, transparent);
+  background-color: color-mix(
+    in srgb,
+    var(--ll-color) 16%,
+    var(--color-surface-card)
+  );
+  color: var(--ll-color);
+  font-size: 8px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    transform var(--duration-120) var(--ease-out-soft),
+    background-color var(--duration-120) var(--ease-out-soft);
+}
+.ll-gutter-marker:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--ll-color) 30%,
+    var(--color-surface-card)
+  );
+}
+.ll-gutter-marker:focus-visible {
+  outline: 2px solid var(--color-accent-300);
+  outline-offset: 1px;
+}
+.ll-gutter-marker--high {
+  --ll-color: var(--color-danger-600);
+}
+.ll-gutter-marker--medium {
+  --ll-color: var(--color-warning-600);
+}
+.ll-gutter-marker--low {
+  --ll-color: var(--color-info-600);
+}
+.ll-gutter-marker--ok {
+  --ll-color: var(--color-success-600);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ll-gutter-marker:hover {
+    transform: translateY(-50%) scale(1.12);
+  }
+}
+
+/*
+ * Sprint 47.3 — floating evidence label. A small warm glass caption pill
+ * ("Late fee · §3") sitting just above the clause's first line. Reuses the
+ * house premium-surface recipe (backdrop blur + parchment alpha + warm
+ * popover shadow + hairline border) from the FAB drawer so it reads as part
+ * of LeaseLens, not a debug tooltip. Decorative (pointer-events: none).
+ */
+.ll-evidence-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateY(calc(-100% - 5px));
+  display: inline-flex;
+  align-items: center;
+  max-width: 16rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-hairline);
+  background-color: color-mix(
+    in srgb,
+    var(--color-surface-card) 86%,
+    transparent
+  );
+  box-shadow: var(--shadow-popover);
+  color: var(--color-fg-default);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  backdrop-filter: blur(12px);
+}
+
+/*
+ * Sprint 47.4 — motion polish. All gated under no-preference so reduced-
+ * motion users get the static states (resting halo, instant frame, opacity-1
+ * marks) with no reveal/pulse. Note: <mark> is inline, so the passive reveal
+ * is OPACITY-ONLY (transform doesn't apply to inline boxes); the frame is a
+ * block and gets the @starting-style fade + the single focus pulse.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  /* Frame fades in softly on mount (active or hover) instead of snapping. */
+  .ll-evidence-frame {
+    transition: opacity var(--duration-150) var(--ease-out-soft);
+  }
+  @starting-style {
+    .ll-evidence-frame {
+      opacity: 0;
+    }
+  }
+
+  /* One soft halo expansion on selection (the frame element is created when
+     a clause becomes active, so this plays exactly once — and again on each
+     re-selection — without looping). Settles to the resting active shadow. */
+  .ll-evidence-frame--active {
+    animation: evidenceFocusPulse 700ms var(--ease-out-soft) 1;
+  }
+  @keyframes evidenceFocusPulse {
+    0% {
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--ll-color) 55%, transparent),
+        0 0 0 0 color-mix(in srgb, var(--ll-color) 20%, transparent);
+    }
+    55% {
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--ll-color) 55%, transparent),
+        0 0 0 7px color-mix(in srgb, var(--ll-color) 10%, transparent),
+        0 6px 20px color-mix(in srgb, var(--ll-color) 14%, transparent);
+    }
+    100% {
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--ll-color) 55%, transparent),
+        0 0 0 3px color-mix(in srgb, var(--ll-color) 11%, transparent),
+        0 6px 20px color-mix(in srgb, var(--ll-color) 14%, transparent);
+    }
+  }
+
+  /* Soft reveal of passive highlights when they first appear after a scan.
+     One-shot: the viewer adds .ll-reveal to the page container only on the
+     first 0→N transition (see PdfViewer), then removes it. */
+  .ll-reveal .ll-hl {
+    animation: evidenceReveal var(--duration-350) var(--ease-out-soft) both;
+  }
+  @keyframes evidenceReveal {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}

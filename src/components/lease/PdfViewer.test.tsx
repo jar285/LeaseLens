@@ -13,6 +13,7 @@ import { type ReactNode, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatStreamProvider } from '@/components/chat/ChatStreamContext';
 import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
+import { PdfHighlightProvider } from './PdfHighlightContext';
 
 // react-pdf mock: deterministic, no Workers, no async loading.
 vi.mock('react-pdf', () => ({
@@ -40,7 +41,9 @@ afterEach(cleanup);
 
 const wrap = (children: ReactNode) => (
   <LeaseParserProvider>
-    <ChatStreamProvider>{children}</ChatStreamProvider>
+    <PdfHighlightProvider>
+      <ChatStreamProvider>{children}</ChatStreamProvider>
+    </PdfHighlightProvider>
   </LeaseParserProvider>
 );
 

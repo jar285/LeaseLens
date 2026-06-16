@@ -1,5 +1,7 @@
 # LeaseLens
 
+https://github.com/user-attachments/assets/7664c2cb-fba1-4816-bbb7-a17e5b098a5a
+
 **LeaseLens is a NJ residential lease red-flag reviewer.**
 
 Drop in a lease PDF, get clause-by-clause severity grading grounded in NJ tenant-law sources, then ask the assistant to explain clauses in plain English or draft a polite negotiation email.
@@ -694,10 +696,8 @@ Phase summary:
 | Evidence highlighting + brand | 46–49 | PDF evidence layer, gutter markers, `v1.0` polish |
 
 Full sprint history:
-
-```text
-docs/history.md
-```
+ 
+[History](docs/history.md)
 
 ---
 

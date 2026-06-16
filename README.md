@@ -6,7 +6,7 @@ Built to demonstrate how an LLM agent can deliver high-stakes domain judgement u
 
 > **Not legal advice.** LeaseLens reviews NJ residential leases and grades clauses against NJ tenant-law sources. It is not a lawyer; its output is not legal advice. Before acting on any clause grading or draft email, consult a tenant attorney or your local NJ legal-aid clinic.
 
-**Deployment status:** local demo is implemented and runs end-to-end; public Vercel deployment + Loom walkthrough are planned for the closeout sprint.
+**Status:** runs end-to-end locally. **Roadmap:** production hardening for a public Vercel deploy — hosted DB (libSQL/Turso or Postgres), real auth + per-user data isolation, and cost/rate caps — plus a Loom walkthrough.
 
 ---
 
@@ -22,10 +22,11 @@ The project emphasises product judgement as much as model integration. Severity 
 
 A portfolio piece targeting Forward Deployed, AI Product, and Applied AI engineering roles. In order of priority:
 
-1. **LLM + agent + RAG composition** — Anthropic streaming chat with a 3-iteration tool-use loop, hybrid retrieval (vector + BM25 + reciprocal rank fusion) against a 28-document NJ tenant-law corpus, and three lease-specific tools wired into the same registry that gates the prompt's tool manifest.
+1. **LLM + agent + RAG composition** — Anthropic streaming chat with a 15-iteration tool-use loop, hybrid retrieval (vector + BM25 + reciprocal rank fusion) against a 28-document NJ tenant-law corpus, and four lease-specific tools wired into the same registry that gates the prompt's tool manifest.
 2. **Citation discipline** — `grade_clause_severity` validates the model's chunk_id and statute string against the live corpus before returning. A failed citation throws and surfaces in the UI; the model has to retry or admit it cannot ground the claim.
 3. **AI evaluation, two tiers** — Tier 1 measures retrieval quality (Precision@K, Recall@K, MRR, Groundedness) on 12 NJ tenant-law golden cases. Tier 2 measures end-to-end severity-grading accuracy on 12 curated lease clauses. Both exit 0/1 and write machine-readable reports the cockpit displays side-by-side.
 4. **Engineering constraints** — Strict RBAC (Tenant / Reviewer / Admin) enforced at the registry filter and re-checked at execute time. Lease ownership is a separate axis (a Tenant only sees leases they uploaded). Mutating tools execute inside a `better-sqlite3` transaction with a paired audit-log insert. The tenant-facing draft-email result is a copy-to-clipboard card; the Undo / compensating-action path is an **operator** affordance — the Reviewer/Admin `ToolCard` and the cockpit audit feed run `POST /api/audit/[id]/rollback` atomically.
+5. **Evidence highlighting (page anchoring)** — every red-flagged clause is highlighted on the PDF itself: the matched lease text is tinted on react-pdf's text layer, the selected clause gets a framed halo + a floating concern label, and gutter markers map the risks down the page edge — so one click moves from card → exact source text → explanation. Pure client-side text-layer matching: no stored coordinates, no schema change.
 
 ---
 
@@ -50,7 +51,7 @@ A portfolio piece targeting Forward Deployed, AI Product, and Applied AI enginee
 │           │                             │                  │
 │   POST /api/leases             POST /api/chat              │
 │   (multipart PDF →             (NDJSON stream + tool-use   │
-│   parse + segment              loop, max 3 iters — drives  │
+│   parse + segment              loop, max 15 iters — drives │
 │   + classify)                  scan + assistant follow-ups)│
 └──────────────────────┬───────────────────────────────────┘
                        │
@@ -61,6 +62,7 @@ A portfolio piece targeting Forward Deployed, AI Product, and Applied AI enginee
         │              list_documents (Admin)           │
         │              extract_clauses                  │
         │              grade_clause_severity            │
+        │              get_lease_findings               │
         │  Visual:     render_workflow_diagram          │
         │  Mutating:   draft_negotiation_email          │
         │                                               │
@@ -97,6 +99,10 @@ A portfolio piece targeting Forward Deployed, AI Product, and Applied AI enginee
 **Citation grounding.** `grade_clause_severity` runs `retrieve()` against the corpus, asks the model to cite both a `chunk_id` and a human-readable `statute_citation`, and validates both before returning: the chunk_id must be in the retrieved set, and the statute string must appear (case-insensitive, whitespace-collapsed) inside that chunk's text. Either failure throws.
 
 **Audit invariants.** `draft_negotiation_email` is the single mutating tool. The Anthropic `messages.create` call runs in an async `prepare` step *before* the transaction, so the SQLite write window is short. The transaction wraps the `negotiation_emails` insert and the `audit_log` insert — if either fails, both roll back. In the tenant product the result renders as a copy-to-clipboard `NegotiationEmailCard` (no Undo). The compensating-action **undo** is an operator affordance: the Reviewer/Admin `ToolCard` and the cockpit audit feed expose an Undo button that runs `POST /api/audit/[id]/rollback`, which executes the compensating action (`DELETE FROM negotiation_emails WHERE id = ?`) and updates the audit row's status atomically.
+
+**PDF evidence highlighting.** Graded clauses are highlighted on the rendered PDF via react-pdf's `customTextRenderer`: a client-side matcher ([`highlight-match.ts`](src/lib/lease/highlight-match.ts)) normalises the stored clause text and finds it in the page's live text layer, so marks realign on zoom/scroll for free — no stored coordinates, no schema change. Passive marks stay calm; the active clause gets a computed evidence-frame overlay (halo + glow + a floating "§ · concern" label) and a severity gutter marker. Severity is never colour-alone (glyph + label + aria), and all motion respects `prefers-reduced-motion`.
+
+**Observability.** One structured `pino` logger ([`src/lib/log/`](src/lib/log/)) with a PII-redaction allowlist (no raw lease/clause text or draft-email bodies reach logs or the persisted `tool_calls.error_message`), per-request correlation IDs ([`src/lib/http/`](src/lib/http/)) so a chat round-trip traces end-to-end, accessible error boundaries, and a CI workflow gating the four checks + a Playwright e2e job on every PR (Sprint 44).
 
 **Custom MCP server** at [`mcp/leaselens-server.ts`](mcp/leaselens-server.ts) exposes the registry over stdio for Claude Desktop, Cursor, or any MCP client.
 
@@ -141,8 +147,8 @@ A portfolio piece targeting Forward Deployed, AI Product, and Applied AI enginee
 ### 1. Clone and install
 
 ```bash
-git clone git@github.com:jar285/ContentOps.git
-cd ContentOps
+git clone https://github.com/jar285/LeaseLens.git
+cd LeaseLens
 npm ci
 ```
 
@@ -163,6 +169,8 @@ LEASELENS_ANTHROPIC_MODEL=claude-haiku-4-5
 LEASELENS_DAILY_SPEND_CEILING_USD=2
 LEASELENS_LEASE_MAX_BYTES=1048576            # 1 MB upload cap
 LEASELENS_LEASE_MAX_PAGES=30
+LEASELENS_AUTO_SCAN_ENABLED=true             # optional — auto-run the scan on a fresh upload
+LEASELENS_LOG_LEVEL=info                     # optional — pino log level (Sprint 44)
 ```
 
 ### 3. Start the dev server
@@ -193,11 +201,11 @@ The default workspace is the seeded sample, so you have a lease to inspect immed
 
 ### As Tenant (default role)
 
-The Tenant sees only leases they uploaded. The full lease toolset is available — `extract_clauses`, `grade_clause_severity`, `draft_negotiation_email` — plus read-only corpus search.
+The Tenant sees only leases they uploaded. The full lease toolset is available — `extract_clauses`, `grade_clause_severity`, `get_lease_findings`, `draft_negotiation_email` — plus read-only corpus search. Once a lease has been graded, follow-up questions about the findings are answered from stored gradings via `get_lease_findings` (Sprint 45) instead of re-running the whole scan.
 
 Try, in this order:
 
-- *"Run the standard scan."* — the assistant calls `extract_clauses`, then `grade_clause_severity` for each non-trivial clause in turn. The right-hand red-flag report fills in as gradings come back; each card shows the severity, a NJ statute citation, the assistant's plain-English reasoning, and a recommended action. Click a citation chip to scroll the PDF viewer to the cited clause. Expand a card for one-click quick actions that pre-seed the drawer: **Plain English** (jargon-free, tenant-facing explanation), **What the law says** (statute-verbatim walkthrough), and **Draft email** — plus **View on page N** to jump the PDF.
+- *"Run the standard scan."* — the assistant calls `extract_clauses`, then `grade_clause_severity` for each non-trivial clause in turn. The right-hand red-flag report fills in as gradings come back; each card shows the severity, a NJ statute citation, the assistant's plain-English reasoning, and a recommended action. Each graded clause is highlighted directly on the PDF (soft severity tint + a gutter marker). Click a citation chip to scroll the PDF viewer to the cited clause and frame the exact lease text behind the flag. Expand a card for one-click quick actions that pre-seed the drawer: **Plain English** (jargon-free, tenant-facing explanation), **What the law says** (statute-verbatim walkthrough), and **Draft email** — plus **View on page N** to jump the PDF.
 - *"What does NJ law say about security-deposit caps?"* — direct corpus search via `search_corpus`. Every answer is grounded in retrieved chunks.
 - *"Draft a polite email to my landlord about the security deposit clause."* — the assistant calls `draft_negotiation_email` with the most-recent grading's reasoning + statute citation as context. For a Tenant the result renders inline as a copy-to-clipboard `NegotiationEmailCard` (subject + body); Reviewers/Admins see the raw `ToolCard` with an Undo affordance instead. Either way the write is captured in the audit log.
 
@@ -277,7 +285,7 @@ A library of prompts that exercise different parts of the tool surface. Each map
 
 | Role (UI) | DB literal | Tools available | Lease ownership |
 |---|---|---|---|
-| Tenant | `Creator` | `search_corpus`, `extract_clauses`, `grade_clause_severity`, `draft_negotiation_email`, `render_workflow_diagram` | Only leases the user uploaded |
+| Tenant | `Creator` | `search_corpus`, `extract_clauses`, `grade_clause_severity`, `get_lease_findings`, `draft_negotiation_email`, `render_workflow_diagram` | Only leases the user uploaded |
 | Reviewer | `Editor` | + `get_document_summary` | All leases in workspace |
 | Admin | `Admin` | + `list_documents` | All leases + full audit log |
 
@@ -299,7 +307,13 @@ The same registry that filters the prompt's tool manifest also gates execution �
 
 `POST /api/leases` accepts a `application/pdf` upload (max 1 MB, max 30 pages by default). The route runs `parsePdf(buffer)` from [`src/lib/lease/parse-pdf.ts`](src/lib/lease/parse-pdf.ts) using `pdfjs-dist`, segments each page on numbered-section prefixes (`1.`, `(a)`, `ARTICLE I`), classifies each clause by type (security_deposit, late_fee, early_termination, …), and inserts into `leases` / `clauses`. Scanned PDFs with no text layer return 422 with `error: 'pdf_no_text_layer'` — OCR is out of scope.
 
-The client viewer is `react-pdf` over the same `pdfjs-dist`. **Navigation (Sprint 23h):** Prev / Next page buttons in the dock header drive the same `scrollToPage` path the citation chips use, and `ArrowLeft` / `ArrowRight` on the focusable scroll `<section>` paginate by keyboard (skipped while there's an active text selection so arrow-key selection extension still works). **Width sizing:** a `ResizeObserver` measures the inner page container directly and pins each page wrapper to the canvas width via inline style, so the text layer no longer right-clips at fit-width and zoom past 100 % pans horizontally.
+The client viewer is `react-pdf` over the same `pdfjs-dist`. **Navigation (Sprint 23h):** Prev / Next page buttons in the dock header drive the same `scrollToPage` path the citation chips use, and `ArrowLeft` / `ArrowRight` on the focusable scroll `<section>` paginate by keyboard (skipped while there's an active text selection so arrow-key selection extension still works). **Width sizing:** a `ResizeObserver` measures the inner page container directly and pins each page wrapper to the canvas width via inline style, so the text layer no longer right-clips at fit-width and zoom past 100 % pans horizontally. Once a lease is graded, the matched clause text is highlighted on that same text layer — see **PDF Evidence Highlighting** below.
+
+### PDF Evidence Highlighting
+
+Red-flagged clauses are highlighted directly on the PDF, turning each severity grade into grounded evidence — one click moves from card → exact lease text → explanation → action. When a scan completes, every graded clause renders as a soft severity-tinted mark on react-pdf's text layer (High + Medium on by default; Low / OK behind a toggle). Selecting a red-flag card focuses its clause: a single rounded **evidence-frame** overlay draws a halo + glow around the whole clause region, a floating glass label (*"Late fee · §3 · High concern"*) sits above the first line, and small severity-shaped **gutter markers** (▲ ◆ ● ✓) down the page edge let you scan a long lease without heavy highlights everywhere. Severity is never communicated by colour alone (every mark carries a glyph + an `aria-label`), all motion respects `prefers-reduced-motion`, and clause text is HTML-escaped before injection. This supersedes the old page-only "View on page N" jump — the citation chip and the **View on page** action now scroll to *and* frame the exact clause, not just its page.
+
+It is powered by a pure client-side text-layer matcher ([`highlight-match.ts`](src/lib/lease/highlight-match.ts)): the same stored clause text the cards use is normalised and located in the page's live text layer at render time, so there are **no database / schema / parsing changes and no stored coordinates**, and highlights realign automatically on zoom, scroll, and rotation via react-pdf's `customTextRenderer`. New highlight state (visibility, severity filter, hover) lives in its own `PdfHighlightContext`; click-focus reuses the existing `activeClauseId`, so the pinned chat / parser context boundaries are untouched. Show/hide + per-severity filter controls live in the red-flags pane header.
 
 ### Two-Tier Eval Harness
 
@@ -326,7 +340,7 @@ Add to your MCP client config:
     "leaselens": {
       "command": "npx",
       "args": ["tsx", "mcp/leaselens-server.ts"],
-      "cwd": "/path/to/ContentOps"
+      "cwd": "/path/to/LeaseLens"
     }
   }
 }
@@ -343,6 +357,10 @@ The repo also ships a project-level [`.mcp.json`](.mcp.json) that registers Micr
 `render_workflow_diagram` accepts raw Mermaid source for any of eight diagram families (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`, `mindmap`, `journey`, `classDiagram`, `erDiagram`). Server-side validation only (prefix regex, length cap, init-directive + line-comment skip); rendering happens client-side via `mermaid@^11` with `securityLevel: 'strict'` and `htmlLabels: false`. Parse errors fall back to a `<pre>` block of the raw code with the error inline.
 
 The diagram entry, assistant message entry, and `ToolCard` expand/collapse are animated via `motion@^12`. All three surfaces honour `prefers-reduced-motion`: when set, animations are skipped entirely (not slowed) and the DOM renders the plain equivalents. The `mermaid` bundle is dynamic-imported, so the cost is paid only on the first render.
+
+### Observability & Logging
+
+A developer-facing reliability layer (Sprint 44): one structured `pino` logger ([`src/lib/log/`](src/lib/log/)) replaces scattered `console.*`, every request carries a **correlation ID** so a chat round-trip can be traced end-to-end (RAG → Anthropic stream → tool execution) via [`src/lib/http/`](src/lib/http/), client crashes fall back to accessible error boundaries (`error.tsx` / `global-error.tsx`), and a **PII-redaction allowlist** keeps raw lease/clause text and the model's draft-email body out of both logs and the persisted `tool_calls.error_message`. Test + coverage reporters and a [`.github/workflows/ci.yml`](.github/workflows/ci.yml) gate the four checks (lint → typecheck → test + coverage → build) on every PR, with a separate Playwright **e2e job** — the suite had silently rotted while ungated and was repaired to a deterministic 30/30 green, now a required gate.
 
 ---
 
@@ -378,7 +396,7 @@ The Playwright config sets `LEASELENS_E2E_MOCK=1` on the dev-server child, which
 ## Project Structure
 
 ```
-ContentOps/
+LeaseLens/
 ├── mcp/                                  # Custom MCP server (stdio transport)
 │   ├── leaselens-server.ts
 │   └── leaselens-server.test.ts
@@ -392,20 +410,27 @@ ContentOps/
 ├── src/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── chat/route.ts             # NDJSON streaming + tool-use loop (max 3 iters)
+│   │   │   ├── chat/route.ts             # NDJSON streaming + tool-use loop (max 15 iters)
 │   │   │   ├── leases/                   # POST upload + GET [id] + clauses/emails
 │   │   │   ├── audit/                    # GET role-filtered list, POST [id]/rollback
-│   │   │   └── workspaces/               # multipart upload + select-sample
+│   │   │   ├── workspaces/               # multipart upload + select-sample
+│   │   │   └── admin/ping/               # health check
 │   │   ├── cockpit/                      # /cockpit dashboard (Reviewer + Admin)
 │   │   └── page.tsx                      # Home — parser-first workspace shell (Mode A→B router)
 │   ├── components/
+│   │   ├── auth/                         # role switcher + session UI
+│   │   ├── brand/                        # LeaseLensMark glyph + wordmark / badge classes
 │   │   ├── chat/                         # AssistantFab + drawer, ChatUI, ChatTranscript,
 │   │   │                                 # ChatMessage, ToolCard, MermaidDiagram
-│   │   ├── cockpit/                      # AuditFeed, Schedule, Spend, EvalHealth panels
+│   │   ├── cockpit/                      # AuditFeed, Schedule, Spend, EvalHealth, SampleWorkspaceSwitcher
+│   │   ├── layout/                       # Container, PageShell, ContentPageShell, SiteFooter, MotionProvider
 │   │   ├── lease/                        # WorkspaceRouterShell, ParserLandingShell,
 │   │   │                                 # ParserResultsShell, PdfViewer, RedFlagReport,
-│   │   │                                 # ClausesList, AutoScanRunner, CitationChip
-│   │   └── workspaces/                   # workspace switcher + onboarding
+│   │   │                                 # ClausesList, AutoScanRunner, CitationChip, ConfirmDialog,
+│   │   │                                 # PdfHighlightContext, PdfEvidenceOverlay,
+│   │   │                                 # PdfEvidenceGutter, HighlightControls,
+│   │   │                                 # highlight-render, use-clause-highlights
+│   │   └── states/                       # EmptyState, ErrorState, LoadingState
 │   ├── corpus/
 │   │   ├── nj-tenant-law/                # 28 NJ tenant-law markdown sources
 │   │   └── sample-lease/                 # seeded sample lease PDF + markdown
@@ -413,17 +438,27 @@ ContentOps/
 │   │   └── seed.ts                       # idempotent seed (corpus + sample lease)
 │   └── lib/
 │       ├── anthropic/                    # SDK singleton + E2E mock
+│       ├── audit/                        # audit-log queries
 │       ├── auth/                         # session, RBAC types, demo users, role labels
 │       ├── chat/                         # system-prompt, context-window, conversations, parse-stream-line
+│       ├── cockpit/                      # cockpit data aggregation
+│       ├── content/                      # static page copy (privacy, terms, faq)
 │       ├── db/                           # schema, migrate, spend, rate-limit
 │       ├── evals/                        # Tier 1 runner, Tier 2 runner, golden + lease cases
+│       ├── http/                         # request/response helpers
+│       ├── layout/                       # layout helpers
 │       ├── lease/                        # parse-pdf, segment-clauses, classify-clause,
-│       │                                 # validate-upload, queries, ownership, disclaimer
+│       │                                 # validate-upload, queries, ownership, disclaimer,
+│       │                                 # highlight-match, escape-html
+│       ├── log/                          # pino logger + request context (Sprint 44)
 │       ├── motion/                       # SPRING_GENTLE / SPRING_SNAPPY / SPRING_SNAP_BACK
 │       │                                 # + EASE_OUT_SOFT presets (Sprint 23g)
 │       ├── rag/                          # ingest, chunk, embed (Xenova WASM), retrieve
+│       ├── test/                         # shared test fixtures + mock data
 │       ├── tools/                        # registry, lease-tools, corpus-tools, diagram-tools,
 │       │                                 # audit-log, create-registry
+│       ├── env.ts                        # Zod-validated environment schema
+│       ├── version.ts                    # masthead version + status stamp
 │       └── workspaces/                   # cookie helpers + per-visitor brand list
 ├── design-system/
 │   └── MASTER.md                         # design tokens, typography, motion presets,
@@ -441,7 +476,7 @@ ContentOps/
 
 LeaseLens is built sprint-by-sprint with a spec → QA → sprint plan → implementation → QA loop. All artifacts live in [`docs/_specs/`](docs/_specs/).
 
-Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases while preserving every architectural invariant. Sprint 14 hardened the eval harness with Tier 2 lease grading. Sprints 15–22 built out the design system (Tailwind v4 tokens, MASTER.md, Source Serif 4), the tenant-friendly conversational scan UX, and PDF reading controls. The Sprint 23 series modernised what was then a three-pane workspace pane by pane (23a–23f), then 23g–k landed an Open-Design-inspired editorial brand refresh: cream-paper + terracotta palette, Source Serif 4 weight 700 + italic, ink-blue citation token, motion-preset module, accessible PDF page navigation, and an `animate-ping` ripple on the LIVE status indicator. **Sprints 26a–26c pivoted the workspace from the three-pane shell to the parser-first router (`WorkspaceRouterShell` → `ParserLandingShell` for Mode A / `ParserResultsShell` for Mode B), with chat extracted into a floating `AssistantFab` drawer.** Sprints 27–28 hardened FAB persistence, added the tenant-only production header, and ran a bug-triage round. Sprint 29 (29.1–29.13) refactored the FAB + chat assistant production UX. Sprint 30 switched the theme flip to the View Transitions API with a double-rAF fallback. Sprint 31 disambiguated lease metadata in the system prompt to stop the "scan already done" hallucination. Sprint 32 forced `tool_choice` on auto-scan and added a dev-only per-call diagnostic. Sprint 33 (`feature/fab-menu`) iterates on the FAB chat surface — 33.A.2 gated the redundant in-chat scan timeline off the auto-scan turn and replaced the model-authored summary with a deterministic scan-complete receipt. Sprint 34 (34.1–34.3) closed the citation-grounding gap *validator-side* — embedded-pointer + de-slugged-title recovery, then markdown-emphasis-aware + cross-chunk matching — driving live scan rejections to zero while still rejecting genuinely ungrounded citations. The Sprint 28 series later added **28.15**, which replaced the native `window.confirm` Replace prompt with a styled `alertdialog` (calm enter/exit motion, WCAG-grounded) and stopped tracking the autogenerated `next-env.d.ts`. Sprint 35 added a **"Plain English"** red-flag card action (a jargon-free, tenant-facing explanation that stays statute-grounded) and relabeled the existing statute-walkthrough pill "Explain" → "What the law says" to disambiguate the two. Vercel deployment and the Loom walkthrough remain the closeout work.
+Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG / audit / eval infrastructure under a media-brand framing). Sprint 13 pivoted the corpus and tool surface to NJ residential leases while preserving every architectural invariant. Sprint 14 hardened the eval harness with Tier 2 lease grading. Sprints 15–22 built out the design system (Tailwind v4 tokens, MASTER.md, Source Serif 4), the tenant-friendly conversational scan UX, and PDF reading controls. The Sprint 23 series modernised what was then a three-pane workspace pane by pane (23a–23f), then 23g–k landed an Open-Design-inspired editorial brand refresh: cream-paper + terracotta palette, Source Serif 4 weight 700 + italic, ink-blue citation token, motion-preset module, accessible PDF page navigation, and an `animate-ping` ripple on the LIVE status indicator. **Sprints 26a–26c pivoted the workspace from the three-pane shell to the parser-first router (`WorkspaceRouterShell` → `ParserLandingShell` for Mode A / `ParserResultsShell` for Mode B), with chat extracted into a floating `AssistantFab` drawer.** Sprints 27–28 hardened FAB persistence, added the tenant-only production header, and ran a bug-triage round. Sprint 29 (29.1–29.13) refactored the FAB + chat assistant production UX. Sprint 30 switched the theme flip to the View Transitions API with a double-rAF fallback. Sprint 31 disambiguated lease metadata in the system prompt to stop the "scan already done" hallucination. Sprint 32 forced `tool_choice` on auto-scan and added a dev-only per-call diagnostic. Sprint 33 (`feature/fab-menu`, merged) reworked the FAB chat surface — 33.A.2 gated the redundant in-chat scan timeline off the auto-scan turn and replaced the model-authored summary with a deterministic scan-complete receipt. Sprint 34 (34.1–34.3) closed the citation-grounding gap *validator-side* — embedded-pointer + de-slugged-title recovery, then markdown-emphasis-aware + cross-chunk matching — driving live scan rejections to zero while still rejecting genuinely ungrounded citations. The Sprint 28 series later added **28.15**, which replaced the native `window.confirm` Replace prompt with a styled `alertdialog` (calm enter/exit motion, WCAG-grounded) and stopped tracking the autogenerated `next-env.d.ts`. Sprint 35 added a **"Plain English"** red-flag card action (a jargon-free, tenant-facing explanation that stays statute-grounded) and relabeled the existing statute-walkthrough pill "Explain" → "What the law says" to disambiguate the two. Sprints 36–38 refined the FAB assistant's context-sizing and its premium help/concierge surfaces; Sprint 41 added the landing footer + glass trust badges and Sprint 42 the static content pages (privacy / terms / FAQ / sources) + favicon; Sprint 43 landed the signature motion set (Mode A→B workspace flip, list stagger, card tap-press, verdict emphasis); Sprint 44 added observability — one structured logger replacing scattered `console.*`, per-request correlation IDs, accessible error boundaries, and PII-redaction guardrails — plus a CI workflow gating the four checks on every PR and a separate Playwright e2e job (the suite had rotted while ungated and was repaired to a deterministic 30/30). Sprint 45 let the chat read stored findings via `get_lease_findings` instead of re-scanning. **Sprints 46–48 shipped PDF evidence highlighting** — a client-side text-layer matcher that ties each red-flag card to the exact lease text via tinted marks, a computed evidence-frame overlay with a floating concern label, and severity gutter markers, all with no database or schema changes. Sprint 49 set the public version stamp to `v1.0` and gave the masthead + hero brand badges a subtle depth lift. (Draft Sprints 39/40 were renumbered to 43/44 to keep spec order == ship order.)
 
 | Sprint | Scope | Status |
 |--------|-------|--------|
@@ -471,7 +506,7 @@ Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG 
 | 23d | Risk radar — `SeverityBadge` primitive, refreshed `RedFlagReport`, skeleton card hierarchy, example preview card in the empty state | Complete |
 | 23e | Chat memory — `MAX_MESSAGES` raised 20 → 60, system prompt prefers prior tool results on follow-ups, verbatim draft-email rendering | Complete |
 | 23f | `NegotiationEmailCard` — clipboard + fade-in, Tenant-mode `draft_negotiation_email` routing, system-prompt refinements | Complete |
-| 23g–j | Open Design editorial brand refresh — cream-paper + terracotta palette (light + dark), Source Serif 4 weight 700 + italic, NJSA system anchor + Live · v23.x version stamp + Nº plate-numbers on red-flag cards, motion-preset module (`src/lib/motion/presets.ts`), `LayoutGroup` + `popLayout` on the rail, ink-blue `--color-citation` token, vellum-inset surface hierarchy; PDF page nav (Prev/Next buttons in `PdfReadingControls` + ArrowLeft/Right on the focusable scroll `<section>`); width-calc fix so the page canvas no longer right-clips at fit-width | Complete |
+| 23g–j | Open Design editorial brand refresh — cream-paper + terracotta palette (light + dark), Source Serif 4 weight 700 + italic, NJSA system anchor + Live · v23.x version stamp (now `v1.0`, Sprint 49) + Nº plate-numbers on red-flag cards, motion-preset module (`src/lib/motion/presets.ts`), `LayoutGroup` + `popLayout` on the rail, ink-blue `--color-citation` token, vellum-inset surface hierarchy; PDF page nav (Prev/Next buttons in `PdfReadingControls` + ArrowLeft/Right on the focusable scroll `<section>`); width-calc fix so the page canvas no longer right-clips at fit-width | Complete |
 | 23k | `animate-ping` radar ripple on the LIVE status indicator (Tailwind two-layer pattern, `motion-safe:` gated) | Complete |
 | 26a | Parser landing (Mode A) — LeaseHeroDropzone + ParserLandingShell + WorkspaceRouterShell | Complete |
 | 26b | Parser results (Mode B) — ParserResultsShell, ClausesList, AutoScanRunner | Complete |
@@ -482,9 +517,23 @@ Sprints 0–12 shipped the original ContentOps cockpit (the same registry / RAG 
 | 30 | Smoother theme flip via View Transitions API + double-rAF fallback for browsers without support | Complete |
 | 31 | Disambiguate lease metadata in the system prompt to stop the "scan already done" hallucination | Complete |
 | 32 | Force `tool_choice` on auto-scan turns + dev-only per-call diagnostic | Complete |
-| 33 | FAB chat pivot (`feature/fab-menu`) — 33.A.2 gates the redundant in-chat scan timeline off the auto-scan turn + deterministic scan-complete receipt | In progress (33.A.2 shipped) |
+| 33 | FAB chat pivot (`feature/fab-menu`) — 33.A.2 gates the redundant in-chat scan timeline off the auto-scan turn + deterministic scan-complete receipt | Complete |
 | 34 | Citation grounding, validator-side — chunk-identity + dash-concat recovery (34.1–34.2), markdown-aware + cross-chunk matching (34.3); live scan rejections → 0 | Complete |
 | 35 | "Plain English" red-flag card action (jargon-free, statute-grounded) + relabel "Explain" → "What the law says" | Complete |
+| 36 | FAB assistant context-sizing (compact / workspace / expanded-reading) | Complete |
+| 37 | Premium FAB help popover | Complete |
+| 38 | Premium assistant concierge panel | Complete |
+| 41 | Landing footer + glass trust badges | Complete |
+| 42 | Content pages (privacy / terms / FAQ / sources) + favicon | Complete |
+| 43 | Signature motion — Mode A→B flip, list stagger, card tap-press, verdict emphasis | Complete |
+| 44 | Observability — structured logger + correlation IDs + error boundaries + PII redaction; CI gates the four checks on every PR + a separate Playwright e2e job (rotted-while-ungated suite repaired → 30/30) | Complete |
+| 45 | Chat reads stored findings (`get_lease_findings`) instead of re-scanning | Complete |
+| 46 | PDF evidence highlighting — text-layer matcher, inline marks, controls, scanned-page fallback | Complete |
+| 47 | Premium highlighter refinement — evidence-frame overlay, floating label, reveal + single pulse | Complete |
+| 48 | Evidence-layer polish — calmer tints, focus-dim, gutter markers, continuous-ribbon fix | Complete |
+| 49 | Public version stamp (`v1.0`) + masthead & hero brand-badge lift | Complete |
+
+> **Numbering note:** draft Sprints 39 and 40 were renumbered to **43** and **44** (kept spec order == ship order); Sprint **42** (content pages + favicon) shipped without a dedicated `docs/_specs/` folder. Some early sprints are folded into ranges (e.g. 16A/16B, 19–22) rather than individual rows.
 
 ---
 

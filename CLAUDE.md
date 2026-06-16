@@ -23,7 +23,7 @@ LeaseLens is **parser-first**, assistant-second:
 - Chat lives inside a **floating drawer** (`AssistantFab`), anchored bottom-right. The drawer **lazy-mounts on first open and stays mounted** so typed drafts and the conversation survive close → reopen.
 - Card actions on red-flag cards and clause rows (Explain, Draft email) open the drawer pre-seeded via `fab.openWith({ initialPrompt, clauseId, severity, statuteCitation })`.
 - "Clear assistant chat" (the button inside the drawer) resets only the chat thread. **It must not touch the lease, extracted clauses, or red flags.** An aria-live announcer says so explicitly for SR users: *"Assistant chat cleared. Your lease review was preserved."*
-- The only destructive workspace-reset path is **Replace** in `ParserResultsShell`'s header. It requires `window.confirm` and on accept revokes the active Blob URL + evicts the IndexedDB-cached PDF bytes.
+- The only destructive workspace-reset path is **Replace** in `ParserResultsShell`'s header. It opens a styled in-app `ConfirmDialog` (`role="alertdialog"`, `src/components/lease/ConfirmDialog.tsx`) — **not** `window.confirm` (Sprint 28.15) — and on accept revokes the active Blob URL + evicts the IndexedDB-cached PDF bytes.
 - Accessibility is baseline: WCAG-AA contrast, visible focus rings, `prefers-reduced-motion` respected at every animation site, ≥44px touch targets.
 - Severity is communicated by text + icon/shape **and** color (`SeverityBadge`), never by color alone.
 
@@ -31,7 +31,7 @@ LeaseLens is **parser-first**, assistant-second:
 
 - App routes + API routes: `src/app/` (App Router). API handlers under `src/app/api/<route>/route.ts`.
 - UI components: `src/components/` grouped by domain — `auth/`, `brand/`, `chat/`, `cockpit/`, `layout/`, `lease/`, `states/`.
-- Domain logic: `src/lib/` by area — `anthropic/`, `audit/`, `auth/`, `chat/`, `db/`, `evals/`, `lease/`, `rag/`, `tools/`.
+- Domain logic: `src/lib/` by area — `anthropic/`, `audit/`, `auth/`, `chat/`, `cockpit/`, `content/`, `db/`, `evals/`, `http/`, `layout/`, `lease/`, `log/`, `motion/`, `rag/`, `tools/`, `workspaces/`, plus `env.ts` + `version.ts`. PDF evidence highlighting lives in `src/components/lease/` (`PdfHighlightContext`, `PdfEvidenceOverlay`, `PdfEvidenceGutter`, `HighlightControls`, `use-clause-highlights`, `highlight-render`) + `src/lib/lease/highlight-match.ts`; structured logging + per-request correlation in `src/lib/log/` + `src/lib/http/`.
 - Tests are **colocated**: `Component.test.tsx` next to `Component.tsx`. E2E specs live in `tests/e2e/`.
 - Path alias `@/` → `src/` (`tsconfig.json` + `vitest.config.ts`).
 - Provider tree in the workspace shells (do not reorder without understanding why): `AssistantFabProvider` → `LeaseParserProvider` → `ChatStreamProvider`.
@@ -60,7 +60,7 @@ LeaseLens is **parser-first**, assistant-second:
 - Add regression tests for confirmed bugs — name them with the sprint that fixed the bug (e.g. *"Sprint 28.10 — outer shell has overflow-hidden …"*).
 - Test the behavior, not the implementation. Prefer `getByRole`/`getByTestId` over CSS selectors. Disambiguate multiple `role="status"` regions by textContent.
 - Provider-aware tests: use the shared `withChatStream` helper in `src/components/chat/test-helpers.tsx` which wraps in all three providers. Direct mounts of `ChatStreamProvider` must also wrap with `LeaseParserProvider` + `AssistantFabProvider` if the component-under-test uses those hooks.
-- `window.confirm` is not implemented in happy-dom — stub via `vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))`.
+- Replace uses an in-app `<dialog>` (`ConfirmDialog`), so tests must polyfill `HTMLDialogElement.prototype.showModal`/`close` (happy-dom omits them — mirror `PdfFocusDialog.test.tsx` / `ParserResultsShell.test.tsx`). Replace no longer calls `window.confirm`; a `ParserResultsShell` test stubs `confirm` only to **assert it is never invoked**.
 - Never skip tests (`xit`, `describe.skip`, `test.only`). The suite must remain fully green.
 
 ## Commands

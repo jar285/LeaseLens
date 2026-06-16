@@ -1,148 +1,45 @@
 # LeaseLens
 
-A NJ residential lease red-flag reviewer. Drop a lease PDF in, get a clause-by-clause severity grading grounded in NJ tenant-law statutes, and ask the assistant to explain a clause in plain English or draft a polite negotiation email back to the landlord — every grading carries a verifiable statute citation, and every mutating action is written to an audit trail.
+**LeaseLens is a NJ residential lease red-flag reviewer.**
 
-Built to demonstrate how an LLM agent can deliver high-stakes domain judgement under engineering constraints: hybrid RAG against a curated NJ corpus, a tool-use loop with citation grounding enforced inside the tool, RBAC + an audit log on every mutation, and a deterministic two-tier eval harness that runs in CI.
+Drop in a lease PDF, get clause-by-clause severity grading grounded in NJ tenant-law sources, then ask the assistant to explain clauses in plain English or draft a polite negotiation email.
 
-> **Not legal advice.** LeaseLens reviews NJ residential leases and grades clauses against NJ tenant-law sources. It is not a lawyer; its output is not legal advice. Before acting on any clause grading or draft email, consult a tenant attorney or your local NJ legal-aid clinic.
+LeaseLens is built to demonstrate how an LLM agent can handle high-stakes domain judgment under real engineering constraints:
 
-**Status:** runs end-to-end locally. **Roadmap:** production hardening for a public Vercel deploy — hosted DB (libSQL/Turso or Postgres), real auth + per-user data isolation, and cost/rate caps — plus a Loom walkthrough.
+- Hybrid RAG against a curated NJ tenant-law corpus
+- Citation-grounded clause grading
+- Parser-first PDF workflow
+- Evidence highlighting inside the PDF viewer
+- Tool-use loop with auditability
+- Role-aware tool access
+- Deterministic evals in CI
 
----
-
-## Why This Fits AI Product Engineering
-
-Most chat demos avoid serious domains because grounding is hard. LeaseLens leans into one: NJ tenant law. The model never asserts a statute it cannot point to in the corpus, mutating tool calls are wrapped in an audit log (with an operator-side undo for Reviewers/Admins), and a deterministic eval harness measures retrieval quality and severity-grading accuracy on every PR.
-
-The project emphasises product judgement as much as model integration. Severity grading is grounded by construction — the tool throws if the cited `chunk_id` is not in the retrieved set, or if the statute string does not appear verbatim in that chunk. The negotiation-email tool runs the LLM call *before* opening the SQLite transaction, so a slow generation cannot block writers; the transaction wraps only the row insert and the audit log.
-
----
-
-## What This Project Demonstrates
-
-A portfolio piece targeting Forward Deployed, AI Product, and Applied AI engineering roles. In order of priority:
-
-1. **LLM + agent + RAG composition** — Anthropic streaming chat with a 15-iteration tool-use loop, hybrid retrieval (vector + BM25 + reciprocal rank fusion) against a 28-document NJ tenant-law corpus, and four lease-specific tools wired into the same registry that gates the prompt's tool manifest.
-2. **Citation discipline** — `grade_clause_severity` validates the model's chunk_id and statute string against the live corpus before returning. A failed citation throws and surfaces in the UI; the model has to retry or admit it cannot ground the claim.
-3. **AI evaluation, two tiers** — Tier 1 measures retrieval quality (Precision@K, Recall@K, MRR, Groundedness) on 12 NJ tenant-law golden cases. Tier 2 measures end-to-end severity-grading accuracy on 12 curated lease clauses. Both exit 0/1 and write machine-readable reports the cockpit displays side-by-side.
-4. **Engineering constraints** — Strict RBAC (Tenant / Reviewer / Admin) enforced at the registry filter and re-checked at execute time. Lease ownership is a separate axis (a Tenant only sees leases they uploaded). Mutating tools execute inside a `better-sqlite3` transaction with a paired audit-log insert. The tenant-facing draft-email result is a copy-to-clipboard card; the Undo / compensating-action path is an **operator** affordance — the Reviewer/Admin `ToolCard` and the cockpit audit feed run `POST /api/audit/[id]/rollback` atomically.
-5. **Evidence highlighting (page anchoring)** — every red-flagged clause is highlighted on the PDF itself: the matched lease text is tinted on react-pdf's text layer, the selected clause gets a framed halo + a floating concern label, and gutter markers map the risks down the page edge — so one click moves from card → exact source text → explanation. Pure client-side text-layer matching: no stored coordinates, no schema change.
+> **Not legal advice.** LeaseLens reviews NJ residential leases and grades clauses against NJ tenant-law sources. It is not a lawyer, and its output is not legal advice. Before acting on any clause grading or draft email, consult a tenant attorney or local NJ legal-aid clinic.
 
 ---
 
-## Architecture
+## Status
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  Next.js 16 App Router                                    │
-│  ┌─────────────────────────────────────────────────────┐  │
-│  │  Parser-first workspace (/) — Mode A → Mode B router│  │
-│  │  Mode A (no lease) : LeaseHeroDropzone — upload     │  │
-│  │  Mode B (lease set): two-column grid                │  │
-│  │  ┌────────────────┐ ┌──────────────────────────┐    │  │
-│  │  │   PdfViewer    │ │ RedFlagReport+ClausesList│    │  │
-│  │  │   react-pdf    │ │ severity + cite + jump   │    │  │
-│  │  └────────┬───────┘ └──────────────┬───────────┘    │  │
-│  │  Chat lives in a floating AssistantFab drawer       │  │
-│  │  (anchored bottom-right; preserves draft + thread   │  │
-│  │  across close→open; "Clear assistant chat" resets   │  │
-│  │  only the chat thread, never the lease/results).    │  │
-│  └────────┼─────────────────────────────┼──────────────┘  │
-│           │                             │                  │
-│   POST /api/leases             POST /api/chat              │
-│   (multipart PDF →             (NDJSON stream + tool-use   │
-│   parse + segment              loop, max 15 iters — drives │
-│   + classify)                  scan + assistant follow-ups)│
-└──────────────────────┬───────────────────────────────────┘
-                       │
-        ┌──────────────▼───────────────────────────────┐
-        │  ToolRegistry  (RBAC-filtered, audited)       │
-        │  Read-only:  search_corpus                    │
-        │              get_document_summary             │
-        │              list_documents (Admin)           │
-        │              extract_clauses                  │
-        │              grade_clause_severity            │
-        │              get_lease_findings               │
-        │  Visual:     render_workflow_diagram          │
-        │  Mutating:   draft_negotiation_email          │
-        │                                               │
-        │  Mutating tools: async `prepare` step (LLM    │
-        │  call) runs first, then a sync transaction    │
-        │  wraps the row insert + audit_log insert.     │
-        └──────────────────────┬───────────────────────┘
-                               │
-        ┌──────────────────────▼───────────────────────┐
-        │  SQLite (better-sqlite3, WAL)                 │
-        │  users · sessions · conversations · messages  │
-        │  documents · chunks      ← NJ tenant-law only │
-        │  leases · clauses        ← session input,     │
-        │                            never embedded     │
-        │  negotiation_emails · audit_log               │
-        │  workspaces                                   │
-        └──────────────────────┬───────────────────────┘
-                               │
-        ┌──────────────────────▼───────────────────────┐
-        │  RAG pipeline (corpus only)                   │
-        │  Ingest → Chunk → Embed (Xenova WASM)         │
-        │  Retrieve: vector + BM25 + RRF                │
-        └───────────────────────────────────────────────┘
+LeaseLens currently runs end-to-end locally.
 
-        ┌───────────────────────────────────────────────┐
-        │  Lease pipeline (input-only, never embedded)  │
-        │  parsePdf (pdfjs-dist) → segmentClauses       │
-        │     → classifyClause → INSERT clauses         │
-        └───────────────────────────────────────────────┘
+Current public product direction:
+
+```text
+v1.0
 ```
 
-**Corpus / lease distinction.** The NJ tenant-law corpus is the only thing in `documents` / `chunks`. Lease PDFs are session-scoped *input*: parsed server-side, segmented into numbered clauses, classified by type, and stored in `leases` / `clauses`. They are **never** embedded into the RAG index, so retrieval grounding always points to NJ statutes — not to the user's own document.
+Production hardening roadmap:
 
-**Citation grounding.** `grade_clause_severity` runs `retrieve()` against the corpus, asks the model to cite both a `chunk_id` and a human-readable `statute_citation`, and validates both before returning: the chunk_id must be in the retrieved set, and the statute string must appear (case-insensitive, whitespace-collapsed) inside that chunk's text. Either failure throws.
-
-**Audit invariants.** `draft_negotiation_email` is the single mutating tool. The Anthropic `messages.create` call runs in an async `prepare` step *before* the transaction, so the SQLite write window is short. The transaction wraps the `negotiation_emails` insert and the `audit_log` insert — if either fails, both roll back. In the tenant product the result renders as a copy-to-clipboard `NegotiationEmailCard` (no Undo). The compensating-action **undo** is an operator affordance: the Reviewer/Admin `ToolCard` and the cockpit audit feed expose an Undo button that runs `POST /api/audit/[id]/rollback`, which executes the compensating action (`DELETE FROM negotiation_emails WHERE id = ?`) and updates the audit row's status atomically.
-
-**PDF evidence highlighting.** Graded clauses are highlighted on the rendered PDF via react-pdf's `customTextRenderer`: a client-side matcher ([`highlight-match.ts`](src/lib/lease/highlight-match.ts)) normalises the stored clause text and finds it in the page's live text layer, so marks realign on zoom/scroll for free — no stored coordinates, no schema change. Passive marks stay calm; the active clause gets a computed evidence-frame overlay (halo + glow + a floating "§ · concern" label) and a severity gutter marker. Severity is never colour-alone (glyph + label + aria), and all motion respects `prefers-reduced-motion`.
-
-**Observability.** One structured `pino` logger ([`src/lib/log/`](src/lib/log/)) with a PII-redaction allowlist (no raw lease/clause text or draft-email bodies reach logs or the persisted `tool_calls.error_message`), per-request correlation IDs ([`src/lib/http/`](src/lib/http/)) so a chat round-trip traces end-to-end, accessible error boundaries, and a CI workflow gating the four checks + a Playwright e2e job on every PR (Sprint 44).
-
-**Custom MCP server** at [`mcp/leaselens-server.ts`](mcp/leaselens-server.ts) exposes the registry over stdio for Claude Desktop, Cursor, or any MCP client.
-
-<img width="1439" height="717" alt="Screenshot 2026-06-02 at 1 11 51 AM" src="https://github.com/user-attachments/assets/30f53823-8a1d-49db-b55c-3a51c49332b0" />
-
-<img width="2048" height="1014" alt="image" src="https://github.com/user-attachments/assets/6480d62c-4e2c-4742-8c74-ac4598598d23" />
-
-
+- Public Vercel deployment
+- Hosted database, such as libSQL / Turso or Postgres
+- Real authentication
+- Per-user data isolation
+- Cost and rate caps
+- Loom walkthrough
 
 ---
 
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 16 (App Router), React 19 |
-| Language | TypeScript (strict mode) |
-| Styling | Tailwind CSS 4 |
-| Database | SQLite via `better-sqlite3` (WAL mode) |
-| LLM | Anthropic Claude (`claude-haiku-4-5` default) |
-| Embeddings | `@huggingface/transformers` (WASM, local, no API key) |
-| PDF | `pdfjs-dist` (server parse) + `react-pdf` (client viewer) |
-| Diagrams | `mermaid@^11` (client-side, `securityLevel: 'strict'`) |
-| Animation | `motion@^12` (formerly `framer-motion`) |
-| MCP | `@modelcontextprotocol/sdk` (stdio transport) |
-| Testing | Vitest 4 (unit + integration), Playwright (E2E) |
-| Linting | Biome |
-| Validation | Zod 3 |
-
----
-
-## Prerequisites
-
-- Node.js 20.9.0+
-- An [Anthropic API key](https://console.anthropic.com/)
-- Git
-
----
-
-## Running Locally
+## Quick Start
 
 ### 1. Clone and install
 
@@ -158,19 +55,19 @@ npm ci
 cp .env.example .env.local
 ```
 
-Open `.env.local` and set:
+Set the required environment variables:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...                 # required — your Anthropic API key
-LEASELENS_SESSION_SECRET=<32+ chars>         # required — any random string ≥ 32 characters
+ANTHROPIC_API_KEY=sk-ant-...
+LEASELENS_SESSION_SECRET=<32+ chars>
 LEASELENS_DB_PATH=./data/leaselens.db
 LEASELENS_DEMO_MODE=false
 LEASELENS_ANTHROPIC_MODEL=claude-haiku-4-5
 LEASELENS_DAILY_SPEND_CEILING_USD=2
-LEASELENS_LEASE_MAX_BYTES=1048576            # 1 MB upload cap
+LEASELENS_LEASE_MAX_BYTES=1048576
 LEASELENS_LEASE_MAX_PAGES=30
-LEASELENS_AUTO_SCAN_ENABLED=true             # optional — auto-run the scan on a fresh upload
-LEASELENS_LOG_LEVEL=info                     # optional — pino log level (Sprint 44)
+LEASELENS_AUTO_SCAN_ENABLED=true
+LEASELENS_LOG_LEVEL=info
 ```
 
 ### 3. Start the dev server
@@ -179,164 +76,540 @@ LEASELENS_LOG_LEVEL=info                     # optional — pino log level (Spri
 npm run dev
 ```
 
-The first `npm run dev` automatically seeds the database (via `predev`). Seeding ingests the 28-document NJ tenant-law corpus, generates embeddings locally via WASM, and copies a sample NJ residential lease into `leases` / `clauses` so reviewers can try the workflow without uploading anything. Takes ~30 seconds on a cold run.
+Open:
 
-Open [http://localhost:3000](http://localhost:3000).
+```text
+http://localhost:3000
+```
 
-If you want to seed manually:
+The first `npm run dev` automatically seeds the database through `predev`.
+
+The seed process:
+
+- Ingests the 28-document NJ tenant-law corpus
+- Generates embeddings locally through WASM
+- Copies a sample NJ residential lease into the local database
+- Lets reviewers try the workflow without uploading a file
+
+Manual seed command:
 
 ```bash
 npm run db:seed
 ```
 
-The seed script is idempotent — it skips work if `chunks` is already populated.
+The seed script is idempotent and skips work when chunks are already populated.
 
 ---
 
-## Trying It Out
+## What LeaseLens Does
 
-The home page opens in **Mode A** — a parser-first landing screen with a hero dropzone, the five-step flow (Upload → Parse → Extract clauses → Flag risks → Review), and trust metrics. Drop a PDF and the page transitions to **Mode B**: a two-column workspace with the PDF viewer on the left and a results stack (red flags + full clause list) on the right. Chat lives in a floating AssistantFab drawer anchored bottom-right — open it to ask follow-up questions, draft a negotiation email, or run the standard scan again. The drawer preserves typed drafts and the FAB-side clause selection across close→open cycles; "Clear assistant chat" resets only the chat thread (announced via aria-live: *"Assistant chat cleared. Your lease review was preserved."*), leaving the lease and results intact. The destructive "Replace" button in the workspace header is the only path that retires the active lease, and it requires confirmation via a styled `alertdialog` (with a calm fade/scale, disabled under `prefers-reduced-motion`).
+LeaseLens follows a parser-first workflow:
 
-The default workspace is the seeded sample, so you have a lease to inspect immediately.
+```text
+Upload lease → Parse clauses → Grade severity → Show red flags → Highlight evidence → Ask assistant
+```
 
-### As Tenant (default role)
+The core product experience has two modes:
 
-The Tenant sees only leases they uploaded. The full lease toolset is available — `extract_clauses`, `grade_clause_severity`, `get_lease_findings`, `draft_negotiation_email` — plus read-only corpus search. Once a lease has been graded, follow-up questions about the findings are answered from stored gradings via `get_lease_findings` (Sprint 45) instead of re-running the whole scan.
+### Mode A — No Lease Uploaded
 
-Try, in this order:
+The user sees a landing screen with:
 
-- *"Run the standard scan."* — the assistant calls `extract_clauses`, then `grade_clause_severity` for each non-trivial clause in turn. The right-hand red-flag report fills in as gradings come back; each card shows the severity, a NJ statute citation, the assistant's plain-English reasoning, and a recommended action. Each graded clause is highlighted directly on the PDF (soft severity tint + a gutter marker). Click a citation chip to scroll the PDF viewer to the cited clause and frame the exact lease text behind the flag. Expand a card for one-click quick actions that pre-seed the drawer: **Plain English** (jargon-free, tenant-facing explanation), **What the law says** (statute-verbatim walkthrough), and **Draft email** — plus **View on page N** to jump the PDF.
-- *"What does NJ law say about security-deposit caps?"* — direct corpus search via `search_corpus`. Every answer is grounded in retrieved chunks.
-- *"Draft a polite email to my landlord about the security deposit clause."* — the assistant calls `draft_negotiation_email` with the most-recent grading's reasoning + statute citation as context. For a Tenant the result renders inline as a copy-to-clipboard `NegotiationEmailCard` (subject + body); Reviewers/Admins see the raw `ToolCard` with an Undo affordance instead. Either way the write is captured in the audit log.
+- Hero dropzone
+- Five-step flow
+- Trust metrics
+- Clear upload action
 
-### As Reviewer / Admin
+### Mode B — Lease Uploaded
 
-> Demo mode only (`LEASELENS_DEMO_MODE=true`). The role switcher is hidden in the tenant-only production UI, so a real visitor never sees these roles — they're for local exploration + the MCP surface.
+The user sees a two-column workspace:
 
-Reviewer (DB literal `Editor`) and Admin see every lease in the workspace, not just their own uploads. Admin additionally sees the full audit log — including MCP-originated mutations — and `list_documents` for corpus inventory.
+- **Left:** PDF viewer
+- **Right:** red flags, clauses, citations, and actions
+- **Bottom-right:** floating assistant drawer
 
-Open `/cockpit` (Reviewer or Admin only) for the operator dashboard: today's spend vs the daily ceiling, the audit feed, scheduled negotiation emails, and a two-tier eval-health panel showing the most recent Tier 1 + Tier 2 runs side-by-side.
+The assistant supports follow-up questions, plain-English explanations, and negotiation email drafts without taking over the main parser-first experience.
 
-> **About negotiation emails:** the `draft_negotiation_email` tool writes a SQLite row — it does **not** send the email anywhere. The artifact is a JSON record in the audit trail. A production deployment would integrate the same audit pattern with a real SMTP/Mailgun backend.
+---
 
-### Switching workspaces
+## Why This Project Matters
 
-Click the workspace label in the header to open the switcher. From there you can use the seeded sample, drag in your own lease PDF, or jump back to a previously-uploaded one. Each upload TTLs after 24 hours via lazy cleanup on the next upload.
+Most chat demos avoid serious domains because grounding is difficult.
 
-### Where to get a test lease
+LeaseLens leans into a serious domain:
 
-The seeded sample lease ([`src/corpus/sample-lease/sample-nj-residential-lease.pdf`](src/corpus/sample-lease/sample-nj-residential-lease.pdf)) loads automatically on the first `npm run dev` and exercises every clause type the grader recognises. If you want to walk the upload flow with a different document, any **text-layer NJ residential lease PDF, ≤ 1 MB, ≤ 30 pages** works. Free template sources that meet the requirement:
+```text
+NJ residential tenant law
+```
 
-| Source | What it is | Notes |
+The system is designed so the model cannot casually invent legal claims.
+
+Key safeguards:
+
+- The model must cite retrieved NJ tenant-law corpus chunks.
+- `grade_clause_severity` validates both the cited `chunk_id` and statute text.
+- Failed citation grounding throws instead of silently returning.
+- Mutating actions are written to an audit trail.
+- Evaluation runs measure retrieval and grading quality.
+- Lease PDFs are parsed as user input, not embedded into the legal corpus.
+
+The goal is not only to integrate an LLM.
+
+The goal is to show product judgment, grounding discipline, UX clarity, and engineering reliability in one applied AI product.
+
+---
+
+## What This Project Demonstrates
+
+### 1. LLM + Agent + RAG Composition
+
+LeaseLens uses:
+
+- Anthropic streaming chat
+- A 15-iteration tool-use loop
+- Hybrid retrieval with vector search, BM25, and reciprocal-rank fusion
+- A curated 28-document NJ tenant-law corpus
+- Lease-specific tools exposed through a role-filtered registry
+
+### 2. Citation Discipline
+
+`grade_clause_severity` validates that:
+
+- The cited `chunk_id` exists in the retrieved set.
+- The cited statute string appears inside the cited chunk.
+
+If validation fails, the tool throws.
+
+This forces the assistant to retry or admit that it cannot ground the claim.
+
+### 3. Two-Tier Evaluation
+
+LeaseLens includes two evaluation tiers:
+
+| Tier | Measures | Command |
 |---|---|---|
-| [eForms — NJ Residential Lease Agreement](https://eforms.com/rental/nj/) | Free PDF template generator | Fills with placeholder text; downloads as text-layer PDF ready for upload |
-| [LawDepot — NJ Lease](https://www.lawdepot.com/contracts/residential-lease-agreement/?loc=US-NJ) | Free preview PDF | Print-to-PDF the preview; clauses cover security deposit, late fees, repairs |
-| [Rocket Lawyer — NJ Lease](https://www.rocketlawyer.com/real-estate/landlords/residential-property/document/lease-agreement) | Free preview | Same pattern — print preview to PDF |
-| [NJ DCA Truth in Renting guide](https://www.nj.gov/dca/codes/publications/pdf_lps/t_i_r.pdf) | Official tenant-rights booklet | Not a lease itself, but useful as a corpus check for the `search_corpus` tool |
+| Tier 1 | Retrieval quality: Precision@K, Recall@K, MRR, Groundedness | `npm run eval:golden` |
+| Tier 2 | End-to-end lease clause severity grading | `npm run eval:leases` |
 
-> **Don't upload a real personal lease.** The PDF binary isn't persisted (parsed clauses are kept in SQLite only, blob URLs expire on tab close), but treat the local DB as throwaway dev data — it isn't encrypted at rest. A redacted template is the right test artefact.
+Tier 1 is hermetic and makes no LLM calls.
 
-**Avoid:** scanned-image PDFs (no text layer → 422 with `error: 'pdf_no_text_layer'`), commercial leases, and leases from other states (the system prompt instructs the model to refuse non-NJ residential).
+Tier 2 calls Anthropic and should be gated by spend limits before running on every PR.
 
-### Prompts to try
+### 4. Engineering Constraints
 
-A library of prompts that exercise different parts of the tool surface. Each maps to a specific tool path so you can verify the chain of reasoning + citation grounding. Drop the seeded sample (or your own upload) into the left pane, then send any of these into the chat:
+LeaseLens includes:
 
-#### Standard scan + red-flag triage
+- Role-based tool filtering
+- Lease ownership checks
+- SQLite transactions for mutating actions
+- Audit log entries for every mutation
+- Operator-only rollback for auditable mutations
+- CI checks for lint, typecheck, tests, build, and e2e
 
-- *"Run the standard scan on this lease."* — chain: `extract_clauses` → `grade_clause_severity` per clause. Watch the right-pane Red Flag report fill in over ~30s.
-- *"Which clause is the most concerning, and why?"* — narrative summary on top of the standard scan. Tests that the model surfaces severity ordering verbatim from grading results.
-- *"Show me only the high-severity red flags."* — filtered re-statement; tests the model's ability to read its own scan output.
+### 5. PDF Evidence Highlighting
 
-#### Specific clause lookups
+Every red-flagged clause can be highlighted directly inside the PDF viewer.
 
-- *"Read the security-deposit clause and tell me if it's enforceable under NJ law."* — `extract_clauses` + a single targeted `grade_clause_severity` call. Result should cite N.J.S.A. 46:8-19 (the 1.5-month cap).
-- *"Is the late fee in this lease legal? Quote the section that talks about it."* — tests both grading and verbatim-quote retrieval from clause text.
-- *"What does the lease say about early termination, and what's NJ law's position?"* — paired clause-text + `search_corpus` ground.
-- *"Compare the attorney's-fees clause to NJ statute. Is it one-way or reciprocal?"* — tests `attorneys_fees` clause classification + the asymmetry check.
+The user can move from:
 
-#### Direct corpus questions (no lease required)
+```text
+Red flag card → exact PDF text → explanation → recommended action
+```
 
-- *"How much can a NJ landlord legally charge for a security deposit, and is interest required?"* — `search_corpus`; should return the security-deposit-cap chunk verbatim.
-- *"Under what circumstances can a NJ tenant break a lease early without penalty?"* — `search_corpus` against the early-termination corpus (domestic violence / senior-disabled / general).
-- *"What notice does a NJ landlord have to give before entering the apartment?"* — `search_corpus` → entry-notice + entry-emergency.
-- *"Cite the NJ statute on retaliation against a tenant who reports code violations."* — verbatim citation lookup (N.J.S.A. 2A:42-10.10).
+This turns a severity grade into visible evidence.
 
-#### Negotiation drafting
+---
 
-- *"Draft a polite email to my landlord about the security deposit clause."* — `draft_negotiation_email` (mutating; produces an audited row — a copy-to-clipboard card for Tenants, the `ToolCard` + Undo affordance for Reviewers/Admins).
-- *"Draft a firmer email about the late-fee structure — this isn't negotiable for me."* — same tool with `tone: "firm"`.
-- *"Use a formal tone and request a redline of the early-termination clause."* — `tone: "formal"`. Demonstrates the three-tone copy library.
+## Architecture Overview
 
-#### Cockpit-only workflows (Reviewer/Admin)
+```text
+Next.js App Router
+│
+├── Parser-first workspace
+│   ├── Mode A: Lease upload landing
+│   └── Mode B: PDF viewer + red-flag results
+│
+├── Floating AssistantFab
+│   ├── Plain-English explanations
+│   ├── Clause-specific follow-ups
+│   └── Negotiation email drafting
+│
+├── API routes
+│   ├── /api/leases
+│   ├── /api/chat
+│   ├── /api/audit
+│   └── /api/workspaces
+│
+├── ToolRegistry
+│   ├── search_corpus
+│   ├── extract_clauses
+│   ├── grade_clause_severity
+│   ├── get_lease_findings
+│   ├── draft_negotiation_email
+│   └── render_workflow_diagram
+│
+├── SQLite
+│   ├── users
+│   ├── sessions
+│   ├── documents / chunks
+│   ├── leases / clauses
+│   ├── negotiation_emails
+│   └── audit_log
+│
+├── RAG pipeline
+│   ├── Ingest
+│   ├── Chunk
+│   ├── Embed
+│   └── Retrieve
+│
+└── Lease pipeline
+    ├── parsePdf
+    ├── segmentClauses
+    ├── classifyClause
+    └── store clauses
+```
 
-- Switch to Reviewer or Admin in the header, open `/cockpit`, click the refresh icon on each panel. Tests the server actions wired to the cockpit refresh buttons.
-- After a `draft_negotiation_email` call, click **Undo** on the resulting ToolCard. The audit row's status flips to `rolled_back` and the `negotiation_emails` row is deleted in the same transaction. Re-open `/cockpit` and watch the audit feed refresh.
+---
 
-#### Edge cases worth poking at
+## Core Architecture Notes
 
-- *"Summarise this lease in plain English for someone with no legal background."* — non-tool path; pure RAG-grounded chat. Tests that the model still cites NJ law when the user doesn't ask for citations explicitly.
-- *"Is anything in this lease actually unenforceable? Don't be polite about it."* — tests the disclaimer override; the system prompt should still keep tone professional and citation-bound.
-- Upload a 30+ page PDF or a scanned-image lease and confirm the dropzone surfaces the right error pill (size cap or `pdf_no_text_layer`).
+### Corpus vs. Lease Input
+
+LeaseLens keeps a strict separation between:
+
+| Type | Stored In | Purpose |
+|---|---|---|
+| NJ tenant-law corpus | `documents` / `chunks` | Legal grounding |
+| Uploaded lease PDFs | `leases` / `clauses` | User input and review target |
+
+Lease PDFs are **never embedded into the RAG index**.
+
+This keeps retrieval grounding pointed at NJ tenant-law sources, not the user's uploaded document.
+
+---
+
+### Citation Grounding
+
+`grade_clause_severity` works as follows:
+
+1. Retrieve relevant NJ tenant-law chunks.
+2. Ask the model to grade the lease clause.
+3. Require the model to return a `chunk_id` and `statute_citation`.
+4. Validate both before returning.
+
+The validator throws when:
+
+- The cited `chunk_id` is not in the retrieved set.
+- The cited statute text does not appear in the cited chunk.
+
+---
+
+### Audit Invariants
+
+`draft_negotiation_email` is the only mutating tool.
+
+Its flow is intentionally split:
+
+1. The LLM prepares the email draft.
+2. SQLite opens a short transaction.
+3. The transaction inserts the negotiation email.
+4. The transaction inserts the audit-log row.
+5. If either insert fails, both roll back.
+
+Tenant users see a copy-to-clipboard card.
+
+Reviewer/Admin users can access operator rollback through the audit flow.
+
+---
+
+### PDF Evidence Highlighting
+
+LeaseLens highlights graded clauses directly on the rendered PDF.
+
+Implementation notes:
+
+- Uses `react-pdf` text-layer rendering.
+- Uses a client-side matcher in `highlight-match.ts`.
+- Does not store coordinates.
+- Does not require schema changes.
+- Highlights realign on zoom and scroll.
+- Passive marks stay soft.
+- Active clauses get an evidence frame, halo, glow, and floating concern label.
+- Gutter markers help users scan long leases.
+- Severity is not communicated by color alone.
+- Motion respects `prefers-reduced-motion`.
+
+---
+
+### Observability
+
+Sprint 44 introduced a reliability layer:
+
+- Structured `pino` logger
+- Request correlation IDs
+- Accessible error boundaries
+- PII-redaction allowlist
+- CI workflow for lint, typecheck, tests, and build
+- Separate Playwright e2e job
+
+Raw lease text, clause text, and draft-email bodies should not reach logs or persisted tool-call error messages.
+
+---
+
+## Screenshots
+
+<img width="1439" height="717" alt="LeaseLens screenshot" src="https://github.com/user-attachments/assets/30f53823-8a1d-49db-b55c-3a51c49332b0" />
+
+<img width="2048" height="1014" alt="LeaseLens evidence highlighting screenshot" src="https://github.com/user-attachments/assets/6480d62c-4e2c-4742-8c74-ac4598598d23" />
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 App Router, React 19 |
+| Language | TypeScript strict mode |
+| Styling | Tailwind CSS 4 |
+| Database | SQLite via `better-sqlite3`, WAL mode |
+| LLM | Anthropic Claude, `claude-haiku-4-5` default |
+| Embeddings | `@huggingface/transformers`, WASM, local |
+| PDF | `pdfjs-dist` and `react-pdf` |
+| Diagrams | `mermaid@^11` |
+| Animation | `motion@^12` |
+| MCP | `@modelcontextprotocol/sdk` |
+| Testing | Vitest 4 and Playwright |
+| Linting | Biome |
+| Validation | Zod 3 |
+
+---
+
+## Trying the Product
+
+The seeded sample lease loads automatically on the first `npm run dev`.
+
+### Suggested First Flow
+
+1. Open the app.
+2. Use the seeded sample lease or upload a text-layer NJ lease PDF.
+3. Run the standard scan.
+4. Review the red-flag cards.
+5. Click a citation or **View on page** action.
+6. Verify the PDF evidence highlight.
+7. Open the AssistantFab.
+8. Ask for a plain-English explanation.
+9. Draft a negotiation email.
+
+---
+
+## Suggested Prompts
+
+### Standard Scan
+
+```text
+Run the standard scan on this lease.
+```
+
+```text
+Which clause is the most concerning, and why?
+```
+
+```text
+Show me only the high-severity red flags.
+```
+
+### Clause-Specific Questions
+
+```text
+Read the security-deposit clause and tell me if it is enforceable under NJ law.
+```
+
+```text
+Is the late fee in this lease legal? Quote the section that talks about it.
+```
+
+```text
+What does the lease say about early termination, and what is NJ law's position?
+```
+
+```text
+Compare the attorney's-fees clause to NJ statute. Is it one-way or reciprocal?
+```
+
+### Direct Corpus Questions
+
+```text
+How much can a NJ landlord legally charge for a security deposit, and is interest required?
+```
+
+```text
+What notice does a NJ landlord have to give before entering the apartment?
+```
+
+```text
+Cite the NJ statute on retaliation against a tenant who reports code violations.
+```
+
+### Negotiation Drafting
+
+```text
+Draft a polite email to my landlord about the security deposit clause.
+```
+
+```text
+Draft a firmer email about the late-fee structure.
+```
+
+```text
+Use a formal tone and request a redline of the early-termination clause.
+```
+
+---
+
+## Test Lease Guidance
+
+The seeded sample lease is located at:
+
+```text
+src/corpus/sample-lease/sample-nj-residential-lease.pdf
+```
+
+Supported upload type:
+
+```text
+Text-layer NJ residential lease PDF
+≤ 1 MB
+≤ 30 pages
+```
+
+Avoid:
+
+- Scanned-image PDFs
+- Commercial leases
+- Leases from other states
+- Real personal leases with sensitive information
+
+Scanned PDFs without a text layer return:
+
+```text
+422 pdf_no_text_layer
+```
+
+OCR is currently out of scope.
+
+---
+
+## Roles
+
+> In the running public app today, everyone is a Tenant. The role switcher is only available in demo mode.
+
+| Role | DB Literal | Tools | Lease Access |
+|---|---|---|---|
+| Tenant | `Creator` | `search_corpus`, `extract_clauses`, `grade_clause_severity`, `get_lease_findings`, `draft_negotiation_email`, `render_workflow_diagram` | Own uploaded leases only |
+| Reviewer | `Editor` | Tenant tools + `get_document_summary` | All leases in workspace |
+| Admin | `Admin` | Reviewer tools + `list_documents` | All leases + audit log |
+
+Role access is enforced twice:
+
+1. The registry filters the visible tool manifest.
+2. Tool execution re-checks permissions and lease ownership.
 
 ---
 
 ## Features
 
-### Role-Based Access (Tenant / Reviewer / Admin)
+### Parser-First Lease Review
 
-> **In the running app today, everyone is a Tenant.** There's no multi-user authentication yet: the public/production UI is tenant-only — the role switcher is gated to demo mode (`LEASELENS_DEMO_MODE=true`). The model below is real *in code* — the registry filters the tool manifest by role and `assertLeaseOwnership` scopes lease access — and is exercisable via the demo role switcher and the MCP server. Real auth + per-user isolation is the production-hardening roadmap.
+The main product is the PDF parser and red-flag report.
 
-| Role (UI) | DB literal | Tools available | Lease ownership |
-|---|---|---|---|
-| Tenant | `Creator` | `search_corpus`, `extract_clauses`, `grade_clause_severity`, `get_lease_findings`, `draft_negotiation_email`, `render_workflow_diagram` | Only leases the user uploaded |
-| Reviewer | `Editor` | + `get_document_summary` | All leases in workspace |
-| Admin | `Admin` | + `list_documents` | All leases + full audit log |
-
-The same registry that filters the prompt's tool manifest also gates execution — if a role can't see a tool in its manifest, it can't invoke it at runtime. Lease ownership is a second axis enforced by `assertLeaseOwnership(lease, ctx)`, called inside every lease tool and the `GET /api/leases/[id]` route guard.
+The assistant is supportive, not primary.
 
 ### Citation-Grounded Severity Grading
 
-`grade_clause_severity` retrieves NJ tenant-law chunks for a clause, asks the model to grade severity (`high` / `medium` / `low` / `ok`) and cite a chunk + statute, and validates both before returning. The validator throws if the cited `chunk_id` is not in the retrieved set, or if the `statute_citation` string does not appear inside that chunk's text. The Tier 1 eval enforces a ≥ 0.90 groundedness rate in CI.
-
-### Auditable Mutations
-
-`draft_negotiation_email` is the only mutating tool. The async LLM call runs in a `prepare` step *before* the SQLite transaction; the transaction wraps the `negotiation_emails` insert and the audit-row insert atomically, so every draft is captured in the audit trail. The tenant-facing surface is a copy-to-clipboard `NegotiationEmailCard` — no destructive control. The compensating-action **undo** is scoped to operators: the Reviewer/Admin `ToolCard` and the cockpit audit feed expose an Undo button that calls `POST /api/audit/[id]/rollback`, running the compensating action (`DELETE FROM negotiation_emails WHERE id = ?`) and the status flip in one transaction. Idempotent on already-rolled-back rows.
-
-### Operator Cockpit
-
-`/cockpit` (Reviewer + Admin) shows recent audited actions, scheduled negotiation emails, today's demo spend, and a two-tier eval-health panel. The eval panel renders Tier 1 (retrieval) and Tier 2 (lease grading) side-by-side with a 6-metric grid so you can see retrieval quality and end-to-end accuracy at a glance.
-
-### PDF Pipeline
-
-`POST /api/leases` accepts a `application/pdf` upload (max 1 MB, max 30 pages by default). The route runs `parsePdf(buffer)` from [`src/lib/lease/parse-pdf.ts`](src/lib/lease/parse-pdf.ts) using `pdfjs-dist`, segments each page on numbered-section prefixes (`1.`, `(a)`, `ARTICLE I`), classifies each clause by type (security_deposit, late_fee, early_termination, …), and inserts into `leases` / `clauses`. Scanned PDFs with no text layer return 422 with `error: 'pdf_no_text_layer'` — OCR is out of scope.
-
-The client viewer is `react-pdf` over the same `pdfjs-dist`. **Navigation (Sprint 23h):** Prev / Next page buttons in the dock header drive the same `scrollToPage` path the citation chips use, and `ArrowLeft` / `ArrowRight` on the focusable scroll `<section>` paginate by keyboard (skipped while there's an active text selection so arrow-key selection extension still works). **Width sizing:** a `ResizeObserver` measures the inner page container directly and pins each page wrapper to the canvas width via inline style, so the text layer no longer right-clips at fit-width and zoom past 100 % pans horizontally. Once a lease is graded, the matched clause text is highlighted on that same text layer — see **PDF Evidence Highlighting** below.
+Every severity grade must connect to a retrieved NJ tenant-law source.
 
 ### PDF Evidence Highlighting
 
-Red-flagged clauses are highlighted directly on the PDF, turning each severity grade into grounded evidence — one click moves from card → exact lease text → explanation → action. When a scan completes, every graded clause renders as a soft severity-tinted mark on react-pdf's text layer (High + Medium on by default; Low / OK behind a toggle). Selecting a red-flag card focuses its clause: a single rounded **evidence-frame** overlay draws a halo + glow around the whole clause region, a floating glass label (*"Late fee · §3 · High concern"*) sits above the first line, and small severity-shaped **gutter markers** (▲ ◆ ● ✓) down the page edge let you scan a long lease without heavy highlights everywhere. Severity is never communicated by colour alone (every mark carries a glyph + an `aria-label`), all motion respects `prefers-reduced-motion`, and clause text is HTML-escaped before injection. This supersedes the old page-only "View on page N" jump — the citation chip and the **View on page** action now scroll to *and* frame the exact clause, not just its page.
+Red-flagged clauses are highlighted directly on the PDF, with active evidence framing and gutter markers.
 
-It is powered by a pure client-side text-layer matcher ([`highlight-match.ts`](src/lib/lease/highlight-match.ts)): the same stored clause text the cards use is normalised and located in the page's live text layer at render time, so there are **no database / schema / parsing changes and no stored coordinates**, and highlights realign automatically on zoom, scroll, and rotation via react-pdf's `customTextRenderer`. New highlight state (visibility, severity filter, hover) lives in its own `PdfHighlightContext`; click-focus reuses the existing `activeClauseId`, so the pinned chat / parser context boundaries are untouched. Show/hide + per-severity filter controls live in the red-flags pane header.
+### Floating AssistantFab
 
-### Two-Tier Eval Harness
+The assistant drawer preserves draft and thread state across close/open cycles.
 
-| Tier | What it measures | How to run | Cases | Baseline |
-|---|---|---|---|---|
-| 1 | Hybrid retrieval quality on NJ tenant-law queries (Precision@K, Recall@K, MRR, Groundedness) | `npm run eval:golden` | 12 | 10/12 pass at 40.4 / 48 pts ([baseline](data/eval-reports/baseline-sprint-14.json)) |
-| 2 | End-to-end `grade_clause_severity` accuracy on curated lease clauses (severity match, citation grounded, statute exact-string) | `npm run eval:leases` | 12 | tracked per-run in `data/eval-reports/` |
+### Plain-English Explanations
 
-Tier 1 makes no LLM calls — it uses the local WASM embedder and is hermetic. Tier 2 calls Anthropic; gate it on a spend ceiling before running on every PR.
+Red-flag cards include a plain-English action for tenant-friendly explanations.
+
+### Negotiation Email Drafting
+
+The assistant can draft a negotiation email using clause grading and statute context.
+
+### Auditable Mutations
+
+Drafted negotiation emails are written to SQLite and paired with an audit row.
+
+### Operator Cockpit
+
+Reviewer/Admin users can inspect audit activity, spend, scheduled emails, and eval health.
 
 ### MCP Server
 
-The same registry is exposed over the Model Context Protocol via stdio:
+The tool registry is exposed over Model Context Protocol through stdio.
+
+### Mermaid Diagrams
+
+`render_workflow_diagram` can render supported Mermaid diagram types safely on the client.
+
+### Observability and CI
+
+Structured logs, correlation IDs, error boundaries, and PR checks support production readiness.
+
+---
+
+## Running Tests
+
+```bash
+# Unit + integration + contract tests
+npm run test
+
+# E2E smoke specs
+npm run test:e2e
+
+# Type checking
+npm run typecheck
+
+# Linting
+npm run lint
+
+# Tier 1 retrieval eval
+npm run eval:golden
+
+# Tier 2 lease-grading eval
+npm run eval:leases
+
+# Production build
+npm run build
+```
+
+Playwright runs with:
+
+```text
+LEASELENS_E2E_MOCK=1
+```
+
+This swaps Anthropic for a deterministic mock during e2e tests.
+
+---
+
+## MCP Server
+
+Start the LeaseLens MCP server:
 
 ```bash
 npm run mcp:server
 ```
 
-Add to your MCP client config:
+Example MCP config:
 
 ```json
 {
@@ -350,145 +623,81 @@ Add to your MCP client config:
 }
 ```
 
-MCP-originated mutations produce audit rows attributed to actor `mcp-server` inside the sample workspace.
+MCP-originated mutations produce audit rows attributed to:
 
-#### Browser-control MCP (Playwright)
-
-The repo also ships a project-level [`.mcp.json`](.mcp.json) that registers Microsoft's [`@playwright/mcp`](https://github.com/microsoft/playwright-mcp) server (headless Chromium, isolated profile, pinned to `0.0.75`). With `npm run dev` running, an MCP-aware client (Claude Code, etc.) can navigate `http://localhost:3000`, take accessibility snapshots, click, type, and screenshot the live UI — useful for interactive verification during sprint work. `npm run test:e2e` remains the source of truth for regression coverage.
-
-### Diagrams (Mermaid)
-
-`render_workflow_diagram` accepts raw Mermaid source for any of eight diagram families (`flowchart`, `graph`, `sequenceDiagram`, `stateDiagram-v2`, `mindmap`, `journey`, `classDiagram`, `erDiagram`). Server-side validation only (prefix regex, length cap, init-directive + line-comment skip); rendering happens client-side via `mermaid@^11` with `securityLevel: 'strict'` and `htmlLabels: false`. Parse errors fall back to a `<pre>` block of the raw code with the error inline.
-
-The diagram entry, assistant message entry, and `ToolCard` expand/collapse are animated via `motion@^12`. All three surfaces honour `prefers-reduced-motion`: when set, animations are skipped entirely (not slowed) and the DOM renders the plain equivalents. The `mermaid` bundle is dynamic-imported, so the cost is paid only on the first render.
-
-### Observability & Logging
-
-A developer-facing reliability layer (Sprint 44): one structured `pino` logger ([`src/lib/log/`](src/lib/log/)) replaces scattered `console.*`, every request carries a **correlation ID** so a chat round-trip can be traced end-to-end (RAG → Anthropic stream → tool execution) via [`src/lib/http/`](src/lib/http/), client crashes fall back to accessible error boundaries (`error.tsx` / `global-error.tsx`), and a **PII-redaction allowlist** keeps raw lease/clause text and the model's draft-email body out of both logs and the persisted `tool_calls.error_message`. Test + coverage reporters and a [`.github/workflows/ci.yml`](.github/workflows/ci.yml) gate the four checks (lint → typecheck → test + coverage → build) on every PR, with a separate Playwright **e2e job** — the suite had silently rotted while ungated and was repaired to a deterministic 30/30 green, now a required gate.
+```text
+mcp-server
+```
 
 ---
 
-## Running the Tests
+## Browser-Control MCP
 
-```bash
-# Unit + integration + contract tests (Vitest)
-npm run test
+The repo also includes a project-level `.mcp.json` for Microsoft's Playwright MCP server.
 
-# E2E smoke specs (Playwright; auto-launches dev server with the deterministic Anthropic mock)
-npm run test:e2e
+With `npm run dev` running, an MCP-aware client can:
 
-# Type checking
-npm run typecheck
+- Navigate the local app
+- Take accessibility snapshots
+- Click and type
+- Capture screenshots
+- Verify UI changes interactively
 
-# Linting (Biome)
-npm run lint
-
-# Tier 1 retrieval eval (no LLM calls; exits 0/1; writes data/eval-reports/)
-npm run eval:golden
-
-# Tier 2 lease-grading eval (calls Anthropic)
-npm run eval:leases
-
-# Production build check
-npm run build
-```
-
-The Playwright config sets `LEASELENS_E2E_MOCK=1` on the dev-server child, which swaps the Anthropic SDK for a deterministic mock at [`src/lib/anthropic/e2e-mock.ts`](src/lib/anthropic/e2e-mock.ts). Specs run against the lease toolset only.
+`npm run test:e2e` remains the source of truth for regression coverage.
 
 ---
 
 ## Project Structure
 
-```
+```text
 LeaseLens/
-├── mcp/                                  # Custom MCP server (stdio transport)
-│   ├── leaselens-server.ts
-│   └── leaselens-server.test.ts
-├── scripts/
-│   ├── eval-golden.ts                    # Tier 1 CLI entry
-│   ├── eval-leases.ts                    # Tier 2 CLI entry
-│   ├── seed-if-empty.mjs                 # predev hook — seeds when empty
-│   └── copy-pdf-worker.mjs               # postinstall — pdfjs worker into public/
-├── tests/e2e/                            # Playwright smoke specs
-├── playwright.config.ts                  # webServer.env engages the Anthropic mock
+├── mcp/                     # MCP server
+├── scripts/                 # evals, seeding, PDF worker copy
+├── tests/e2e/               # Playwright specs
 ├── src/
-│   ├── app/
-│   │   ├── api/
-│   │   │   ├── chat/route.ts             # NDJSON streaming + tool-use loop (max 15 iters)
-│   │   │   ├── leases/                   # POST upload + GET [id] + clauses/emails
-│   │   │   ├── audit/                    # GET role-filtered list, POST [id]/rollback
-│   │   │   ├── workspaces/               # multipart upload + select-sample
-│   │   │   └── admin/ping/               # health check
-│   │   ├── cockpit/                      # /cockpit dashboard (Reviewer + Admin)
-│   │   └── page.tsx                      # Home — parser-first workspace shell (Mode A→B router)
-│   ├── components/
-│   │   ├── auth/                         # role switcher + session UI
-│   │   ├── brand/                        # LeaseLensMark glyph + wordmark / badge classes
-│   │   ├── chat/                         # AssistantFab + drawer, ChatUI, ChatTranscript,
-│   │   │                                 # ChatMessage, ToolCard, MermaidDiagram
-│   │   ├── cockpit/                      # AuditFeed, Schedule, Spend, EvalHealth, SampleWorkspaceSwitcher
-│   │   ├── layout/                       # Container, PageShell, ContentPageShell, SiteFooter, MotionProvider
-│   │   ├── lease/                        # WorkspaceRouterShell, ParserLandingShell,
-│   │   │                                 # ParserResultsShell, PdfViewer, RedFlagReport,
-│   │   │                                 # ClausesList, AutoScanRunner, CitationChip, ConfirmDialog,
-│   │   │                                 # PdfHighlightContext, PdfEvidenceOverlay,
-│   │   │                                 # PdfEvidenceGutter, HighlightControls,
-│   │   │                                 # highlight-render, use-clause-highlights
-│   │   └── states/                       # EmptyState, ErrorState, LoadingState
-│   ├── corpus/
-│   │   ├── nj-tenant-law/                # 28 NJ tenant-law markdown sources
-│   │   └── sample-lease/                 # seeded sample lease PDF + markdown
-│   ├── db/
-│   │   └── seed.ts                       # idempotent seed (corpus + sample lease)
-│   └── lib/
-│       ├── anthropic/                    # SDK singleton + E2E mock
-│       ├── audit/                        # audit-log queries
-│       ├── auth/                         # session, RBAC types, demo users, role labels
-│       ├── chat/                         # system-prompt, context-window, conversations, parse-stream-line
-│       ├── cockpit/                      # cockpit data aggregation
-│       ├── content/                      # static page copy (privacy, terms, faq)
-│       ├── db/                           # schema, migrate, spend, rate-limit
-│       ├── evals/                        # Tier 1 runner, Tier 2 runner, golden + lease cases
-│       ├── http/                         # request/response helpers
-│       ├── layout/                       # layout helpers
-│       ├── lease/                        # parse-pdf, segment-clauses, classify-clause,
-│       │                                 # validate-upload, queries, ownership, disclaimer,
-│       │                                 # highlight-match, escape-html
-│       ├── log/                          # pino logger + request context (Sprint 44)
-│       ├── motion/                       # SPRING_GENTLE / SPRING_SNAPPY / SPRING_SNAP_BACK
-│       │                                 # + EASE_OUT_SOFT presets (Sprint 23g)
-│       ├── rag/                          # ingest, chunk, embed (Xenova WASM), retrieve
-│       ├── test/                         # shared test fixtures + mock data
-│       ├── tools/                        # registry, lease-tools, corpus-tools, diagram-tools,
-│       │                                 # audit-log, create-registry
-│       ├── env.ts                        # Zod-validated environment schema
-│       ├── version.ts                    # masthead version + status stamp
-│       └── workspaces/                   # cookie helpers + per-visitor brand list
-├── design-system/
-│   └── MASTER.md                         # design tokens, typography, motion presets,
-│                                         # accessibility rules, anti-patterns
+│   ├── app/                 # Next.js routes and pages
+│   ├── components/          # UI components
+│   │   ├── chat/            # AssistantFab and chat UI
+│   │   ├── cockpit/         # Operator dashboard
+│   │   ├── layout/          # Shell, footer, motion provider
+│   │   └── lease/           # Parser, PDF viewer, red flags, highlights
+│   ├── corpus/              # NJ tenant-law corpus and sample lease
+│   ├── db/                  # Seed and database setup
+│   └── lib/                 # Auth, RAG, tools, lease logic, logging
+├── design-system/           # Design-system documentation
 └── docs/
-    ├── _architecture/                    # power-words, dev + UI/UX design philosophy
-    ├── _meta/                            # charter, guidelines, architecture snapshot
-    └── _specs/                           # per-sprint spec.md + impl.md (QA report);
-                                          # sub-sprints use N.x-spec.md / N.x-impl.md
+    ├── _architecture/       # Philosophy and architecture notes
+    ├── _meta/               # Charter, guidelines, snapshots
+    └── _specs/              # Per-sprint specs and implementation QA
 ```
 
 ---
 
 ## Sprint History
 
-LeaseLens is built sprint-by-sprint with a spec → QA → sprint plan → implementation → QA loop; every sprint's `spec.md` + `impl.md` lives in [`docs/_specs/`](docs/_specs/). The phases at a glance:
+LeaseLens is built sprint-by-sprint using the project workflow:
 
-- **0–12 · Platform foundation** — the tool registry, hybrid RAG, audit log, two-tier eval harness, and MCP server (originally shipped as the ContentOps cockpit).
-- **13–14 · LeaseLens pivot** — re-pointed the corpus + tools to NJ residential leases; added the Tier 2 lease-grading eval.
-- **15–25 · Design system + tenant UX** — Tailwind v4 tokens, Source Serif 4, the Open-Design editorial brand, the conversational scan, and PDF reading controls.
-- **26–33 · Parser-first workspace** — the Mode A→B router, the floating `AssistantFab` drawer, FAB persistence, bug-triage, and the FAB chat pivot.
-- **34–35 · Grounding + clarity** — validator-side citation recovery (live scan rejections → 0) and the "Plain English" red-flag action.
-- **36–45 · Assistant polish + platform** — FAB context-sizing + help/concierge surfaces, content pages, signature motion, observability (structured logs + correlation IDs + CI), and findings reuse.
-- **46–49 · Evidence highlighting + brand** — PDF evidence highlighting (text-layer matcher + evidence-frame overlay + gutter markers) and the `v1.0` stamp + brand-badge lift.
+```text
+Spec → QA → Sprint Plan → Implementation → QA
+```
 
-📖 **Full sprint-by-sprint log (narrative + table) → [`docs/history.md`](docs/history.md).**
+Phase summary:
+
+| Phase | Sprints | Focus |
+|---|---:|---|
+| Platform foundation | 0–12 | Tool registry, RAG, audit log, eval harness, MCP |
+| LeaseLens pivot | 13–14 | NJ lease corpus, lease tools, Tier 2 eval |
+| Design system + tenant UX | 15–25 | Tailwind tokens, typography, editorial brand, PDF controls |
+| Parser-first workspace | 26–33 | Mode A/B router, AssistantFab, persistence, bug triage |
+| Grounding + clarity | 34–35 | Citation recovery and plain-English explanations |
+| Assistant polish + platform | 36–45 | Concierge surfaces, content pages, motion, observability, findings reuse |
+| Evidence highlighting + brand | 46–49 | PDF evidence layer, gutter markers, `v1.0` polish |
+
+Full sprint history:
+
+```text
+docs/history.md
+```
 
 ---
 

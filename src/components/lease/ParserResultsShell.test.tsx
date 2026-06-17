@@ -107,6 +107,20 @@ describe('ParserResultsShell', () => {
     expect(screen.getByTestId('parser-results-shell')).toBeInTheDocument();
   });
 
+  // Sprint 50.4 — masthead glow. Mode A's terracotta ambient field is carried
+  // across the seam as quiet page atmosphere at the top of the workspace, so
+  // the post-upload screen no longer reads as flat cream. Decorative only
+  // (aria-hidden + pointer-events-none + behind content); the shell root gains
+  // `isolate` so the -z-10 layer paints above the page fill but below content.
+  it('Sprint 50.4 — renders a decorative masthead glow behind the workspace', () => {
+    render(<ParserResultsShell {...baseProps} />);
+    const root = screen.getByTestId('parser-results-shell');
+    expect(root.className).toMatch(/\bisolate\b/);
+    const glow = screen.getByTestId('results-masthead-glow');
+    expect(glow).toHaveAttribute('aria-hidden', 'true');
+    expect(glow.className).toMatch(/pointer-events-none/);
+  });
+
   it('renders the header strip with filename + page count + clause count', () => {
     render(<ParserResultsShell {...baseProps} />);
     const header = screen.getByTestId('results-header');
@@ -114,6 +128,18 @@ describe('ParserResultsShell', () => {
     expect(header.textContent).toContain('sample.pdf');
     expect(header.textContent).toMatch(/18\s*pages?/i);
     expect(header.textContent).toMatch(/13\s*clauses?/i);
+  });
+
+  // Sprint 50.5 — contrast. The header metadata ("18 pages · 13 clauses") was
+  // text-fg-subtle (#a8997e ≈ 2.26:1 on the cream card — fails WCAG AA for the
+  // 11px text it carries). It is real exposed text, not decoration, so it moves
+  // to text-fg-muted (≈ 6.46:1). (The body reasoning text already passed AA;
+  // its washed-out feel was figure-ground, fixed by the S50.3 elevation.)
+  it('Sprint 50.5 — header metadata uses an AA-contrast token (fg-muted, not fg-subtle)', () => {
+    render(<ParserResultsShell {...baseProps} />);
+    const meta = screen.getByTestId('results-header-meta');
+    expect(meta.className).toMatch(/text-fg-muted/);
+    expect(meta.className).not.toMatch(/text-fg-subtle/);
   });
 
   // Sprint 28.15 — Replace now opens a styled in-app alertdialog instead of

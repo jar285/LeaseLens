@@ -235,6 +235,12 @@ v1.0
 
 It also gave the masthead and hero brand badges a subtle depth lift.
 
+Sprint **50** carried that warmth into the post-upload workspace (Mode B): the scan verdict now reads as an
+outcome (a tier-tinted halo + glyph, never colour alone), the red-flag cards lift onto an elevated surface
+with a warm shadow, a quiet terracotta masthead glow ties Mode B to the landing, and the one real header
+contrast gap was repaired. A follow-up (S50.6) fixed the click-to-section jump: a double-scroll that fought
+itself became a single smooth glide to the cited clause.
+
 ---
 
 ## Detailed Sprint Log
@@ -352,6 +358,7 @@ It also gave the masthead and hero brand badges a subtle depth lift.
 | Sprint | Scope | Status |
 |---:|---|---|
 | 49 | Public version stamp `v1.0` and masthead / hero brand-badge depth lift | Complete |
+| 50 | Mode B depth: verdict moment (tier halo + glyph), elevated red-flag cards with warm shadow, masthead glow, header contrast fix, single-glide clause jump | Complete |
 
 ---
 

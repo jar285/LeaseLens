@@ -165,6 +165,12 @@ export function PdfViewerClient({
   // clip the right edge of the text layer.
   const pageContainerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Array<HTMLDivElement | null>>([]);
+  // Sprint 50.6 — the imperative scrollToPage records its target here instead
+  // of scrolling immediately; the activeClauseId effect performs the single
+  // animated scroll (highlight-center if a mark exists, else this page). This
+  // is what stops the card's page-scroll from fighting the mark-scroll (the
+  // double-scroll that read as a janky, instant jump).
+  const pendingClauseScrollPageRef = useRef<number | null>(null);
 
   // S20.7 — smart zoom: clicking +/- auto-disables Fit Width so the
   // user gets the zoom change in one click instead of two. Without
@@ -359,21 +365,37 @@ export function PdfViewerClient({
   useEffect(() => {
     const root = scrollAreaRef.current;
     if (!root || !activeClauseId) return;
+    const reduce = prefersReducedMotion();
+    const behavior: ScrollBehavior = reduce ? 'auto' : 'smooth';
     const selector = `mark[data-clause-id="${cssEscape(activeClauseId)}"]`;
     const marks = root.querySelectorAll<HTMLElement>(selector);
-    if (marks.length === 0) return;
-    const reduce = prefersReducedMotion();
-    const cls = reduce ? 'll-hl--active' : 'll-hl--pulse';
-    for (const mark of marks) mark.classList.add(cls);
-    marks[0].scrollIntoView({
-      behavior: reduce ? 'auto' : 'smooth',
-      block: 'center',
-    });
-    return () => {
-      for (const mark of marks) {
-        mark.classList.remove('ll-hl--pulse', 'll-hl--active');
-      }
-    };
+
+    // Sprint 50.6 — single animated scroll per clause jump. The card's
+    // scrollToPage no longer scrolls; it records the target page (consumed
+    // here), so ALL active-clause scrolling happens in this one place and the
+    // page-scroll can't fight the mark-scroll. Prefer the precise highlight;
+    // fall back to the recorded page when the clause has no matched mark
+    // (filtered severity, no text match, scanned page, or a non-graded clause
+    // row). Reduced motion swaps the smooth glide for an instant jump.
+    const fallbackPage = pendingClauseScrollPageRef.current;
+    pendingClauseScrollPageRef.current = null;
+
+    if (marks.length > 0) {
+      const cls = reduce ? 'll-hl--active' : 'll-hl--pulse';
+      for (const mark of marks) mark.classList.add(cls);
+      marks[0].scrollIntoView({ behavior, block: 'center' });
+      return () => {
+        for (const mark of marks) {
+          mark.classList.remove('ll-hl--pulse', 'll-hl--active');
+        }
+      };
+    }
+    if (typeof fallbackPage === 'number') {
+      pageRefs.current[fallbackPage - 1]?.scrollIntoView({
+        behavior,
+        block: 'start',
+      });
+    }
   }, [activeClauseId]);
 
   // Sprint 46.6 — PDF→card hover: a delegated listener (react-pdf strips
@@ -415,22 +437,32 @@ export function PdfViewerClient({
     };
   }, [hoveredClauseId]);
 
-  // Sprint 23g (kept in 23h) — extracted into a callback so both the
-  // imperative handle (for external scrollToPage calls from CitationChip
-  // / red-flag cards) AND the new prev/next buttons + keyboard navigation
-  // share the exact same scroll behaviour. One source of truth.
+  // Sprint 23g (kept in 23h) — page navigation scroll (prev/next buttons +
+  // keyboard). One source of truth for page-level scrolling.
+  // Sprint 50.6 — this is now ONLY the page-nav path; the external
+  // scrollToPage handle (CitationChip / red-flag cards / clause rows) routes
+  // through recordClauseJumpPage so the clause jump animates exactly once.
   const scrollToPageNumber = useCallback((page: number) => {
     if (page < 1 || page > pageRefs.current.length) return;
     const el = pageRefs.current[page - 1];
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
+  // Sprint 50.6 — the imperative scrollToPage records the target page rather
+  // than scrolling. The activeClauseId effect (which the same click sets)
+  // performs the single animated scroll: highlight-center if a mark exists,
+  // else this recorded page. Recording (not scrolling) is what removes the
+  // competing page-scroll the user saw as a janky, instant jump.
+  const recordClauseJumpPage = useCallback((page: number) => {
+    pendingClauseScrollPageRef.current = page;
+  }, []);
+
   useImperativeHandle(
     pdfViewerRef,
     () => ({
-      scrollToPage: scrollToPageNumber,
+      scrollToPage: recordClauseJumpPage,
     }),
-    [scrollToPageNumber],
+    [recordClauseJumpPage],
   );
 
   // Sprint 23h — page-navigation derived state. `currentPage` is set by

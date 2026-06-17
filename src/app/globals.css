@@ -161,6 +161,19 @@
   /* Shadows — hairline 1px stroke and a subtle 2px lift. No bloom. */
   --shadow-hairline: 0 0 0 1px var(--color-border-hairline);
   --shadow-lift: 0 2px 8px rgb(0 0 0 / 0.06);
+  /* Sprint 50.1 — warm card lift for the Mode B result cards. The cold grey
+     --shadow-lift made the cards feel like a generic SaaS shell on the cream
+     page; this reuses the palette's warm brown (40 28 16) — the same hue as
+     --shadow-popover — so a lifted card reads as paper belonging to the
+     cream/terracotta world (Wathan/Schoger depth, Rams restraint — soft, no
+     bloom). Resting is a low two-layer lift; hover deepens it a step. Cards
+     keep their hairline border for a crisp edge; the shadow only adds the
+     "pick it up" dimensionality. Dark overrides below switch to black so the
+     lift reads on espresso surfaces. */
+  --shadow-card:
+    0 1px 2px rgb(40 28 16 / 0.04), 0 4px 12px -4px rgb(40 28 16 / 0.08);
+  --shadow-card-hover:
+    0 1px 2px rgb(40 28 16 / 0.05), 0 8px 20px -6px rgb(40 28 16 / 0.14);
   /* Sprint 37.1 — warm, layered popover shadow for floating premium
      surfaces (the FAB assistant drawer). Three stacked layers — a tight
      contact shadow, a soft ambient bloom, and a directional lift — all
@@ -278,6 +291,12 @@
   --accent-ambient-fade-mix: 70%;
   --accent-ambient-ellipse-opacity: 17%;
   --accent-ambient-soft-opacity: 12%;
+  /* Sprint 50.1 — on espresso surfaces a warm-brown shadow disappears; switch
+     the card lift to black so the dimensionality still reads (same idiom the
+     hero badge + trust medallions use in dark). */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 16px -6px rgb(0 0 0 / 0.5);
+  --shadow-card-hover:
+    0 1px 2px rgb(0 0 0 / 0.35), 0 10px 24px -6px rgb(0 0 0 / 0.6);
 }
 
 @layer base {

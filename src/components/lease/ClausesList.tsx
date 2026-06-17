@@ -142,7 +142,7 @@ export function ClausesList(): React.JSX.Element {
       <section
         data-testid="clauses-list"
         aria-labelledby="clauses-list-heading"
-        className="flex flex-col gap-2 rounded-lg border border-neutral-200 bg-surface-card p-4 dark:border-neutral-800 dark:bg-neutral-900"
+        className="flex flex-col gap-2 rounded-lg bg-surface-card p-4 dark:bg-neutral-900"
       >
         <h3
           id="clauses-list-heading"

@@ -126,6 +126,26 @@ describe('RedFlagReport', () => {
     expect(screen.getByText(/NJ Stat 2A:42-6\.1/)).toBeInTheDocument();
   });
 
+  // Sprint 50.3 — card object quality. The cards used to be bg-surface-card
+  // sitting inside a bg-surface-card section (cream-on-cream, zero figure-
+  // ground). They now lift onto surface-elevated with a WARM shadow so they
+  // read as paper you can pick up (Wathan/Schoger depth). Severity stays on the
+  // left bar + SeverityBadge — no full-card fill tint (documented invariant).
+  it('Sprint 50.3 — red-flag cards lift onto an elevated surface with a warm shadow', () => {
+    render(
+      <ProviderWithEvents events={[grade()]}>
+        <RedFlagReport />
+      </ProviderWithEvents>,
+    );
+    const card = screen.getAllByTestId('red-flag-card')[0];
+    expect(card.className).toMatch(/bg-surface-elevated/);
+    expect(card.className).toMatch(/shadow-card/);
+    expect(card.className).toMatch(/hover:shadow-card-hover/);
+    // No full-card severity fill tint: the card surface stays neutral paper,
+    // never a danger/warning/info/success wash.
+    expect(card.className).not.toMatch(/bg-(danger|warning|info|success)/);
+  });
+
   it('Sprint 43.5 — card toggle: sober tap-press, reduced-motion off, inset focus ring', () => {
     render(
       <ProviderWithEvents events={[grade()]}>
@@ -823,6 +843,88 @@ describe('RedFlagReport', () => {
       expect(
         screen.queryByTestId('red-flag-ungraded-line'),
       ).not.toBeInTheDocument();
+    });
+  });
+
+  // Sprint 50.2 — verdict moment. The verdict is the load-bearing "is this
+  // lease bad?" answer; it now reads as an OUTCOME (a soft tier-tinted halo +
+  // a tier glyph) instead of a bare line of text. Severity is carried by the
+  // headline WORDS + the glyph SHAPE, never colour alone (WCAG); the halo is
+  // pure decoration (aria-hidden, pointer-events-none).
+  describe('Sprint 50.2 — verdict moment (tier halo + glyph)', () => {
+    const gradeSeverity = (severity: GradingResult['severity']): ToolEvent =>
+      grade({
+        input: { clause_id: 'c1' },
+        result: {
+          ...(grade().result as object),
+          clause_id: 'c1',
+          severity,
+        } as ToolEvent['result'],
+      });
+
+    it('stamps the verdict with data-tier matching the highest present severity', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('high')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(screen.getByTestId('red-flag-verdict')).toHaveAttribute(
+        'data-tier',
+        'high',
+      );
+    });
+
+    it('stamps an ok tier when no findings exceed ok severity', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('ok')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(screen.getByTestId('red-flag-verdict')).toHaveAttribute(
+        'data-tier',
+        'ok',
+      );
+    });
+
+    it('renders a decorative tier halo (aria-hidden, non-interactive)', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('high')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const halo = screen.getByTestId('red-flag-verdict-halo');
+      expect(halo).toHaveAttribute('aria-hidden', 'true');
+      expect(halo).toHaveAttribute('data-tier', 'high');
+      expect(halo.className).toMatch(/pointer-events-none/);
+    });
+
+    it('conveys the tier by glyph + words, not colour alone (WCAG)', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('high')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      // Shape channel: a tier glyph beside the headline, aria-hidden so the
+      // headline words remain the accessible name.
+      const glyph = screen.getByTestId('red-flag-verdict-glyph');
+      expect(glyph).toHaveAttribute('aria-hidden', 'true');
+      expect(glyph).toHaveAttribute('data-tier', 'high');
+      // Text channel: the headline still states the risk in words.
+      expect(screen.getByTestId('red-flag-verdict').textContent ?? '').toMatch(
+        /high risk/i,
+      );
+    });
+
+    it('preserves the editorial headline typography after wrapping', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('high')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const verdict = screen.getByTestId('red-flag-verdict');
+      expect(verdict.className).toMatch(/\bfont-serif\b/);
+      expect(verdict.className).toMatch(/\bfont-bold\b/);
+      expect(verdict.className).toMatch(/\btracking-tight\b/);
     });
   });
 

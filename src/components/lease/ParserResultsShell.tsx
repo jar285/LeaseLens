@@ -165,8 +165,12 @@ function ResultsShellInner({
         // "page must not scroll" spec but was reversed by user
         // request: the workspace now flows naturally as part of
         // window scroll. No height clamp, no overflow clipping.
-        className="bg-surface-base"
+        // Sprint 50.4 — `relative isolate` hosts the masthead glow's
+        // -z-10 layer above the page fill but below content (same
+        // isolate idiom as the Mode A landing's ambient blob).
+        className="relative isolate bg-surface-base"
       >
+        <ResultsMastheadGlow />
         <ResultsHeader
           leftPaneState={leftPaneState}
           onReplace={requestReplace}
@@ -250,6 +254,42 @@ function ResultsShellInner({
   );
 }
 
+/*
+ * Sprint 50.4 — Mode B masthead glow.
+ *
+ * Carries Mode A's terracotta ambient field (ParserLandingShell's
+ * LeaseHeroAmbientBlob) across the upload seam so the post-upload workspace
+ * shares the landing's warmth instead of reading as flat cream. It is page
+ * ATMOSPHERE, not a behind-text wash: a single top-anchored radial that fades
+ * out before the results grid, visible in the top margin + gutters around the
+ * opaque panels. The verdict halo (RedFlagReport) owns the behind-headline
+ * tint; this layer never penetrates a panel, so it can't touch text contrast.
+ *
+ * Reuses the `--accent-ambient-*` tokens (theme-aware: muted terracotta on
+ * espresso in dark) at ~45% of the landing's gradient strength — the landing
+ * is a hero, this is a working surface (Dieter Rams restraint). Decorative:
+ * aria-hidden, pointer-events-none, -z-10. Pure CSS, so reduced-motion users
+ * see the same static field.
+ */
+function ResultsMastheadGlow(): React.JSX.Element {
+  return (
+    <div
+      data-testid="results-masthead-glow"
+      data-theme-layer="ambient"
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-64 overflow-hidden"
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 70% 100% at 50% 0%, color-mix(in srgb, var(--color-accent-ambient-core) calc(var(--accent-ambient-gradient-mix) * 0.45), transparent), transparent 72%)',
+        }}
+      />
+    </div>
+  );
+}
+
 function ResultsHeader({
   leftPaneState,
   onReplace,
@@ -277,7 +317,9 @@ function ResultsHeader({
         {meta.metaParts.length > 0 ? (
           <span
             data-testid="results-header-meta"
-            className="hidden text-[11px] text-fg-subtle sm:inline"
+            // Sprint 50.5 — fg-muted (≈6.46:1), not fg-subtle (≈2.26:1): this is
+            // real exposed metadata, so it must clear WCAG AA for its 11px size.
+            className="hidden text-[11px] text-fg-muted sm:inline"
           >
             · {meta.metaParts.join(' · ')}
           </span>
@@ -370,7 +412,12 @@ function ResultsRedFlagsSection(): React.JSX.Element {
   return (
     <section
       data-testid="results-red-flags-section"
-      className="flex flex-col rounded-lg border border-neutral-200 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900"
+      // Sprint 50.3 — the section sheds its panel border so it reads as a quiet
+      // vellum TRAY, letting the elevated red-flag cards be the only "objects"
+      // in the column (also clears the nested-card smell of a bordered card
+      // inside a bordered card). It keeps its darker surface-card fill so the
+      // lighter surface-elevated cards lift out of it.
+      className="flex flex-col rounded-lg bg-surface-card dark:bg-neutral-900"
     >
       <RedFlagsPaneHeader />
       <div className="flex flex-col gap-3 p-4">

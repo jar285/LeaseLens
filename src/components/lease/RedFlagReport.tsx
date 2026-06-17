@@ -48,7 +48,7 @@ import { useLeaseParser } from './LeaseParserContext';
 import { useHighlightSettings } from './PdfHighlightContext';
 import { RedFlagSkeletonCard } from './RedFlagSkeletonCard';
 import { RedFlagsLoadingState } from './RedFlagsLoadingState';
-import { SeverityBadge } from './SeverityBadge';
+import { SEVERITY_ICON, SeverityBadge } from './SeverityBadge';
 import { useScanLifecycle } from './scan-lifecycle';
 import {
   shouldEmphasizeVerdict,
@@ -87,6 +87,18 @@ import { partitionByLatestExtract, useScanProgress } from './use-scan-progress';
 // orient (and to read the sticky callout), short enough to fade
 // before the next interaction.
 const HIGHLIGHT_DURATION_MS = 4000;
+
+// Sprint 50.2 — verdict tier → severity colour variable. The verdict halo +
+// glyph reuse the SAME semantic tokens as the card bar/badge (grading.ts
+// SEVERITY_BAR), so the "is this lease bad?" headline speaks the identical
+// severity language as the cards it summarises. Colour is reinforcement only;
+// the headline words + the glyph (SEVERITY_ICON) carry the meaning (WCAG).
+const VERDICT_TIER_VAR: Record<Severity, string> = {
+  high: 'var(--color-danger-600)',
+  medium: 'var(--color-warning-600)',
+  low: 'var(--color-info-600)',
+  ok: 'var(--color-success-600)',
+};
 
 export function RedFlagReport(): React.JSX.Element {
   const {
@@ -409,24 +421,41 @@ export function RedFlagReport(): React.JSX.Element {
             strip. Rendered ONLY when at least one valid grading exists
             (verdict.tier !== 'idle'), so the empty state stays clean. */}
         {verdict.tier !== 'idle' ? (
-          <motion.p
-            // Sprint 43.6 — one-shot sober settle when review becomes ready: the
-            // key flips at the review-ready transition so the headline remounts
-            // and animates ONCE. Static during grading and under reduced motion
-            // (initial={false}).
-            key={emphasizeVerdict ? 'verdict-ready' : 'verdict-pending'}
-            data-testid="red-flag-verdict"
-            // Sprint 35.1 — the verdict is the load-bearing "is this lease bad?"
-            // answer, so it earns the brand's editorial-headline face (Source
-            // Serif 4 bold, tracking-tight) per MASTER.md — not body sans. Text
-            // is balanced so the em-dash clause doesn't orphan on wrap.
-            className="text-balance font-serif text-lg font-bold tracking-tight text-fg-default leading-snug"
-            initial={emphasizeVerdict ? { opacity: 0.6, y: 2 } : false}
-            animate={{ opacity: 1, y: 0 }}
-            transition={VERDICT_SETTLE_TRANSITION}
+          // Sprint 50.2 — the verdict reads as an OUTCOME, not a tally. A soft
+          // tier-tinted halo sits behind the headline (VerdictHalo) and a tier
+          // glyph sits beside it (VerdictTierGlyph), so "is this lease bad?" is
+          // answered by shape + words + a colour wash — never colour alone.
+          // `relative isolate` hosts the halo's -z-10 above the section surface
+          // but below the headline (same isolate idiom as the landing blob).
+          <div
+            data-testid="red-flag-verdict-region"
+            data-tier={verdict.tier}
+            className="relative isolate"
           >
-            {verdict.headline}
-          </motion.p>
+            <VerdictHalo tier={verdict.tier} />
+            <motion.p
+              // Sprint 43.6 — one-shot sober settle when review becomes ready: the
+              // key flips at the review-ready transition so the headline remounts
+              // and animates ONCE. Static during grading and under reduced motion
+              // (initial={false}).
+              key={emphasizeVerdict ? 'verdict-ready' : 'verdict-pending'}
+              data-testid="red-flag-verdict"
+              data-tier={verdict.tier}
+              // Sprint 35.1 — the verdict is the load-bearing "is this lease bad?"
+              // answer, so it earns the brand's editorial-headline face (Source
+              // Serif 4 bold, tracking-tight) per MASTER.md — not body sans. Text
+              // is balanced so the em-dash clause doesn't orphan on wrap.
+              // Sprint 50.2 — flex row so the tier glyph hangs beside the headline
+              // without disturbing the editorial type (classes preserved).
+              className="relative flex items-start gap-2 text-balance font-serif text-lg font-bold tracking-tight text-fg-default leading-snug"
+              initial={emphasizeVerdict ? { opacity: 0.6, y: 2 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              transition={VERDICT_SETTLE_TRANSITION}
+            >
+              <VerdictTierGlyph tier={verdict.tier} />
+              <span>{verdict.headline}</span>
+            </motion.p>
+          </div>
         ) : null}
         {/* Summary row — at-a-glance severity counts. */}
         {animate ? (
@@ -504,7 +533,15 @@ export function RedFlagReport(): React.JSX.Element {
             // border; a separately-rendered <ActiveRing /> overlay handles
             // the highlight with a 200ms fade-in → 3.6s hold → 200ms
             // fade-out (driven by HIGHLIGHT_DURATION_MS in the setTimeout).
-            const cardClass = `relative overflow-hidden rounded-lg border bg-surface-card shadow-hairline transition-shadow hover:shadow-lift dark:bg-neutral-900 ${
+            // Sprint 50.3 — object quality. The card used to be `bg-surface-card`
+            // INSIDE a `bg-surface-card` section (cream-on-cream, no figure-
+            // ground — the "lifeless" the user reported). It now rests on
+            // `surface-elevated` (the only surface lighter than base) with the
+            // warm `--shadow-card` lift, so it reads as paper sitting in the
+            // vellum tray. Hover deepens to the warm `--shadow-card-hover`
+            // (replacing the cold grey `shadow-lift`). Severity stays on the
+            // left bar + badge — no full-card fill tint (CLAUDE.md invariant).
+            const cardClass = `relative overflow-hidden rounded-lg border bg-surface-elevated shadow-card transition-shadow hover:shadow-card-hover ${
               isHovered && !isActive
                 ? 'border-accent-300 ring-2 ring-accent-300/50 dark:border-accent-400/50'
                 : 'border-neutral-200 dark:border-neutral-800'
@@ -966,6 +1003,47 @@ function CardActions({
         Draft email
       </button>
     </div>
+  );
+}
+
+/*
+ * Sprint 50.2 — verdict outcome cues.
+ *
+ * VerdictHalo: a soft, tier-tinted radial wash BEHIND the headline so the scan
+ * reads as a result, not a tally (Jakob Nielsen: the outcome is visible).
+ * Decorative only — aria-hidden, pointer-events:none, -z so it never affects
+ * the headline's contrast (fg-default ≈ 14.8:1 on card). Alpha is held low (a
+ * wash, never a fill) so low-tier's info-blue can't be mistaken for a citation.
+ *
+ * VerdictTierGlyph: the SAME severity glyph SeverityBadge uses, hung beside the
+ * headline as the non-colour (shape) channel. aria-hidden so the headline words
+ * remain the accessible name.
+ */
+function VerdictHalo({ tier }: { tier: Severity }): React.JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="red-flag-verdict-halo"
+      data-tier={tier}
+      className="pointer-events-none absolute -inset-x-3 -top-3 -bottom-1 -z-10 rounded-2xl"
+      style={{
+        background: `radial-gradient(70% 130% at 0% 0%, color-mix(in srgb, ${VERDICT_TIER_VAR[tier]} 13%, transparent), transparent 72%)`,
+      }}
+    />
+  );
+}
+
+function VerdictTierGlyph({ tier }: { tier: Severity }): React.JSX.Element {
+  const Icon = SEVERITY_ICON[tier];
+  return (
+    <Icon
+      aria-hidden="true"
+      data-testid="red-flag-verdict-glyph"
+      data-tier={tier}
+      className="mt-1 h-4 w-4 shrink-0"
+      strokeWidth={2.5}
+      style={{ color: VERDICT_TIER_VAR[tier] }}
+    />
   );
 }
 

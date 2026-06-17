@@ -251,7 +251,12 @@ export function ChatTranscript({
       onScroll={handleScroll}
       className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 py-5 md:px-8"
     >
-      <div className="mx-auto w-full max-w-3xl shrink-0">
+      {/* Sprint 52.4 — measure cap. `max-w-3xl` (768px ≈ ~86ch at the 14.5px
+          body) ran past the readable line-length ceiling in the wide
+          expanded-reading drawer; `max-w-2xl` lands lines in the 66-75ch band
+          (Butterick / Wathan-Schoger). The common workspace-drawer (≤672px) is
+          unaffected; the wide reading panel gains margin, not narrower text. */}
+      <div className="mx-auto w-full max-w-2xl shrink-0">
         {/* Sprint 27.1 — inter-message gap bumped from space-y-1 (4px,
             visually adjacent) to space-y-3 (12px). With user messages
             now also wearing a card (ChatMessage), the larger gap reads

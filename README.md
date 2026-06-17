@@ -693,7 +693,8 @@ Phase summary:
 | Parser-first workspace | 26–33 | Mode A/B router, AssistantFab, persistence, bug triage |
 | Grounding + clarity | 34–35 | Citation recovery and plain-English explanations |
 | Assistant polish + platform | 36–45 | Concierge surfaces, content pages, motion, observability, findings reuse |
-| Evidence highlighting + brand | 46–50 | PDF evidence layer, gutter markers, `v1.0` polish, Mode B depth + verdict moment |
+| Evidence highlighting + brand | 46–51 | PDF evidence layer, gutter markers, `v1.0` polish, Mode B depth + premium pass |
+| Assistant readability | 52 | Slim drawer masthead, chat-thread overflow menu, mobile bottom sheet (half→full snap), capped reading measure |
 
 Full sprint history:
  

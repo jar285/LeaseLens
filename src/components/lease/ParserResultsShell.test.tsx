@@ -121,6 +121,35 @@ describe('ParserResultsShell', () => {
     expect(glow.className).toMatch(/pointer-events-none/);
   });
 
+  // Sprint 52 — the lost-cache (reattach) state used to be a bare two-line
+  // void filling half the workspace. It's now a designed recovery card with the
+  // filename and a primary button that routes to the existing Replace flow.
+  // Honesty invariant: it must NOT claim the review is preserved (Replace fully
+  // resets the lease + clauses + red flags).
+  it('Sprint 52 — reattach renders an honest recovery card whose button opens Replace', async () => {
+    // activeLease WITHOUT pdfUrl + IndexedDB miss → reattach state.
+    setPdfBinaryRepository(makeRepo({ get: vi.fn().mockResolvedValue(null) }));
+    const propsNoPdf = {
+      ...baseProps,
+      initialActiveLease: {
+        ...baseProps.initialActiveLease,
+        pdfUrl: undefined,
+      },
+    };
+    render(<ParserResultsShell {...propsNoPdf} />);
+
+    const card = await screen.findByTestId('pdf-reattach-card');
+    expect(card).toHaveTextContent('sample.pdf');
+    // Never promises the review survives Replace (it does not).
+    expect(card.textContent ?? '').not.toMatch(/preserved/i);
+    // The recovery button routes through the existing destructive Replace flow:
+    // clicking it opens the confirm alertdialog (it does not reset on its own).
+    const btn = within(card).getByTestId('pdf-reattach-replace');
+    expect(btn.textContent ?? '').toMatch(/replace/i);
+    fireEvent.click(btn);
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
   it('renders the header strip with filename + page count + clause count', () => {
     render(<ParserResultsShell {...baseProps} />);
     const header = screen.getByTestId('results-header');

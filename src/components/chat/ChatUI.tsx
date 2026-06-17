@@ -1,8 +1,9 @@
 'use client';
 
-import { AlertCircle, RotateCcw, SquarePen, X } from 'lucide-react';
+import { AlertCircle, Ellipsis, RotateCcw, SquarePen, X } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLeaseParser } from '@/components/lease/LeaseParserContext';
 import { useScanLifecycle } from '@/components/lease/scan-lifecycle';
 import { parseStreamLine } from '@/lib/chat/parse-stream-line';
@@ -146,6 +147,15 @@ export interface ChatUIProps {
    * the drawer, and passes it only when not already expanded.
    */
   onRequestExpandedReading?: () => void;
+  /**
+   * Sprint 52.5 — when set, the chat-thread overflow (⋯) trigger + menu are
+   * portaled into this DOM node (the FAB drawer's masthead control cluster)
+   * instead of floating over the transcript. Fixes the workspace-drawer overlap
+   * where the floating ⋯ collided with full-width message text (the
+   * `expanded-reading` gutter was accidentally hiding it). Omitted by non-FAB /
+   * legacy mounts, which keep the in-place render.
+   */
+  threadMenuContainer?: HTMLElement | null;
 }
 
 export function ChatUI({
@@ -161,6 +171,7 @@ export function ChatUI({
   composerPlaceholder,
   onHasMessagesChange,
   onRequestExpandedReading,
+  threadMenuContainer,
 }: ChatUIProps) {
   const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
@@ -251,6 +262,41 @@ export function ChatUI({
     );
     return () => window.clearTimeout(timer);
   }, [toastVisible]);
+
+  // Sprint 52.2 — chat-thread overflow menu. The persistent "Clear assistant
+  // chat" strip is gone; its controls now live in a disclosure popover behind a
+  // slim floating ⋯ trigger, so the reading surface stays uncluttered (Steve
+  // Krug; Dieter Rams). Outside-pointerdown + Escape close it and return focus
+  // to the trigger (Apple HIG / Material menu behaviour). The popover keeps the
+  // SAME testids + handlers as before, so the thread-clear/continue wiring and
+  // its aria-live "lease preserved" reassurance are unchanged.
+  const [threadMenuOpen, setThreadMenuOpen] = useState(false);
+  const threadMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const threadMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!threadMenuOpen) return;
+    // Move focus into the menu on open so keyboard users land on the first
+    // action (Apple HIG / Material menu behaviour).
+    threadMenuRef.current
+      ?.querySelector<HTMLElement>('[role="menuitem"]')
+      ?.focus();
+    function onPointerDown(event: PointerEvent): void {
+      const target = event.target as Node;
+      if (
+        threadMenuRef.current?.contains(target) ||
+        threadMenuTriggerRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setThreadMenuOpen(false);
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [threadMenuOpen]);
+  const closeThreadMenu = (returnFocus = false) => {
+    setThreadMenuOpen(false);
+    if (returnFocus) threadMenuTriggerRef.current?.focus();
+  };
 
   // Sprint 29.11 — "Scan complete" banner. Pairs with the Sprint 29.10
   // system-prompt scan-progress awareness section so the user has
@@ -583,6 +629,107 @@ export function ChatUI({
     suggestedPrompts.length > 0 &&
     !!onSelectSuggestion;
 
+  // Sprint 52.5 — the chat-thread overflow (⋯) trigger + menu. Rendered once,
+  // either portaled into the FAB masthead's control cluster (`threadMenuContainer`,
+  // next to Expand/Close) or, for non-FAB / legacy mounts, in place inside the
+  // `conversation-toolbar` grid anchor below. The trigger is a normal flex
+  // child (NOT an absolute overlay) so it never floats over the transcript; the
+  // popover drops below it (`top-full`). The `relative` wrapper anchors the
+  // popover in both mount locations.
+  const threadMenuInner = (
+    <div className="relative flex items-center">
+      <button
+        ref={threadMenuTriggerRef}
+        type="button"
+        data-testid="assistant-thread-menu-trigger"
+        aria-haspopup="true"
+        aria-expanded={threadMenuOpen}
+        aria-label="Conversation options"
+        onClick={() => setThreadMenuOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && threadMenuOpen) {
+            e.preventDefault();
+            closeThreadMenu(true);
+          }
+        }}
+        // 44px hit area (house WCAG baseline), quiet until hovered/focused so it
+        // reads as a calm window control beside Expand/Close, not a competing one.
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 motion-reduce:transition-none dark:hover:bg-neutral-800"
+      >
+        <Ellipsis className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <div
+        ref={threadMenuRef}
+        data-testid="assistant-thread-menu"
+        role="menu"
+        aria-label="Conversation options"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            closeThreadMenu(true);
+          }
+        }}
+        className={`absolute right-0 top-full z-overlay mt-1 flex w-60 max-w-[calc(100vw-2rem)] flex-col gap-0.5 rounded-xl border border-border-hairline bg-surface-card p-1.5 shadow-popover dark:bg-neutral-900 ${
+          threadMenuOpen ? '' : 'hidden'
+        }`}
+      >
+        {showContinuePrevious ? (
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="continue-previous-btn"
+            onClick={() => {
+              handleContinuePrevious();
+              closeThreadMenu(true);
+            }}
+            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] font-medium text-fg-default transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:hover:bg-neutral-800"
+          >
+            <RotateCcw
+              className="h-4 w-4 shrink-0 text-fg-muted"
+              aria-hidden="true"
+            />
+            Continue previous
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="new-conversation-btn"
+              onClick={() => {
+                // Sprint 25.2 — clicking mid-stream is the documented escape
+                // hatch; handleNewConversation aborts the in-flight fetch at the
+                // top, so this stays enabled while streaming.
+                handleNewConversation();
+                closeThreadMenu(true);
+              }}
+              aria-describedby={CLEAR_CHAT_HELPER_ID}
+              className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] font-medium text-fg-default transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:hover:bg-neutral-800"
+            >
+              <SquarePen
+                className="h-4 w-4 shrink-0 text-fg-muted"
+                aria-hidden="true"
+              />
+              Clear assistant chat
+            </button>
+            {/* Sprint 52.2 — the "your lease will stay here" reassurance is
+                VISIBLE in the menu on every viewport (was hidden < sm) and still
+                wired via aria-describedby so SR users hear it before activating
+                the destructive-sounding action (Don Norman: signal safety up
+                front). */}
+            <span
+              id={CLEAR_CHAT_HELPER_ID}
+              data-testid="clear-assistant-chat-helper"
+              className="px-3 pb-1 pt-0.5 text-[11px] leading-snug text-fg-muted"
+            >
+              {CLEAR_CHAT_HELPER_TEXT}
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       {/* Sprint 28.8 — aria-live announcer for chat-thread resets so
@@ -600,77 +747,31 @@ export function ChatUI({
         {announcement}
       </div>
       <div className="grid min-h-0 w-full flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
-        {/* Conversation toolbar — visible when there's an active thread or
-            a stashed previous one (one-click undo for misclicked New). */}
+        {/* Sprint 52.2 — chat-thread controls live behind a slim floating
+            overflow (⋯) trigger instead of a persistent toolbar strip. The
+            anchor is a 0-height `relative` box, so the old ~32px row's flow
+            height is reclaimed for the answer; the trigger + popover float over
+            the transcript's top-right (Steve Krug: declutter; Dieter Rams: less
+            but better; Wathan/Schoger: hierarchy via space, not a fenced band).
+            The whole anchor is `hidden` when there's no thread/stash, preserving
+            the Sprint 38.6 "no dead void in the empty popover" contract.
+            testids + handlers + the aria-live preservation announcer are
+            unchanged — only the chrome moved. */}
+        {/* Sprint 52.5 — `conversation-toolbar` stays as the grid's row-1
+            anchor (preserves the 3-row template + the "hidden when no thread"
+            contract), but it now only HOSTS the menu when there's no FAB header
+            slot. When the FAB provides `threadMenuContainer`, the trigger + menu
+            are portaled into the masthead beside Expand/Close, so they never
+            float over (and overlap) the transcript. */}
         <div
           data-testid="conversation-toolbar"
-          // Sprint 29.1 — added `gap-2` so the new helper text sits a
-          // small distance left of the Clear button (instead of butting
-          // up against it). `justify-end` keeps the cluster right-anchored.
-          // Sprint 38.6 — when there's no thread, use `hidden` (display:none),
-          // not `invisible`: `invisible` still reserved ~50px, which in the
-          // empty no-lease popover became a dead void above the subhead (and
-          // squeezed/clipped it). Removing the row from layout reclaims that
-          // space for the transcript. The toolbar only appears once a thread
-          // exists, which is already a full empty→thread re-layout, so there's
-          // no jarring single-element shift.
-          className={`flex shrink-0 items-center justify-end gap-2 border-b border-gray-100 px-4 py-1.5 ${
-            showToolbar ? '' : 'hidden'
-          }`}
+          className={`relative flex justify-end ${showToolbar ? '' : 'hidden'}`}
         >
-          {showContinuePrevious ? (
-            <button
-              type="button"
-              data-testid="continue-previous-btn"
-              onClick={handleContinuePrevious}
-              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
-            >
-              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-              Continue previous
-            </button>
-          ) : (
-            <>
-              {/* Sprint 29.1 — visible helper text reassures sighted
-                  users that clearing the chat does NOT wipe the lease
-                  review. Same element is referenced via aria-describedby
-                  on the button below so screen-reader users hear it
-                  before activating. Hidden on narrow viewports so the
-                  toolbar stays clean on mobile; the aria description
-                  still works there because aria-describedby reads
-                  hidden-but-not-display:none text. */}
-              <span
-                id={CLEAR_CHAT_HELPER_ID}
-                data-testid="clear-assistant-chat-helper"
-                className="hidden text-[11px] text-gray-400 sm:inline"
-              >
-                {CLEAR_CHAT_HELPER_TEXT}
-              </span>
-              <button
-                type="button"
-                data-testid="new-conversation-btn"
-                onClick={handleNewConversation}
-                aria-describedby={CLEAR_CHAT_HELPER_ID}
-                // Sprint 29.1 — renamed from "New conversation" to
-                // "Clear assistant chat". The old label tested
-                // ambiguous (tenants thought it would reset the whole
-                // lease review). New label names exactly what is
-                // cleared. testid + handler intentionally retained so
-                // existing wiring + tests keep working.
-                //
-                // Sprint 25.2 — formerly disabled during streaming, which
-                // gated the user out of R8's escape-hatch flow (clicking
-                // this mid-stream is the documented way to abort an
-                // in-flight reply and start fresh). handleNewConversation
-                // calls abortRef.current?.abort() at the top, so the
-                // in-flight fetch cancels cleanly.
-                className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
-              >
-                <SquarePen className="h-3.5 w-3.5" aria-hidden="true" />
-                Clear assistant chat
-              </button>
-            </>
-          )}
+          {threadMenuContainer ? null : threadMenuInner}
         </div>
+        {threadMenuContainer
+          ? createPortal(threadMenuInner, threadMenuContainer)
+          : null}
 
         <div role="status" aria-live="polite" className="sr-only">
           {status === 'streaming' && 'Assistant is typing...'}

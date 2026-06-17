@@ -34,12 +34,18 @@ export interface ScanVerdict {
   tier: VerdictTier;
   headline: string;
   topClauseTitle: string | null;
+  // Sprint 54-prep — the top concern's clause_id, so the verdict headline can
+  // become a click target that scrolls to + pulses that exact card/PDF
+  // highlight. Null for idle/ok (no single concern to anchor). Derived from the
+  // same inTier[0] pick as topClauseTitle, so the two can never disagree.
+  topClauseId: string | null;
 }
 
 const EMPTY_VERDICT: ScanVerdict = {
   tier: 'idle',
   headline: '',
   topClauseTitle: null,
+  topClauseId: null,
 };
 
 function highestPresentTier(
@@ -67,8 +73,11 @@ export function computeScanVerdict(
   if (tier === 'ok') {
     return {
       tier: 'ok',
-      headline: 'Lease is balanced — no high-severity issues found.',
+      // Sprint 54 — no em dash (house copy rule); a comma keeps the sentence
+      // and the pinned lowercase "no high-severity" substring.
+      headline: 'Lease is balanced, no high-severity issues found.',
       topClauseTitle: null,
+      topClauseId: null,
     };
   }
 
@@ -82,20 +91,27 @@ export function computeScanVerdict(
       return a.clause_id.localeCompare(b.clause_id);
     });
   const topClauseTitle = clauseLabel(inTier[0]);
+  const topClauseId = inTier[0].clause_id;
   const count = pluralizeFindings(inTier.length);
 
   if (tier === 'low') {
     return {
       tier: 'low',
-      headline: `Low risk — ${count} reviewed.`,
+      // Sprint 54 — colon, not em dash (house copy rule).
+      headline: `Low risk: ${count} reviewed.`,
       topClauseTitle,
+      topClauseId,
     };
   }
 
   const tierLabel = tier === 'high' ? 'High risk' : 'Medium risk';
   return {
     tier,
-    headline: `${tierLabel} — ${count}, biggest concern is ${topClauseTitle}.`,
+    // Sprint 54 — colon, not em dash (house copy rule). The "biggest concern
+    // is ${topClauseTitle}" tail is what the RedFlagReport verdict turns into a
+    // click target (it splits the headline on topClauseTitle).
+    headline: `${tierLabel}: ${count}, biggest concern is ${topClauseTitle}.`,
     topClauseTitle,
+    topClauseId,
   };
 }

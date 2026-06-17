@@ -36,6 +36,16 @@ export function HighlightControls(): React.JSX.Element | null {
       data-testid="highlight-controls"
       className="flex flex-wrap items-center justify-end gap-1.5"
     >
+      {/* Sprint 54 — name the control's scope. Without it the toggle + chips
+          read as if they might filter the CARDS; this makes clear they govern
+          the PDF highlights (Nielsen: label the control; Steve Krug: don't make
+          me guess). Hidden on the tightest widths; fg-muted clears AA. */}
+      <span
+        data-testid="highlight-controls-label"
+        className="hidden text-[10px] font-medium uppercase tracking-wider text-fg-muted sm:inline"
+      >
+        Highlight on PDF
+      </span>
       <button
         type="button"
         data-testid="highlight-toggle"

@@ -66,6 +66,14 @@ describe('HighlightControls', () => {
     expect(screen.queryByTestId('highlight-controls')).toBeNull();
   });
 
+  // Sprint 54 — the controls govern the PDF highlights, not the card list; a
+  // scope label removes that ambiguity (Nielsen: label the control).
+  it('labels the control group as governing the PDF highlights', () => {
+    renderControls(completeScan());
+    const label = screen.getByTestId('highlight-controls-label');
+    expect(label.textContent ?? '').toMatch(/highlight on pdf/i);
+  });
+
   it('renders the master toggle on + High/Medium filters on, Low/OK off by default', () => {
     renderControls(completeScan());
     expect(screen.getByTestId('highlight-controls')).toBeInTheDocument();

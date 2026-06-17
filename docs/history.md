@@ -241,6 +241,17 @@ with a warm shadow, a quiet terracotta masthead glow ties Mode B to the landing,
 contrast gap was repaired. A follow-up (S50.6) fixed the click-to-section jump: a double-scroll that fought
 itself became a single smooth glide to the cited clause.
 
+Sprint **51** is the audit-driven Mode B premium pass (a screenshot critique scored it 30/40), shipped across
+six slices. The uniform red-flag wall now groups by severity with counted dividers, HIGH cards earn depth/edge
+emphasis (never a fill tint), and compliant clauses roll up behind "N clauses look standard". The PDF pane's
+lost-cache state became a designed recovery card instead of a bare void. The FAB lost its gradient for a flat
+terracotta on the house popover shadow; the results header gained document weight + always-on metadata; the
+four card pills became three (a segmented "Explain" + an accent "Draft email" + a quiet "View on page"). The
+verdict's "biggest concern" is now a click target that scrolls to and pulses the clause, the em dash is gone,
+the highlight controls are labeled "Highlight on PDF", and the clauses list reads as the full inventory. A
+polish pass fixed the page-label contrast, lifted the masthead glow, and gave citations a credential chip.
+(Deferred: a coordinated grouped-reveal stagger, and strict dark-mode FAB-label contrast.)
+
 ---
 
 ## Detailed Sprint Log
@@ -359,6 +370,8 @@ itself became a single smooth glide to the cited clause.
 |---:|---|---|
 | 49 | Public version stamp `v1.0` and masthead / hero brand-badge depth lift | Complete |
 | 50 | Mode B depth: verdict moment (tier halo + glyph), elevated red-flag cards with warm shadow, masthead glow, header contrast fix, single-glide clause jump | Complete |
+| 51 | Mode B premium pass: severity-grouped cards + HIGH emphasis + OK roll-up, PDF recovery card, flat FAB, document header, segmented Explain pills, verdict click-anchor, highlight label, clauses inventory, contrast/glow/citation polish | Complete |
+| 52 | Assistant drawer readability (mobile-first): folded slim masthead, chat-thread overflow (⋯) menu reclaiming the toolbar strip, mobile bottom sheet with half→full snap handle, capped reading measure (~74ch) + taller desktop default | Complete |
 
 ---
 

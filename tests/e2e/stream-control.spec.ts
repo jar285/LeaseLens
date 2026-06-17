@@ -10,12 +10,13 @@ import { expect, test } from '@playwright/test';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { db } from '@/lib/db';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import { openAssistantFab } from './helpers/open-assistant-fab';
+import { clearAssistantChat } from './helpers/open-thread-menu';
 import {
   clearUserConversations,
   seedGradedConversation,
   seedLease,
 } from './helpers/seed-gradings';
-import { openAssistantFab } from './helpers/open-assistant-fab';
 import { setSessionCookies } from './helpers/session';
 import { uploadSampleLease } from './helpers/upload-sample-lease';
 
@@ -54,7 +55,9 @@ test('T7 (R8) — mid-stream "New conversation" aborts silently', async ({
   await uploadSampleLease(page);
   await openAssistantFab(page);
 
-  await page.getByRole('textbox').fill('Tell me everything about NJ tenant law.');
+  await page
+    .getByRole('textbox')
+    .fill('Tell me everything about NJ tenant law.');
   await page.getByRole('button', { name: 'Send message' }).click();
 
   // The typing indicator confirms the stream is in flight (composer locked,
@@ -63,10 +66,11 @@ test('T7 (R8) — mid-stream "New conversation" aborts silently', async ({
     page.getByRole('status', { name: 'Assistant is composing' }),
   ).toBeVisible({ timeout: 5_000 });
 
-  // Mid-flight: click New conversation. ChatUI.handleNewConversation
-  // calls abortRef.current?.abort() at the top — the fetch rejects with
-  // AbortError, the catch branch drops the in-flight bubble silently.
-  await page.getByTestId('new-conversation-btn').click();
+  // Mid-flight: open the chat-thread overflow (⋯) menu and click Clear
+  // assistant chat. ChatUI.handleNewConversation calls abortRef.current?.abort()
+  // at the top — the fetch rejects with AbortError, the catch branch drops the
+  // in-flight bubble silently. Sprint 52.2 — the control moved behind the menu.
+  await clearAssistantChat(page);
 
   // No error banner.
   await expect(page.locator('text=Failed to generate response')).toHaveCount(0);

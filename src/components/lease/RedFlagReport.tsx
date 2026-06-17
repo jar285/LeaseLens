@@ -121,6 +121,11 @@ export function RedFlagReport(): React.JSX.Element {
   const scan = useScanProgress();
   const lifecycle = useScanLifecycle();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // Sprint 51 — the OK ("looks standard") clauses roll up into a single
+  // collapsed line by default so the rail leads with the risks, not a tail of
+  // compliant clauses (Steve Krug: don't make the tenant scan past N identical
+  // "OK" cards). Expanding reveals them in place.
+  const [okExpanded, setOkExpanded] = useState(false);
   const reduced = useReducedMotion();
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -405,6 +410,49 @@ export function RedFlagReport(): React.JSX.Element {
     reduced,
   );
 
+  // Sprint 54 — one source of truth for the S50.6 single-glide jump (set the
+  // active clause, schedule the 4s clear, scroll). Shared by the verdict's
+  // "biggest concern" anchor and the per-card jump-to-page.
+  const runHighlightJump = (clauseId: string, pageNumber: number): void => {
+    setActiveClauseId(clauseId);
+    if (highlightTimerRef.current !== null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+    highlightTimerRef.current = window.setTimeout(() => {
+      setActiveClauseId(null);
+      highlightTimerRef.current = null;
+    }, HIGHLIGHT_DURATION_MS);
+    pdfViewerRef.current?.scrollToPage(pageNumber);
+  };
+
+  // Sprint 54 — the verdict's "biggest concern" becomes a click target when we
+  // can anchor it: the clause has an id (high/medium tiers) AND a known page.
+  // We split the headline on topClauseTitle so only that phrase is the button
+  // (Page Anchoring; Don Norman: the summary is the affordance to the detail).
+  const concernTitle = verdict.topClauseTitle;
+  const concernGrading =
+    verdict.topClauseId != null
+      ? gradings.find((g) => g.clause_id === verdict.topClauseId)
+      : undefined;
+  const concernAnchor =
+    verdict.topClauseId != null &&
+    concernTitle != null &&
+    typeof concernGrading?.page_number === 'number' &&
+    verdict.headline.includes(concernTitle)
+      ? {
+          id: verdict.topClauseId,
+          page: concernGrading.page_number,
+          title: concernTitle,
+          before: verdict.headline.slice(
+            0,
+            verdict.headline.indexOf(concernTitle),
+          ),
+          after: verdict.headline.slice(
+            verdict.headline.indexOf(concernTitle) + concernTitle.length,
+          ),
+        }
+      : null;
+
   return (
     // Sprint 23g — relative positioning is required by AnimatePresence
     // `mode="popLayout"` so exiting cards drop out of layout without
@@ -453,7 +501,24 @@ export function RedFlagReport(): React.JSX.Element {
               transition={VERDICT_SETTLE_TRANSITION}
             >
               <VerdictTierGlyph tier={verdict.tier} />
-              <span>{verdict.headline}</span>
+              {concernAnchor ? (
+                <span>
+                  {concernAnchor.before}
+                  <button
+                    type="button"
+                    data-testid="red-flag-verdict-concern"
+                    onClick={() =>
+                      runHighlightJump(concernAnchor.id, concernAnchor.page)
+                    }
+                    className="rounded-sm underline decoration-2 decoration-accent-400/60 underline-offset-2 transition-colors hover:text-accent-700 hover:decoration-accent-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:decoration-accent-400/50 dark:hover:text-accent-300"
+                  >
+                    {concernAnchor.title}
+                  </button>
+                  {concernAnchor.after}
+                </span>
+              ) : (
+                <span>{verdict.headline}</span>
+              )}
             </motion.p>
           </div>
         ) : null}
@@ -485,7 +550,32 @@ export function RedFlagReport(): React.JSX.Element {
           the `layout` prop on each card, instead of waiting for the
           exit animation to finish before reflowing. */}
         <AnimatePresence initial={false} mode="popLayout">
-          {gradings.map((g) => {
+          {gradings.flatMap((g, gIdx) => {
+            // Sprint 51 — severity grouping. `gradings` is already sorted
+            // high→medium→low→ok, so the first card of each severity marks a
+            // group boundary; emit a counted divider there (the OK group gets a
+            // collapsible roll-up instead). Dividers are keyed siblings inside
+            // the SAME AnimatePresence as the cards, so the flat-children model
+            // (and each card's exit animation) is preserved.
+            const isFirstOfSeverity =
+              gradings.findIndex((x) => x.severity === g.severity) === gIdx;
+            const okHidden = g.severity === 'ok' && !okExpanded;
+            const groupHeader = isFirstOfSeverity ? (
+              g.severity === 'ok' ? (
+                <OkRollup
+                  key="red-flag-group-ok"
+                  count={counts.ok}
+                  expanded={okExpanded}
+                  onToggle={() => setOkExpanded((v) => !v)}
+                />
+              ) : (
+                <GroupDivider
+                  key={`red-flag-group-${g.severity}`}
+                  severity={g.severity}
+                  count={counts[g.severity]}
+                />
+              )
+            ) : null;
             const isExpanded = expandedIds.has(g.clause_id);
             const isActive = activeClauseId === g.clause_id;
             const isHovered = hoveredClauseId === g.clause_id;
@@ -517,15 +607,8 @@ export function RedFlagReport(): React.JSX.Element {
             // scheduling a new one so rapid clicks don't clip each other.
             const jumpToClausePage = (clause: GradingResult) => {
               if (typeof clause.page_number !== 'number') return;
-              setActiveClauseId(clause.clause_id);
-              if (highlightTimerRef.current !== null) {
-                window.clearTimeout(highlightTimerRef.current);
-              }
-              highlightTimerRef.current = window.setTimeout(() => {
-                setActiveClauseId(null);
-                highlightTimerRef.current = null;
-              }, HIGHLIGHT_DURATION_MS);
-              pdfViewerRef.current?.scrollToPage(clause.page_number);
+              // Sprint 54 — delegates to the shared single-glide handler.
+              runHighlightJump(clause.clause_id, clause.page_number);
             };
 
             // Sprint 18 §4 — the active-card ring used to be a class swap
@@ -541,10 +624,23 @@ export function RedFlagReport(): React.JSX.Element {
             // vellum tray. Hover deepens to the warm `--shadow-card-hover`
             // (replacing the cold grey `shadow-lift`). Severity stays on the
             // left bar + badge — no full-card fill tint (CLAUDE.md invariant).
-            const cardClass = `relative overflow-hidden rounded-lg border bg-surface-elevated shadow-card transition-shadow hover:shadow-card-hover ${
+            // Sprint 51 — HIGH cards earn more presence so the eye triages the
+            // worst first: they REST at the deeper warm `--shadow-card-hover`
+            // lift and carry a one-step-heavier neutral border. Emphasis is
+            // depth + edge weight ONLY — never a danger/severity fill tint
+            // (invariant) and never colour-alone (the left bar + badge + the
+            // group divider all still carry severity by icon + text).
+            const isHigh = g.severity === 'high';
+            const cardClass = `relative overflow-hidden rounded-lg border bg-surface-elevated transition-shadow ${
+              isHigh
+                ? 'shadow-card-hover'
+                : 'shadow-card hover:shadow-card-hover'
+            } ${
               isHovered && !isActive
                 ? 'border-accent-300 ring-2 ring-accent-300/50 dark:border-accent-400/50'
-                : 'border-neutral-200 dark:border-neutral-800'
+                : isHigh
+                  ? 'border-neutral-300 dark:border-neutral-700'
+                  : 'border-neutral-200 dark:border-neutral-800'
             }`;
 
             const cardInner = (
@@ -789,7 +885,7 @@ export function RedFlagReport(): React.JSX.Element {
               </>
             );
 
-            return animate ? (
+            const cardEl = animate ? (
               <motion.article
                 key={g.clause_id}
                 data-testid="red-flag-card"
@@ -837,6 +933,14 @@ export function RedFlagReport(): React.JSX.Element {
                 {cardInner}
               </article>
             );
+            // Sprint 51 — emit the group header (if this card starts a group)
+            // then the card itself, unless it's an OK card while the roll-up is
+            // collapsed. flatMap flattens these into the AnimatePresence's flat
+            // child list.
+            const out: React.JSX.Element[] = [];
+            if (groupHeader) out.push(groupHeader);
+            if (!okHidden) out.push(cardEl);
+            return out;
           })}
         </AnimatePresence>
 
@@ -938,12 +1042,22 @@ function CardActions({
   onExplain: () => void;
   onDraftEmail: () => void;
 }): React.JSX.Element {
-  const pillClass =
-    'mt-3 inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200';
+  // Sprint 53 — three clear actions instead of four equal pills, ordered by the
+  // tenant's flow (orient → understand → act). The two explanation pills merge
+  // into one segmented "Explain" control (two facets of one understand-step,
+  // not two separate actions); "Draft email" is promoted to the primary act
+  // (accent tint); "View on page N" is the quiet orient anchor. Both
+  // explanation prompts stay reachable, so the source-grounding contract holds.
+  const quietPill =
+    'inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:border-accent-300 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:text-accent-200';
+  const primaryPill =
+    'inline-flex items-center gap-1.5 rounded-md border border-accent-300 bg-accent-50/60 px-2.5 py-1 text-[11px] font-medium text-accent-700 transition-colors hover:border-accent-400 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 dark:border-accent-400/40 dark:bg-accent-500/12 dark:text-accent-200 dark:hover:bg-accent-500/20';
+  const segment =
+    'inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:bg-accent-50/50 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 dark:hover:bg-accent-500/12 dark:hover:text-accent-200';
   return (
     <div
       data-testid="red-flag-card-actions"
-      className="mt-1 flex flex-wrap items-center gap-2"
+      className="mt-3 flex flex-wrap items-center gap-2"
     >
       {typeof grading.page_number === 'number' ? (
         <button
@@ -953,43 +1067,48 @@ function CardActions({
             e.stopPropagation();
             onJumpToPage(grading);
           }}
-          className={pillClass}
+          className={quietPill}
         >
           <ExternalLink className="h-3 w-3" aria-hidden="true" />
           View on page {grading.page_number}
         </button>
       ) : null}
-      {/* Sprint 35 — plain-English first (parser-first / jargon-last). Distinct
-          Languages glyph + label so it never reads as a twin of the statute
-          pill below. */}
-      <button
-        type="button"
-        data-testid="red-flag-explain-plain"
-        onClick={(e) => {
-          e.stopPropagation();
-          onExplainPlain();
-        }}
-        className={pillClass}
+      {/* Sprint 53 — segmented "Explain" control. The two facets (parser-first:
+          plain English, then the statute) read as one understand-step instead
+          of two competing pills. Both keep their stable testids + prompts so
+          unit + e2e selectors and the grounding contract hold. */}
+      <div
+        data-testid="red-flag-explain-group"
+        className="inline-flex items-center overflow-hidden rounded-md border border-neutral-200 bg-surface-card dark:border-neutral-700 dark:bg-neutral-900"
       >
-        <Languages className="h-3 w-3" aria-hidden="true" />
-        Plain English
-      </button>
-      {/* Sprint 35 — the original "Explain" pill is a statute-verbatim
-          walkthrough, so it's relabeled "What the law says" with a BookOpen
-          (source/statute) glyph to disambiguate from Plain English. Testid +
-          prompt are unchanged so unit + e2e selectors stay green. */}
-      <button
-        type="button"
-        data-testid="red-flag-explain"
-        onClick={(e) => {
-          e.stopPropagation();
-          onExplain();
-        }}
-        className={pillClass}
-      >
-        <BookOpen className="h-3 w-3" aria-hidden="true" />
-        What the law says
-      </button>
+        <span className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+          Explain
+        </span>
+        <button
+          type="button"
+          data-testid="red-flag-explain-plain"
+          onClick={(e) => {
+            e.stopPropagation();
+            onExplainPlain();
+          }}
+          className={`${segment} border-l border-neutral-200 dark:border-neutral-700`}
+        >
+          <Languages className="h-3 w-3" aria-hidden="true" />
+          Plain English
+        </button>
+        <button
+          type="button"
+          data-testid="red-flag-explain"
+          onClick={(e) => {
+            e.stopPropagation();
+            onExplain();
+          }}
+          className={`${segment} border-l border-neutral-200 dark:border-neutral-700`}
+        >
+          <BookOpen className="h-3 w-3" aria-hidden="true" />
+          The law
+        </button>
+      </div>
       <button
         type="button"
         data-testid="red-flag-draft-email"
@@ -997,7 +1116,7 @@ function CardActions({
           e.stopPropagation();
           onDraftEmail();
         }}
-        className={pillClass}
+        className={primaryPill}
       >
         <Mail className="h-3 w-3" aria-hidden="true" />
         Draft email
@@ -1044,6 +1163,78 @@ function VerdictTierGlyph({ tier }: { tier: Severity }): React.JSX.Element {
       strokeWidth={2.5}
       style={{ color: VERDICT_TIER_VAR[tier] }}
     />
+  );
+}
+
+/*
+ * Sprint 51 — severity group header. Breaks the uniform card wall into
+ * tiers so the eye triages worst-first instead of scanning a flat stack
+ * (Wathan/Schoger hierarchy; IBM Carbon / Material sectioned lists). Reuses
+ * the summary-count idiom (SeverityBadge sm + count) so it speaks the existing
+ * visual language. Severity is carried by the badge (icon + text + colour),
+ * never colour alone; `data-severity` is exposed for tests.
+ */
+function GroupDivider({
+  severity,
+  count,
+}: {
+  severity: Severity;
+  count: number;
+}): React.JSX.Element {
+  return (
+    <div
+      data-testid="red-flag-group"
+      data-severity={severity}
+      className="flex items-center gap-2 pt-1 first:pt-0"
+    >
+      <SeverityBadge severity={severity} size="sm" />
+      <span className="tabular text-[11px] font-medium text-fg-default">
+        {count}
+      </span>
+      <span aria-hidden="true" className="h-px flex-1 bg-border-hairline" />
+    </div>
+  );
+}
+
+/*
+ * Sprint 51 — the OK group's collapsible roll-up. Compliant clauses fold behind
+ * one line by default so the rail leads with risk; the tenant can expand to
+ * audit the full set (Steve Krug: don't make me scan past N identical "OK"
+ * cards). A real <button aria-expanded> keeps it keyboard-operable (Material
+ * component states, WCAG). Severity still shown by the OK badge (icon + text +
+ * colour).
+ */
+function OkRollup({
+  count,
+  expanded,
+  onToggle,
+}: {
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      data-testid="red-flag-ok-rollup"
+      aria-expanded={expanded}
+      onClick={onToggle}
+      className="flex w-full items-center gap-2 rounded-md pt-1 text-left text-[12px] text-fg-muted transition-colors hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
+    >
+      <SeverityBadge severity="ok" size="sm" />
+      <span className="text-fg-default">
+        {count === 1
+          ? '1 clause looks standard'
+          : `${count} clauses look standard`}
+      </span>
+      <span aria-hidden="true" className="h-px flex-1 bg-border-hairline" />
+      <ChevronDown
+        aria-hidden="true"
+        className={`h-3.5 w-3.5 shrink-0 transition-transform duration-220 ease-out-soft ${
+          expanded ? 'rotate-180' : ''
+        }`}
+      />
+    </button>
   );
 }
 

@@ -205,7 +205,7 @@ function ResultsShellInner({
             className="self-start rounded-lg border border-neutral-200 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:overflow-hidden"
             aria-label="Lease PDF"
           >
-            <PdfPaneContent state={leftPaneState} />
+            <PdfPaneContent state={leftPaneState} onReplace={requestReplace} />
           </section>
           <section
             data-testid="results-stack"
@@ -282,8 +282,13 @@ function ResultsMastheadGlow(): React.JSX.Element {
       <div
         className="absolute inset-0"
         style={{
+          // Sprint 55 — nudged 0.45 → 0.7 of the landing's gradient strength.
+          // At 0.45 the glow was invisible behind the immediately-starting
+          // grid; 0.7 lets a warm sliver breathe in the top margin + gutters
+          // while staying page atmosphere (still well below the landing hero,
+          // Dieter Rams restraint).
           background:
-            'radial-gradient(ellipse 70% 100% at 50% 0%, color-mix(in srgb, var(--color-accent-ambient-core) calc(var(--accent-ambient-gradient-mix) * 0.45), transparent), transparent 72%)',
+            'radial-gradient(ellipse 70% 100% at 50% 0%, color-mix(in srgb, var(--color-accent-ambient-core) calc(var(--accent-ambient-gradient-mix) * 0.7), transparent), transparent 72%)',
         }}
       />
     </div>
@@ -303,23 +308,32 @@ function ResultsHeader({
       data-testid="results-header"
       className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 bg-surface-card px-6 py-3 dark:border-neutral-800 dark:bg-neutral-900"
     >
-      <div className="flex min-w-0 items-center gap-3">
+      {/* Sprint 53 — document-grade masthead. The strip is the identity of the
+          lease the tenant is reviewing, so it earns a touch more weight than
+          browser chrome: a slightly larger icon, a 13px medium filename (still
+          mono for file identity), and the page/clause metadata is ALWAYS
+          visible (it used to hide below sm: exactly on the results page where
+          it matters most). Wathan/Schoger hierarchy; metadata stays fg-muted
+          for AA. */}
+      <div className="flex min-w-0 items-center gap-2.5">
         <FileText
           aria-hidden="true"
-          className="h-3.5 w-3.5 shrink-0 text-fg-subtle"
+          className="h-4 w-4 shrink-0 text-fg-muted"
         />
         <span
           data-testid="results-header-filename"
-          className="truncate font-mono text-[12px] text-fg-default"
+          className="truncate font-mono text-[13px] font-medium text-fg-default"
         >
           {meta.filename}
         </span>
         {meta.metaParts.length > 0 ? (
           <span
             data-testid="results-header-meta"
-            // Sprint 50.5 — fg-muted (≈6.46:1), not fg-subtle (≈2.26:1): this is
-            // real exposed metadata, so it must clear WCAG AA for its 11px size.
-            className="hidden text-[11px] text-fg-muted sm:inline"
+            // Sprint 50.5 — fg-muted (≈6.46:1), not fg-subtle (≈2.26:1): real
+            // exposed metadata, must clear WCAG AA at this size.
+            // Sprint 53 — always visible (dropped `hidden sm:inline`); the
+            // page/clause count is most useful exactly on the results page.
+            className="truncate text-[11px] text-fg-muted"
           >
             · {meta.metaParts.join(' · ')}
           </span>
@@ -366,8 +380,10 @@ function describeLease(state: LeftPaneState): {
 
 function PdfPaneContent({
   state,
+  onReplace,
 }: {
   state: LeftPaneState;
+  onReplace: () => void;
 }): React.JSX.Element {
   if (state.kind === 'loaded') {
     return (
@@ -386,12 +402,39 @@ function PdfPaneContent({
     );
   }
   if (state.kind === 'reattach') {
+    // Sprint 52 — designed recovery card instead of a bare two-line void. The
+    // PDF bytes were evicted from this device's cache; the only restore path is
+    // the (destructive) Replace flow, so the copy stays HONEST — it never
+    // claims the red-flag review is preserved (Replace resets lease + clauses +
+    // red flags). Centered in the tall sticky pane so it fills the void. The
+    // button routes to the same requestReplace handler as the header (opens the
+    // ConfirmDialog, which owns the destructive-confirm step).
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-        <p className="text-sm text-fg-default">{state.lease.filename}</p>
-        <p className="text-xs text-fg-muted">
-          We lost the cached file. Use Replace to re-upload it.
-        </p>
+      <div className="flex h-full items-center justify-center p-6">
+        <div
+          data-testid="pdf-reattach-card"
+          className="flex max-w-xs flex-col items-center gap-3 rounded-lg border border-neutral-200 bg-surface-elevated p-6 text-center shadow-card dark:border-neutral-800"
+        >
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-muted text-fg-subtle dark:bg-neutral-800">
+            <FileText aria-hidden="true" className="h-4 w-4" />
+          </span>
+          <p className="font-mono text-[12px] text-fg-default">
+            {state.lease.filename}
+          </p>
+          <p className="text-[12px] text-fg-muted leading-relaxed">
+            We can't reopen this PDF from the cache on this device. Upload it
+            again to view it highlighted.
+          </p>
+          <button
+            type="button"
+            data-testid="pdf-reattach-replace"
+            onClick={onReplace}
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent-700 px-3 py-1.5 text-[12px] font-medium text-white shadow-card transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
+          >
+            <RotateCcw aria-hidden="true" className="h-3 w-3" />
+            Replace lease
+          </button>
+        </div>
       </div>
     );
   }

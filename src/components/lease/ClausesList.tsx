@@ -190,16 +190,33 @@ export function ClausesList(): React.JSX.Element {
     <section
       data-testid="clauses-list"
       aria-labelledby="clauses-list-heading"
-      className="flex flex-col gap-2 rounded-lg border border-neutral-200 bg-surface-card p-4 dark:border-neutral-800 dark:bg-neutral-900"
+      // Sprint 51 — borderless tray, matching the red-flags section + the
+      // empty-state list (S50.3 dropped the border on the others; this finishes
+      // the set so the two stacked sections read as one quiet column).
+      className="flex flex-col gap-2 rounded-lg bg-surface-card p-4 dark:bg-neutral-900"
     >
-      <header className="flex items-baseline justify-between">
-        <h3
-          id="clauses-list-heading"
-          className="text-[13px] font-semibold text-fg-default"
-        >
-          Clauses
-        </h3>
-        <span className="text-[11px] text-fg-subtle">{rows.length} total</span>
+      <header className="flex items-baseline justify-between gap-3">
+        {/* Sprint 54 — distinct identity: this is the FULL inventory (every
+            parsed clause, in document order), the complement to the red-flag
+            findings above (the flagged subset). Steve Krug: make the section's
+            job self-evident. */}
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h3
+            id="clauses-list-heading"
+            className="text-[13px] font-semibold text-fg-default"
+          >
+            Clauses
+          </h3>
+          <p
+            data-testid="clauses-list-subtitle"
+            className="text-[11px] text-fg-muted leading-snug"
+          >
+            Every clause we parsed, in document order.
+          </p>
+        </div>
+        <span className="shrink-0 text-[11px] text-fg-muted">
+          {rows.length} total
+        </span>
       </header>
       <motion.ul
         className="flex flex-col divide-y divide-neutral-100 dark:divide-neutral-800"
@@ -234,7 +251,10 @@ export function ClausesList(): React.JSX.Element {
                     {label}
                   </span>
                   {row.page_number > 0 ? (
-                    <span className="text-[11px] text-fg-subtle">
+                    // Sprint 55 — fg-muted (≈6.46:1), not fg-subtle (≈2.26:1):
+                    // the page number is real exposed info, so it must clear
+                    // WCAG AA at this size (same fix as the S50.5 header meta).
+                    <span className="text-[11px] text-fg-muted">
                       p. {row.page_number}
                     </span>
                   ) : null}

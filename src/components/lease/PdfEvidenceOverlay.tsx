@@ -60,7 +60,7 @@ export function PdfEvidenceOverlay({
   effectivePageWidth: number;
 }): React.JSX.Element | null {
   const { activeClauseId } = useLeaseParser();
-  const { hoveredClauseId } = useHighlightSettings();
+  const { hoveredClauseId, showHighlights } = useHighlightSettings();
   const { byPage } = useClauseHighlights();
   const [frames, setFrames] = useState<EvidenceFrame[]>([]);
 
@@ -88,7 +88,7 @@ export function PdfEvidenceOverlay({
 
   const recompute = useCallback(() => {
     const root = scrollAreaRef.current;
-    if (!root) {
+    if (!root || !showHighlights) {
       setFrames([]);
       return;
     }
@@ -141,7 +141,7 @@ export function PdfEvidenceOverlay({
       if (hover) next.push(hover);
     }
     setFrames(next);
-  }, [scrollAreaRef, activeClauseId, hoveredClauseId, metaFor]);
+  }, [scrollAreaRef, showHighlights, activeClauseId, hoveredClauseId, metaFor]);
 
   // Recompute on selection change and on zoom. effectivePageWidth isn't
   // read in the body — it's an intentional re-run trigger: a zoom change
@@ -155,7 +155,8 @@ export function PdfEvidenceOverlay({
   // only attached when there's an active/hovered clause to follow).
   useEffect(() => {
     const root = scrollAreaRef.current;
-    if (!root || (!activeClauseId && !hoveredClauseId)) return;
+    if (!root || !showHighlights || (!activeClauseId && !hoveredClauseId))
+      return;
     let raf = 0;
     const onScroll = () => {
       if (raf) return;
@@ -169,9 +170,15 @@ export function PdfEvidenceOverlay({
       root.removeEventListener('scroll', onScroll);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [scrollAreaRef, activeClauseId, hoveredClauseId, recompute]);
+  }, [
+    scrollAreaRef,
+    showHighlights,
+    activeClauseId,
+    hoveredClauseId,
+    recompute,
+  ]);
 
-  if (frames.length === 0) return null;
+  if (!showHighlights || frames.length === 0) return null;
 
   return (
     <>

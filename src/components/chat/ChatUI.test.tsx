@@ -36,7 +36,7 @@ describe('Sprint 52.2 — chat-thread overflow menu', () => {
     renderWithThread();
     const trigger = screen.getByTestId('assistant-thread-menu-trigger');
     // Disclosure semantics: a labelled button that owns a popup, collapsed.
-    expect(trigger).toHaveAttribute('aria-haspopup');
+    expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     expect(trigger.getAttribute('aria-label') ?? '').toMatch(
       /option|menu|more/i,

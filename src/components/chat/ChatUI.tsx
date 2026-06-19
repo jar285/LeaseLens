@@ -266,8 +266,8 @@ export function ChatUI({
   // Sprint 52.2 — chat-thread overflow menu. The persistent "Clear assistant
   // chat" strip is gone; its controls now live in a disclosure popover behind a
   // slim floating ⋯ trigger, so the reading surface stays uncluttered (Steve
-  // Krug; Dieter Rams). Outside-pointerdown + Escape close it and return focus
-  // to the trigger (Apple HIG / Material menu behaviour). The popover keeps the
+  // Krug; Dieter Rams). Escape (and menu actions) close it and return focus to
+  // the trigger (Apple HIG / Material menu behaviour). The popover keeps the
   // SAME testids + handlers as before, so the thread-clear/continue wiring and
   // its aria-live "lease preserved" reassurance are unchanged.
   const [threadMenuOpen, setThreadMenuOpen] = useState(false);
@@ -642,7 +642,7 @@ export function ChatUI({
         ref={threadMenuTriggerRef}
         type="button"
         data-testid="assistant-thread-menu-trigger"
-        aria-haspopup="true"
+        aria-haspopup="menu"
         aria-expanded={threadMenuOpen}
         aria-label="Conversation options"
         onClick={() => setThreadMenuOpen((v) => !v)}

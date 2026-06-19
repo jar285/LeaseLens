@@ -482,6 +482,46 @@ describe('PdfViewerClient — evidence frame overlay', () => {
     ).toBeNull();
   });
 
+  it('Sprint 52.6 — clears evidence frames immediately when highlights are hidden', () => {
+    h.registry = {
+      1: [
+        {
+          str: 'Tenant shall provide a security deposit equal to two months rent.',
+        },
+      ],
+    };
+    let setActive: (id: string | null) => void = () => {};
+    let setShow: (value: boolean) => void = () => {};
+    function Probe() {
+      const parser = useLeaseParser();
+      const highlight = useHighlightSettings();
+      setActive = parser.setActiveClauseId;
+      setShow = highlight.setShowHighlights;
+      return null;
+    }
+    const { container } = render(
+      withChatStream(
+        <>
+          <PdfViewerClient pdfUrl="/sample.pdf" pageCount={1} />
+          <Probe />
+        </>,
+        {
+          initialEvents: HIGH_ONLY,
+          activeLease: { lease_id: LEASE, filename: 'lease.pdf' },
+        },
+      ),
+    );
+    act(() => setActive('c1'));
+    expect(
+      container.querySelector('[data-testid="pdf-evidence-frame"]'),
+    ).not.toBeNull();
+
+    act(() => setShow(false));
+    expect(
+      container.querySelector('[data-testid="pdf-evidence-frame"]'),
+    ).toBeNull();
+  });
+
   it('renders a hover-variant frame when a mark is hovered', () => {
     h.registry = {
       1: [

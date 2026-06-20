@@ -362,7 +362,8 @@ Raw lease text, clause text, and draft-email bodies should not reach logs or per
 
 <img width="1439" height="717" alt="LeaseLens screenshot" src="https://github.com/user-attachments/assets/30f53823-8a1d-49db-b55c-3a51c49332b0" />
 
-<img width="2048" height="1014" alt="LeaseLens evidence highlighting screenshot" src="https://github.com/user-attachments/assets/6480d62c-4e2c-4742-8c74-ac4598598d23" />
+<img width="1438" height="716" alt="Screenshot 2026-06-19 at 11 21 42 PM" src="https://github.com/user-attachments/assets/101cd27a-2d9c-455a-bbaa-a8a74c895d41" />
+
 
 ---
 

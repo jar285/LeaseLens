@@ -218,6 +218,40 @@ describe('AssistantFab integration', () => {
     );
   });
 
+  it('Sprint 52.5 — the chat-thread overflow menu renders in the masthead header, not floating over the transcript', async () => {
+    render(
+      <AssistantFabProvider>
+        <LeaseParserProvider>
+          <ChatStreamProvider viewerRole="Tenant">
+            <AssistantFabClient
+              workspaceName="Demo workspace"
+              conversationId="conv-existing"
+              initialMessages={[
+                { id: 'msg-1', role: 'user', content: 'Hi there' },
+              ]}
+            />
+          </ChatStreamProvider>
+        </LeaseParserProvider>
+      </AssistantFabProvider>,
+    );
+    // Opening mounts the real ChatUI, which portals its ⋯ menu into the header
+    // slot the FAB provides.
+    fireEvent.click(screen.getByTestId('assistant-fab'));
+    await screen.findByTestId('assistant-fab-drawer');
+    const trigger = screen.getByTestId('assistant-thread-menu-trigger');
+    // Lives in the masthead <header> beside Expand/Close (the fix for the
+    // workspace-drawer overlap), not floating over the transcript.
+    expect(trigger.closest('header')).not.toBeNull();
+    // No longer an absolute overlay.
+    expect(trigger.className).not.toContain('absolute');
+    // Still wired: opening it reveals the clear control + its safety note.
+    fireEvent.click(trigger);
+    const menu = screen.getByTestId('assistant-thread-menu');
+    expect(menu.contains(screen.getByTestId('new-conversation-btn'))).toBe(
+      true,
+    );
+  });
+
   // Sprint 29.3 — Assistant context bar. The user can always tell what
   // lease (and optionally which clause) the assistant is using.
   describe('Sprint 29.3 — assistant context bar', () => {

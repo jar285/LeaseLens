@@ -78,6 +78,11 @@ describe('ParserLandingShell', () => {
     // The badge wraps the bespoke LeaseLensMark SVG; verify a child <svg>
     // is rendered (the mark exports an inline SVG).
     expect(badge.querySelector('svg')).not.toBeNull();
+    // Sprint 49 — premium lift in the hero's own (pale) register: a subtle
+    // within-family gradient + soft shadow, NOT the masthead's solid tile.
+    expect(badge.className).toMatch(/\bbg-gradient-to-br\b/);
+    expect(badge.className).toMatch(/from-accent-50\b/);
+    expect(badge.className).toMatch(/\bshadow-\[/);
   });
 
   it('does not duplicate the LeaseLens wordmark in the hero (Sprint 29.x)', () => {

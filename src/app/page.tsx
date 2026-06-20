@@ -3,7 +3,10 @@ import Link from 'next/link';
 import { RoleSwitcher } from '@/components/auth/RoleSwitcher';
 import { ThemeToggle } from '@/components/auth/ThemeToggle';
 import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
-import { LEASELENS_WORDMARK_MASTHEAD } from '@/components/brand/wordmark-classes';
+import {
+  LEASELENS_BADGE_MASTHEAD,
+  LEASELENS_WORDMARK_MASTHEAD,
+} from '@/components/brand/wordmark-classes';
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
 import { WorkspaceRouterShell } from '@/components/lease/WorkspaceRouterShell';
@@ -157,7 +160,7 @@ export default async function Home() {
               href="/"
               className="flex items-center gap-3 rounded-md transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-600 text-white shadow-hairline">
+              <span className={`h-10 w-10 ${LEASELENS_BADGE_MASTHEAD}`}>
                 {/*
                   Sprint 17.2 — bespoke LeaseLensMark replaces the generic
                   lucide FileSearch. Same metaphor (document + magnifying

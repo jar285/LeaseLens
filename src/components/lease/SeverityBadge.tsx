@@ -27,7 +27,11 @@ import {
 } from 'lucide-react';
 import { SEVERITY_BADGE, SEVERITY_LABEL, type Severity } from './grading';
 
-const SEVERITY_ICON: Record<Severity, LucideIcon> = {
+// Sprint 50.2 — exported so the verdict moment (RedFlagReport) can hang the
+// SAME severity glyph beside the headline. One source of truth for
+// severity→shape across the badge and the verdict; a tenant never sees a
+// different icon for "high" in the two places.
+export const SEVERITY_ICON: Record<Severity, LucideIcon> = {
   high: AlertOctagon,
   medium: AlertTriangle,
   low: Info,

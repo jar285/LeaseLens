@@ -8,11 +8,18 @@
 // useImperativeHandle inside the component) — RedFlagReport reads it
 // from there.
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from '@testing-library/react';
 import { type ReactNode, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatStreamProvider } from '@/components/chat/ChatStreamContext';
 import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
+import { PdfHighlightProvider } from './PdfHighlightContext';
 
 // react-pdf mock: deterministic, no Workers, no async loading.
 vi.mock('react-pdf', () => ({
@@ -40,7 +47,9 @@ afterEach(cleanup);
 
 const wrap = (children: ReactNode) => (
   <LeaseParserProvider>
-    <ChatStreamProvider>{children}</ChatStreamProvider>
+    <PdfHighlightProvider>
+      <ChatStreamProvider>{children}</ChatStreamProvider>
+    </PdfHighlightProvider>
   </LeaseParserProvider>
 );
 
@@ -289,6 +298,63 @@ describe('PdfViewerClient', () => {
       render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />));
       const scrollArea = screen.getByTestId('pdf-viewer-scroll-area');
       expect(scrollArea.getAttribute('tabindex')).toBe('0');
+    });
+  });
+
+  // Sprint 50.6 — one smooth glide per clause jump. The imperative scrollToPage
+  // RECORDS the target page (no scroll); the activeClauseId effect performs the
+  // single scroll. Previously the card's page-scroll and the Sprint 46.5
+  // mark-scroll fired together and fought, which read as a janky/instant jump.
+  describe('Sprint 50.6 — single scroll per clause jump', () => {
+    function renderWithHandle() {
+      const captured: {
+        scrollToPage: ((n: number) => void) | null;
+        setActiveClauseId: ((id: string | null) => void) | null;
+      } = { scrollToPage: null, setActiveClauseId: null };
+      function Probe() {
+        const { pdfViewerRef, setActiveClauseId } = useLeaseParser();
+        // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot capture after mount
+        useEffect(() => {
+          captured.scrollToPage = pdfViewerRef.current?.scrollToPage ?? null;
+          captured.setActiveClauseId = setActiveClauseId;
+        }, []);
+        return null;
+      }
+      render(
+        wrap(
+          <>
+            <PdfViewerClient pdfUrl="/sample.pdf" pageCount={3} />
+            <Probe />
+          </>,
+        ),
+      );
+      return captured;
+    }
+
+    it('scrollToPage records the page without scrolling on its own (no competing page-scroll)', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      const captured = renderWithHandle();
+      act(() => captured.scrollToPage?.(2));
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('activating a clause performs exactly ONE scroll, falling back to the recorded page when no mark matches', () => {
+      const scrollIntoView = vi.fn();
+      vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(
+        scrollIntoView,
+      );
+      const captured = renderWithHandle();
+      act(() => captured.scrollToPage?.(2));
+      act(() => captured.setActiveClauseId?.('clause-with-no-mark'));
+      // Exactly one scroll (no double-scroll), block:start to the recorded page.
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        block: 'start',
+      });
     });
   });
 });

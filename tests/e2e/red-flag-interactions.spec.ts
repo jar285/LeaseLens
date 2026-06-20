@@ -93,6 +93,19 @@ test('T6 (R7) — rapid citation clicks: most recent owns full 4s ring', async (
   // render sees the fake clock from the start.
   await page.clock.install();
 
+  // Sprint 25.1 (R7) — emulate reduced motion for this clock-driven test.
+  // The expanded card body reveals via a motion height spring (0 → auto)
+  // that is driven by requestAnimationFrame; page.clock.install() freezes
+  // rAF, so that spring never advances and the in-body "View on page N"
+  // button stays clipped (height:0 + overflow:hidden) and unclickable.
+  // Reduced motion renders the body instantly (data-motion="off"), so the
+  // button is reachable. The ring-lifecycle logic this test exercises
+  // (clearTimeout-on-replace, most-recent-owns-full-4s) lives in the shared
+  // jumpToClausePage handler and is identical on both render paths, so
+  // forcing reduced motion costs no coverage. Must run before goto so the
+  // first paint sees the preference (same as T18).
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+
   const userId = tenantId();
   const leaseId = seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,

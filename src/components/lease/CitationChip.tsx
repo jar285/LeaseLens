@@ -52,7 +52,12 @@ const CHIP_TEXT_CLASS =
 // Sprint 23b Phase 5 — button variant gains an underline-on-hover so the
 // "this is a real link to the PDF page" affordance is unambiguous.
 const CHIP_TEXT_BUTTON_CLASS = `${CHIP_TEXT_CLASS} group-hover:underline`;
-const CHIP_BUTTON_CLASS = `group ${CHIP_LAYOUT_CLASS} rounded-md px-1 py-0.5 text-left transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:hover:bg-accent-500/10`;
+// Sprint 55 — a faint citation-tinted resting chip so the statute reads as a
+// credential the finding rests on, not a trailing afterthought line (Source-
+// Grounded-AI: citations visible + meaningful). The interactive hover stays
+// accent (the system-wide "this is clickable" signal); only the resting fill
+// carries the ink-blue, at very low alpha so it never competes with the text.
+const CHIP_BUTTON_CLASS = `group ${CHIP_LAYOUT_CLASS} rounded-md bg-citation/[0.05] px-1.5 py-0.5 text-left transition-colors hover:bg-accent-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:bg-citation/[0.1] dark:hover:bg-accent-500/10`;
 
 export function CitationChip({
   statuteCitation,

@@ -28,6 +28,7 @@ import {
   type ToolEvent,
 } from '@/components/chat/ChatStreamContext';
 import { LeaseParserProvider } from '@/components/lease/LeaseParserContext';
+import { PdfHighlightProvider } from '@/components/lease/PdfHighlightContext';
 import type { Role } from '@/lib/auth/types';
 import { AssistantFabProvider } from './AssistantFabContext';
 
@@ -51,7 +52,9 @@ export function withChatStream(
         initialEvents={initialEvents}
         activeLease={activeLease}
       >
-        <ChatStreamProvider viewerRole={viewerRole}>{ui}</ChatStreamProvider>
+        <PdfHighlightProvider>
+          <ChatStreamProvider viewerRole={viewerRole}>{ui}</ChatStreamProvider>
+        </PdfHighlightProvider>
       </LeaseParserProvider>
     </AssistantFabProvider>
   );

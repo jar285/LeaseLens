@@ -175,4 +175,69 @@ describe('computeScanVerdict', () => {
     expect(v.tier).toBe('high');
     expect(v.headline).toContain('2 findings');
   });
+
+  // Sprint 54-prep — expose the top concern's clause_id so the verdict
+  // headline can become a click target that scrolls to + pulses that exact
+  // card/PDF highlight (the title alone isn't addressable). Reuses the same
+  // inTier[0] pick that drives topClauseTitle, so id + title can't disagree.
+  describe('topClauseId anchor', () => {
+    it('is null for the idle verdict', () => {
+      expect(computeScanVerdict([], 0).topClauseId).toBeNull();
+      expect(computeScanVerdict([], 4).topClauseId).toBeNull();
+    });
+
+    it('is null for an ok (balanced) verdict — no single concern to anchor', () => {
+      const v = computeScanVerdict(
+        [makeGrading({ clause_id: 'c1', severity: 'ok', clause_index: 0 })],
+        0,
+      );
+      expect(v.topClauseId).toBeNull();
+    });
+
+    it('returns the top clause_id for high/medium/low tiers', () => {
+      const high = computeScanVerdict(
+        [
+          makeGrading({ clause_id: 'c1', severity: 'high', clause_index: 10 }),
+          makeGrading({ clause_id: 'c2', severity: 'ok', clause_index: 0 }),
+        ],
+        0,
+      );
+      expect(high.topClauseId).toBe('c1');
+
+      const medium = computeScanVerdict(
+        [makeGrading({ clause_id: 'm1', severity: 'medium', clause_index: 3 })],
+        0,
+      );
+      expect(medium.topClauseId).toBe('m1');
+
+      const low = computeScanVerdict(
+        [makeGrading({ clause_id: 'l1', severity: 'low', clause_index: 5 })],
+        0,
+      );
+      expect(low.topClauseId).toBe('l1');
+    });
+
+    it('matches the same clause as topClauseTitle (id + title agree)', () => {
+      const v = computeScanVerdict(
+        [
+          makeGrading({
+            clause_id: 'c-late',
+            severity: 'high',
+            clause_type: 'late_fee',
+            clause_index: 2,
+          }),
+          makeGrading({
+            clause_id: 'c-indemn',
+            severity: 'high',
+            clause_type: 'indemnification',
+            clause_index: 10,
+          }),
+        ],
+        0,
+      );
+      // Smallest clause_index wins the tiebreaker for BOTH title and id.
+      expect(v.topClauseTitle).toBe('Late fee · §3');
+      expect(v.topClauseId).toBe('c-late');
+    });
+  });
 });

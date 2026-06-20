@@ -22,6 +22,7 @@ import {
 } from '@/components/chat/ChatStreamContext';
 import type { GradingResult } from './grading';
 import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
+import { PdfHighlightProvider } from './PdfHighlightContext';
 import {
   draftEmailPromptFor,
   explainPromptFor,
@@ -45,7 +46,9 @@ function ProviderWithEvents({
   return (
     <AssistantFabProvider>
       <LeaseParserProvider initialEvents={events}>
-        <ChatStreamProvider>{children}</ChatStreamProvider>
+        <PdfHighlightProvider>
+          <ChatStreamProvider>{children}</ChatStreamProvider>
+        </PdfHighlightProvider>
       </LeaseParserProvider>
     </AssistantFabProvider>
   );
@@ -121,6 +124,68 @@ describe('RedFlagReport', () => {
     // Citation surfaces in each card body.
     expect(screen.getByText(/NJ Stat 46:8-21\.2/)).toBeInTheDocument();
     expect(screen.getByText(/NJ Stat 2A:42-6\.1/)).toBeInTheDocument();
+  });
+
+  // Sprint 50.3 — card object quality. The cards used to be bg-surface-card
+  // sitting inside a bg-surface-card section (cream-on-cream, zero figure-
+  // ground). They now lift onto surface-elevated with a WARM shadow so they
+  // read as paper you can pick up (Wathan/Schoger depth). Severity stays on the
+  // left bar + SeverityBadge — no full-card fill tint (documented invariant).
+  // (Uses a MEDIUM card for the baseline treatment; Sprint 51 gives HIGH cards
+  // a deeper resting shadow, covered by its own test.)
+  it('Sprint 50.3 — red-flag cards lift onto an elevated surface with a warm shadow', () => {
+    render(
+      <ProviderWithEvents
+        events={[
+          grade({
+            input: { clause_id: 'c-med' },
+            result: {
+              ...(grade().result as object),
+              clause_id: 'c-med',
+              severity: 'medium',
+            },
+          }),
+        ]}
+      >
+        <RedFlagReport />
+      </ProviderWithEvents>,
+    );
+    const card = screen.getAllByTestId('red-flag-card')[0];
+    expect(card.className).toMatch(/bg-surface-elevated/);
+    expect(card.className).toMatch(/shadow-card/);
+    expect(card.className).toMatch(/hover:shadow-card-hover/);
+    // No full-card severity fill tint: the card surface stays neutral paper,
+    // never a danger/warning/info/success wash.
+    expect(card.className).not.toMatch(/bg-(danger|warning|info|success)/);
+  });
+
+  // Sprint 54 — the verdict's "biggest concern" is a click target: clicking it
+  // activates that clause and scrolls the PDF to it (reusing the S50.6 single-
+  // glide). Page Anchoring: the summary is the affordance to the evidence.
+  it('Sprint 54 — verdict "biggest concern" scrolls to + activates the top clause', () => {
+    const scrollToPage = vi.fn();
+    function ScrollProbe(): null {
+      const { pdfViewerRef } = useLeaseParser();
+      pdfViewerRef.current = { scrollToPage };
+      return null;
+    }
+    render(
+      <ProviderWithEvents events={[grade()]}>
+        <ScrollProbe />
+        <RedFlagReport />
+      </ProviderWithEvents>,
+    );
+    const concern = screen.getByTestId('red-flag-verdict-concern');
+    // The anchor is the top-clause title, inside the verdict headline.
+    expect(concern.textContent).toMatch(/security deposit · §4/i);
+    fireEvent.click(concern);
+    // grade() defaults page_number 4; the single-glide scrolls there.
+    expect(scrollToPage).toHaveBeenCalledWith(4);
+    // …and activates the clause (the card picks up data-active).
+    expect(screen.getByTestId('red-flag-card')).toHaveAttribute(
+      'data-active',
+      'true',
+    );
   });
 
   it('Sprint 43.5 — card toggle: sober tap-press, reduced-motion off, inset focus ring', () => {
@@ -241,7 +306,10 @@ describe('RedFlagReport', () => {
     expect(normalised).toMatch(/2High.*1Med.*1OK/);
   });
 
-  it('orders cards high → medium → low → ok', () => {
+  // Sprint 51 — cards group by severity (high → medium → low → ok). The OK
+  // ("looks standard") group rolls up collapsed by default so the rail leads
+  // with risk; expanding reveals the OK card in order.
+  it('groups cards high → medium → ok, with OK rolled up until expanded', () => {
     render(
       <ProviderWithEvents
         events={[
@@ -277,10 +345,88 @@ describe('RedFlagReport', () => {
         <RedFlagReport />
       </ProviderWithEvents>,
     );
+    // OK is collapsed by default — only the risk cards show, in severity order.
     const cards = screen.getAllByTestId('red-flag-card');
+    expect(cards).toHaveLength(2);
     expect(cards[0].getAttribute('data-severity')).toBe('high');
     expect(cards[1].getAttribute('data-severity')).toBe('medium');
-    expect(cards[2].getAttribute('data-severity')).toBe('ok');
+    // The OK clause sits behind a collapsed roll-up.
+    const rollup = screen.getByTestId('red-flag-ok-rollup');
+    expect(rollup).toHaveAttribute('aria-expanded', 'false');
+    // Expanding reveals the OK card last (preserving severity order).
+    fireEvent.click(rollup);
+    expect(rollup).toHaveAttribute('aria-expanded', 'true');
+    const expandedCards = screen.getAllByTestId('red-flag-card');
+    expect(expandedCards).toHaveLength(3);
+    expect(expandedCards[2].getAttribute('data-severity')).toBe('ok');
+  });
+
+  it('Sprint 51 — renders a counted severity divider per non-OK group', () => {
+    render(
+      <ProviderWithEvents
+        events={[
+          grade({
+            input: { clause_id: 'a' },
+            result: {
+              ...(grade().result as object),
+              clause_id: 'a',
+              severity: 'high',
+            },
+          }),
+          grade({
+            input: { clause_id: 'b' },
+            result: {
+              ...(grade().result as object),
+              clause_id: 'b',
+              severity: 'medium',
+            },
+          }),
+        ]}
+      >
+        <RedFlagReport />
+      </ProviderWithEvents>,
+    );
+    const severities = screen
+      .getAllByTestId('red-flag-group')
+      .map((el) => el.getAttribute('data-severity'));
+    expect(severities).toContain('high');
+    expect(severities).toContain('medium');
+  });
+
+  it('Sprint 51 — HIGH cards earn depth/border emphasis, never a fill tint', () => {
+    render(
+      <ProviderWithEvents
+        events={[
+          grade({
+            input: { clause_id: 'a' },
+            result: {
+              ...(grade().result as object),
+              clause_id: 'a',
+              severity: 'high',
+            },
+          }),
+          grade({
+            input: { clause_id: 'b' },
+            result: {
+              ...(grade().result as object),
+              clause_id: 'b',
+              severity: 'medium',
+            },
+          }),
+        ]}
+      >
+        <RedFlagReport />
+      </ProviderWithEvents>,
+    );
+    const [high, medium] = screen.getAllByTestId('red-flag-card');
+    // HIGH rests at the deeper warm shadow + a heavier neutral border.
+    expect(high.getAttribute('data-severity')).toBe('high');
+    expect(high.className).toMatch(/shadow-card-hover/);
+    expect(high.className).toMatch(/border-neutral-300/);
+    // Emphasis is depth/edge only — never a severity fill tint (invariant).
+    expect(high.className).not.toMatch(/bg-(danger|warning|info|success|red)/);
+    // Non-high cards stay at the lighter resting shadow + base border.
+    expect(medium.className).toMatch(/border-neutral-200/);
   });
 
   it('"View on page N" sets activeClauseId and applies an active ring to the matching card', () => {
@@ -823,6 +969,88 @@ describe('RedFlagReport', () => {
     });
   });
 
+  // Sprint 50.2 — verdict moment. The verdict is the load-bearing "is this
+  // lease bad?" answer; it now reads as an OUTCOME (a soft tier-tinted halo +
+  // a tier glyph) instead of a bare line of text. Severity is carried by the
+  // headline WORDS + the glyph SHAPE, never colour alone (WCAG); the halo is
+  // pure decoration (aria-hidden, pointer-events-none).
+  describe('Sprint 50.2 — verdict moment (tier halo + glyph)', () => {
+    const gradeSeverity = (severity: GradingResult['severity']): ToolEvent =>
+      grade({
+        input: { clause_id: 'c1' },
+        result: {
+          ...(grade().result as object),
+          clause_id: 'c1',
+          severity,
+        } as ToolEvent['result'],
+      });
+
+    it('stamps the verdict with data-tier matching the highest present severity', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('high')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(screen.getByTestId('red-flag-verdict')).toHaveAttribute(
+        'data-tier',
+        'high',
+      );
+    });
+
+    it('stamps an ok tier when no findings exceed ok severity', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('ok')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      expect(screen.getByTestId('red-flag-verdict')).toHaveAttribute(
+        'data-tier',
+        'ok',
+      );
+    });
+
+    it('renders a decorative tier halo (aria-hidden, non-interactive)', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('high')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const halo = screen.getByTestId('red-flag-verdict-halo');
+      expect(halo).toHaveAttribute('aria-hidden', 'true');
+      expect(halo).toHaveAttribute('data-tier', 'high');
+      expect(halo.className).toMatch(/pointer-events-none/);
+    });
+
+    it('conveys the tier by glyph + words, not colour alone (WCAG)', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('high')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      // Shape channel: a tier glyph beside the headline, aria-hidden so the
+      // headline words remain the accessible name.
+      const glyph = screen.getByTestId('red-flag-verdict-glyph');
+      expect(glyph).toHaveAttribute('aria-hidden', 'true');
+      expect(glyph).toHaveAttribute('data-tier', 'high');
+      // Text channel: the headline still states the risk in words.
+      expect(screen.getByTestId('red-flag-verdict').textContent ?? '').toMatch(
+        /high risk/i,
+      );
+    });
+
+    it('preserves the editorial headline typography after wrapping', () => {
+      render(
+        <ProviderWithEvents events={[gradeSeverity('high')]}>
+          <RedFlagReport />
+        </ProviderWithEvents>,
+      );
+      const verdict = screen.getByTestId('red-flag-verdict');
+      expect(verdict.className).toMatch(/\bfont-serif\b/);
+      expect(verdict.className).toMatch(/\bfont-bold\b/);
+      expect(verdict.className).toMatch(/\btracking-tight\b/);
+    });
+  });
+
   // Sprint 26c — Explain + Draft email actions open the FAB drawer
   // with a prefilled, clause-aware prompt. Defined at the bottom so
   // the vi.mock + AssistantFabProvider stays out of the older tests'
@@ -855,10 +1083,12 @@ describe('Sprint 26c — RedFlagReport card actions wire into AssistantFabContex
     render(
       <AssistantFabProvider>
         <LeaseParserProvider initialEvents={events}>
-          <ChatStreamProvider>
-            <Probe />
-            <RedFlagReport />
-          </ChatStreamProvider>
+          <PdfHighlightProvider>
+            <ChatStreamProvider>
+              <Probe />
+              <RedFlagReport />
+            </ChatStreamProvider>
+          </PdfHighlightProvider>
         </LeaseParserProvider>
       </AssistantFabProvider>,
     );
@@ -910,10 +1140,12 @@ describe('Sprint 35 — Plain English card action', () => {
     render(
       <AssistantFabProvider>
         <LeaseParserProvider initialEvents={events}>
-          <ChatStreamProvider>
-            <Probe />
-            <RedFlagReport />
-          </ChatStreamProvider>
+          <PdfHighlightProvider>
+            <ChatStreamProvider>
+              <Probe />
+              <RedFlagReport />
+            </ChatStreamProvider>
+          </PdfHighlightProvider>
         </LeaseParserProvider>
       </AssistantFabProvider>,
     );
@@ -979,25 +1211,55 @@ describe('Sprint 35 — Plain English card action', () => {
     expect(ctx.fab?.pendingPrompt).toContain('NJ Stat 46:8-21.2');
   });
 
-  it('relabels the statute walkthrough to "What the law says" (distinct from Plain English) but keeps its testid + prompt', () => {
+  // Sprint 53 — the two explanation pills merge into ONE segmented "Explain"
+  // control (Plain English | The law). Both facets keep their stable testids +
+  // prompts; the statute segment is relabeled "The law" inside the group. No
+  // single bare "Explain" action button (the word "Explain" is now the group's
+  // label, not a button).
+  it('merges the explanations into one segmented "Explain" control; the statute facet keeps its testid + prompt', () => {
     const ctx = renderWithFab([grade()]);
     fireEvent.click(screen.getByTestId('red-flag-card-toggle'));
     const actions = screen.getByTestId('red-flag-card-actions');
 
-    // Same node (stable testid red-flag-explain), new visible/accessible name.
-    const statute = screen.getByTestId('red-flag-explain');
-    expect(statute).toHaveAccessibleName(/what the law says/i);
-    // No bare "Explain" pill remains, and the two explanation pills are distinct.
+    // One segmented control holds both facets.
+    const group = screen.getByTestId('red-flag-explain-group');
+    expect(
+      within(group).getByTestId('red-flag-explain-plain'),
+    ).toBeInTheDocument();
+    const statute = within(group).getByTestId('red-flag-explain');
+    // Stable testid, new visible/accessible name inside the group.
+    expect(statute).toHaveAccessibleName(/the law/i);
+    // No bare "Explain" action button (the word is the group's label only).
     expect(
       within(actions).queryByRole('button', { name: /^explain$/i }),
     ).not.toBeInTheDocument();
-    expect(
-      within(actions).getByRole('button', { name: /what the law says/i }),
-    ).not.toBe(within(actions).getByRole('button', { name: /plain english/i }));
+    // The two facets are distinct buttons.
+    expect(within(group).getByRole('button', { name: /the law/i })).not.toBe(
+      within(group).getByRole('button', { name: /plain english/i }),
+    );
 
-    // Prompt unchanged: still the statute walkthrough.
+    // Prompt unchanged: the statute facet still seeds the verbatim walkthrough.
     fireEvent.click(statute);
     expect(ctx.fab?.pendingPrompt?.toLowerCase()).toContain('statute');
     expect(ctx.fab?.pendingPrompt).toContain('NJ Stat 46:8-21.2');
+  });
+
+  // Sprint 46.6 — card↔PDF hover bridge (card side). Hovering a card sets
+  // hoveredClauseId, which flips the card's own data-hovered flag; the PDF
+  // highlight reacts to the same state (asserted in PdfViewer.highlights).
+  it('marks a card as hovered on mouse-enter and clears it on mouse-leave', () => {
+    render(
+      <ProviderWithEvents events={[grade()]}>
+        <RedFlagReport />
+      </ProviderWithEvents>,
+    );
+    const card = screen.getByTestId('red-flag-card');
+    expect(card.getAttribute('data-hovered')).toBe('false');
+
+    fireEvent.mouseEnter(card);
+    expect(card.getAttribute('data-hovered')).toBe('true');
+
+    fireEvent.mouseLeave(card);
+    expect(card.getAttribute('data-hovered')).toBe('false');
   });
 });

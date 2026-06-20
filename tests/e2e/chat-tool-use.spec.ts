@@ -4,12 +4,16 @@ import { encrypt } from '@/lib/auth/session';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { encodeWorkspace } from '@/lib/workspaces/cookie';
 import { openAssistantFab } from './helpers/open-assistant-fab';
+import { openThreadMenu } from './helpers/open-thread-menu';
 import { uploadSampleLease } from './helpers/upload-sample-lease';
 
 async function startFreshConversation(page: import('@playwright/test').Page) {
-  const newConversation = page.getByTestId('new-conversation-btn');
-  if (await newConversation.isVisible()) {
-    await newConversation.click();
+  // Sprint 52.2 — the Clear control lives behind the chat-thread overflow (⋯)
+  // menu. The trigger only renders once a thread/stash exists, so guard on it.
+  const trigger = page.getByTestId('assistant-thread-menu-trigger');
+  if (await trigger.isVisible()) {
+    await openThreadMenu(page);
+    await page.getByTestId('new-conversation-btn').click();
   }
 }
 

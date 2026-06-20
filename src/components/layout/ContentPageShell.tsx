@@ -9,7 +9,10 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { LeaseLensMark } from '@/components/brand/LeaseLensMark';
-import { LEASELENS_WORDMARK_MASTHEAD } from '@/components/brand/wordmark-classes';
+import {
+  LEASELENS_BADGE_MASTHEAD,
+  LEASELENS_WORDMARK_MASTHEAD,
+} from '@/components/brand/wordmark-classes';
 import { SiteFooter } from './SiteFooter';
 
 export interface ContentPageShellProps {
@@ -35,7 +38,7 @@ export function ContentPageShell({
           href="/"
           className="flex items-center gap-3 rounded-md transition-opacity hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-600 text-white shadow-hairline">
+          <span className={`h-9 w-9 ${LEASELENS_BADGE_MASTHEAD}`}>
             <LeaseLensMark className="h-5 w-5" animated={false} />
           </span>
           <span className={LEASELENS_WORDMARK_MASTHEAD}>LeaseLens</span>

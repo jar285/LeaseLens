@@ -14,6 +14,7 @@ import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { openAssistantFab } from './helpers/open-assistant-fab';
+import { clearAssistantChat } from './helpers/open-thread-menu';
 import {
   clearUserConversations,
   seedGradedConversation,
@@ -216,10 +217,11 @@ test('T15 — "Clear assistant chat" preserves the lease + red-flag cards (parse
   // Confirm seeded state visible (cards rendered, conversation rehydrated).
   await expect(page.getByTestId('red-flag-card')).toHaveCount(2);
 
-  // Sprint 26c — the New conversation / Continue previous buttons live
-  // inside the chat toolbar, which now sits inside the FAB drawer.
+  // Sprint 26c — the New conversation / Continue previous controls live
+  // inside the FAB drawer. Sprint 52.2 — they moved behind the chat-thread
+  // overflow (⋯) menu, so open the menu before clicking Clear.
   await openAssistantFab(page);
-  await page.getByTestId('new-conversation-btn').click();
+  await clearAssistantChat(page);
 
   // Sprint 28.7 + CLAUDE.md invariant — "Clear assistant chat" stashes the CHAT
   // thread only; the lease + red-flag cards (owned by LeaseParserContext) are

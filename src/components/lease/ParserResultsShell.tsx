@@ -28,6 +28,7 @@ import { AutoScanRunner } from './AutoScanRunner';
 import { ClausesList } from './ClausesList';
 import { ConfirmDialog } from './ConfirmDialog';
 import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
+import { PdfHighlightProvider } from './PdfHighlightContext';
 import { PdfViewer } from './PdfViewer';
 import { RedFlagReport } from './RedFlagReport';
 import { RedFlagsPaneHeader } from './RedFlagsPaneHeader';
@@ -70,9 +71,14 @@ export function ParserResultsShell(
         initialEvents={props.initialToolEvents}
         activeLease={props.initialActiveLease}
       >
-        <ChatStreamProvider viewerRole={props.viewerRole}>
-          <ResultsShellInner {...props} />
-        </ChatStreamProvider>
+        {/* Sprint 46.3 — highlight UI state sits under the parser provider
+            (so it can sit beside activeClauseId) and around the chat
+            provider, without disturbing the pinned three-provider order. */}
+        <PdfHighlightProvider>
+          <ChatStreamProvider viewerRole={props.viewerRole}>
+            <ResultsShellInner {...props} />
+          </ChatStreamProvider>
+        </PdfHighlightProvider>
       </LeaseParserProvider>
     </AssistantFabProvider>
   );
@@ -159,8 +165,12 @@ function ResultsShellInner({
         // "page must not scroll" spec but was reversed by user
         // request: the workspace now flows naturally as part of
         // window scroll. No height clamp, no overflow clipping.
-        className="bg-surface-base"
+        // Sprint 50.4 — `relative isolate` hosts the masthead glow's
+        // -z-10 layer above the page fill but below content (same
+        // isolate idiom as the Mode A landing's ambient blob).
+        className="relative isolate bg-surface-base"
       >
+        <ResultsMastheadGlow />
         <ResultsHeader
           leftPaneState={leftPaneState}
           onReplace={requestReplace}
@@ -195,7 +205,7 @@ function ResultsShellInner({
             className="self-start rounded-lg border border-neutral-200 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900 lg:sticky lg:top-20 lg:h-[calc(100vh-6rem)] lg:overflow-hidden"
             aria-label="Lease PDF"
           >
-            <PdfPaneContent state={leftPaneState} />
+            <PdfPaneContent state={leftPaneState} onReplace={requestReplace} />
           </section>
           <section
             data-testid="results-stack"
@@ -244,6 +254,47 @@ function ResultsShellInner({
   );
 }
 
+/*
+ * Sprint 50.4 — Mode B masthead glow.
+ *
+ * Carries Mode A's terracotta ambient field (ParserLandingShell's
+ * LeaseHeroAmbientBlob) across the upload seam so the post-upload workspace
+ * shares the landing's warmth instead of reading as flat cream. It is page
+ * ATMOSPHERE, not a behind-text wash: a single top-anchored radial that fades
+ * out before the results grid, visible in the top margin + gutters around the
+ * opaque panels. The verdict halo (RedFlagReport) owns the behind-headline
+ * tint; this layer never penetrates a panel, so it can't touch text contrast.
+ *
+ * Reuses the `--accent-ambient-*` tokens (theme-aware: muted terracotta on
+ * espresso in dark) at ~45% of the landing's gradient strength — the landing
+ * is a hero, this is a working surface (Dieter Rams restraint). Decorative:
+ * aria-hidden, pointer-events-none, -z-10. Pure CSS, so reduced-motion users
+ * see the same static field.
+ */
+function ResultsMastheadGlow(): React.JSX.Element {
+  return (
+    <div
+      data-testid="results-masthead-glow"
+      data-theme-layer="ambient"
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-64 overflow-hidden"
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          // Sprint 55 — nudged 0.45 → 0.7 of the landing's gradient strength.
+          // At 0.45 the glow was invisible behind the immediately-starting
+          // grid; 0.7 lets a warm sliver breathe in the top margin + gutters
+          // while staying page atmosphere (still well below the landing hero,
+          // Dieter Rams restraint).
+          background:
+            'radial-gradient(ellipse 70% 100% at 50% 0%, color-mix(in srgb, var(--color-accent-ambient-core) calc(var(--accent-ambient-gradient-mix) * 0.7), transparent), transparent 72%)',
+        }}
+      />
+    </div>
+  );
+}
+
 function ResultsHeader({
   leftPaneState,
   onReplace,
@@ -257,21 +308,32 @@ function ResultsHeader({
       data-testid="results-header"
       className="flex shrink-0 items-center justify-between gap-4 border-b border-neutral-200 bg-surface-card px-6 py-3 dark:border-neutral-800 dark:bg-neutral-900"
     >
-      <div className="flex min-w-0 items-center gap-3">
+      {/* Sprint 53 — document-grade masthead. The strip is the identity of the
+          lease the tenant is reviewing, so it earns a touch more weight than
+          browser chrome: a slightly larger icon, a 13px medium filename (still
+          mono for file identity), and the page/clause metadata is ALWAYS
+          visible (it used to hide below sm: exactly on the results page where
+          it matters most). Wathan/Schoger hierarchy; metadata stays fg-muted
+          for AA. */}
+      <div className="flex min-w-0 items-center gap-2.5">
         <FileText
           aria-hidden="true"
-          className="h-3.5 w-3.5 shrink-0 text-fg-subtle"
+          className="h-4 w-4 shrink-0 text-fg-muted"
         />
         <span
           data-testid="results-header-filename"
-          className="truncate font-mono text-[12px] text-fg-default"
+          className="truncate font-mono text-[13px] font-medium text-fg-default"
         >
           {meta.filename}
         </span>
         {meta.metaParts.length > 0 ? (
           <span
             data-testid="results-header-meta"
-            className="hidden text-[11px] text-fg-subtle sm:inline"
+            // Sprint 50.5 — fg-muted (≈6.46:1), not fg-subtle (≈2.26:1): real
+            // exposed metadata, must clear WCAG AA at this size.
+            // Sprint 53 — always visible (dropped `hidden sm:inline`); the
+            // page/clause count is most useful exactly on the results page.
+            className="truncate text-[11px] text-fg-muted"
           >
             · {meta.metaParts.join(' · ')}
           </span>
@@ -318,8 +380,10 @@ function describeLease(state: LeftPaneState): {
 
 function PdfPaneContent({
   state,
+  onReplace,
 }: {
   state: LeftPaneState;
+  onReplace: () => void;
 }): React.JSX.Element {
   if (state.kind === 'loaded') {
     return (
@@ -338,12 +402,39 @@ function PdfPaneContent({
     );
   }
   if (state.kind === 'reattach') {
+    // Sprint 52 — designed recovery card instead of a bare two-line void. The
+    // PDF bytes were evicted from this device's cache; the only restore path is
+    // the (destructive) Replace flow, so the copy stays HONEST — it never
+    // claims the red-flag review is preserved (Replace resets lease + clauses +
+    // red flags). Centered in the tall sticky pane so it fills the void. The
+    // button routes to the same requestReplace handler as the header (opens the
+    // ConfirmDialog, which owns the destructive-confirm step).
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-        <p className="text-sm text-fg-default">{state.lease.filename}</p>
-        <p className="text-xs text-fg-muted">
-          We lost the cached file. Use Replace to re-upload it.
-        </p>
+      <div className="flex h-full items-center justify-center p-6">
+        <div
+          data-testid="pdf-reattach-card"
+          className="flex max-w-xs flex-col items-center gap-3 rounded-lg border border-neutral-200 bg-surface-elevated p-6 text-center shadow-card dark:border-neutral-800"
+        >
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-muted text-fg-subtle dark:bg-neutral-800">
+            <FileText aria-hidden="true" className="h-4 w-4" />
+          </span>
+          <p className="font-mono text-[12px] text-fg-default">
+            {state.lease.filename}
+          </p>
+          <p className="text-[12px] text-fg-muted leading-relaxed">
+            We can't reopen this PDF from the cache on this device. Upload it
+            again to view it highlighted.
+          </p>
+          <button
+            type="button"
+            data-testid="pdf-reattach-replace"
+            onClick={onReplace}
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent-700 px-3 py-1.5 text-[12px] font-medium text-white shadow-card transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2"
+          >
+            <RotateCcw aria-hidden="true" className="h-3 w-3" />
+            Replace lease
+          </button>
+        </div>
       </div>
     );
   }
@@ -364,7 +455,12 @@ function ResultsRedFlagsSection(): React.JSX.Element {
   return (
     <section
       data-testid="results-red-flags-section"
-      className="flex flex-col rounded-lg border border-neutral-200 bg-surface-card dark:border-neutral-800 dark:bg-neutral-900"
+      // Sprint 50.3 — the section sheds its panel border so it reads as a quiet
+      // vellum TRAY, letting the elevated red-flag cards be the only "objects"
+      // in the column (also clears the nested-card smell of a bordered card
+      // inside a bordered card). It keeps its darker surface-card fill so the
+      // lighter surface-elevated cards lift out of it.
+      className="flex flex-col rounded-lg bg-surface-card dark:bg-neutral-900"
     >
       <RedFlagsPaneHeader />
       <div className="flex flex-col gap-3 p-4">

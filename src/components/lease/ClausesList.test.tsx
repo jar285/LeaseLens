@@ -176,6 +176,42 @@ describe('ClausesList', () => {
     expect(rows[2].textContent).toContain('Subletting');
   });
 
+  // Sprint 54 — the list has a distinct identity: the FULL inventory of parsed
+  // clauses (complement to the red-flag findings, which are the flagged
+  // subset). Steve Krug: make the section's job self-evident.
+  it('labels itself as the full clause inventory (distinct from the red-flag findings)', () => {
+    renderWithEvents([
+      extractClausesEvent([
+        {
+          clause_id: 'c1',
+          clause_index: 0,
+          clause_type: 'security_deposit',
+          page_number: 1,
+        },
+      ]),
+    ]);
+    const subtitle = screen.getByTestId('clauses-list-subtitle');
+    expect(subtitle.textContent ?? '').toMatch(/every clause we parsed/i);
+  });
+
+  // Sprint 55 — the "p. N" page label is real exposed info, so it must clear
+  // WCAG AA: fg-muted (≈6.46:1), not fg-subtle (≈2.26:1).
+  it('renders the row page label in an AA-contrast token (fg-muted, not fg-subtle)', () => {
+    renderWithEvents([
+      extractClausesEvent([
+        {
+          clause_id: 'c1',
+          clause_index: 0,
+          clause_type: 'security_deposit',
+          page_number: 1,
+        },
+      ]),
+    ]);
+    const pageLabel = screen.getByText(/^p\. 1$/);
+    expect(pageLabel.className).toMatch(/text-fg-muted/);
+    expect(pageLabel.className).not.toMatch(/text-fg-subtle/);
+  });
+
   it('renders severity chips on graded rows; ungraded rows show a "—" placeholder', () => {
     renderWithEvents([
       extractClausesEvent([

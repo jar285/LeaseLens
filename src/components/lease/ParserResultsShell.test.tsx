@@ -107,6 +107,49 @@ describe('ParserResultsShell', () => {
     expect(screen.getByTestId('parser-results-shell')).toBeInTheDocument();
   });
 
+  // Sprint 50.4 — masthead glow. Mode A's terracotta ambient field is carried
+  // across the seam as quiet page atmosphere at the top of the workspace, so
+  // the post-upload screen no longer reads as flat cream. Decorative only
+  // (aria-hidden + pointer-events-none + behind content); the shell root gains
+  // `isolate` so the -z-10 layer paints above the page fill but below content.
+  it('Sprint 50.4 — renders a decorative masthead glow behind the workspace', () => {
+    render(<ParserResultsShell {...baseProps} />);
+    const root = screen.getByTestId('parser-results-shell');
+    expect(root.className).toMatch(/\bisolate\b/);
+    const glow = screen.getByTestId('results-masthead-glow');
+    expect(glow).toHaveAttribute('aria-hidden', 'true');
+    expect(glow.className).toMatch(/pointer-events-none/);
+  });
+
+  // Sprint 52 — the lost-cache (reattach) state used to be a bare two-line
+  // void filling half the workspace. It's now a designed recovery card with the
+  // filename and a primary button that routes to the existing Replace flow.
+  // Honesty invariant: it must NOT claim the review is preserved (Replace fully
+  // resets the lease + clauses + red flags).
+  it('Sprint 52 — reattach renders an honest recovery card whose button opens Replace', async () => {
+    // activeLease WITHOUT pdfUrl + IndexedDB miss → reattach state.
+    setPdfBinaryRepository(makeRepo({ get: vi.fn().mockResolvedValue(null) }));
+    const propsNoPdf = {
+      ...baseProps,
+      initialActiveLease: {
+        ...baseProps.initialActiveLease,
+        pdfUrl: undefined,
+      },
+    };
+    render(<ParserResultsShell {...propsNoPdf} />);
+
+    const card = await screen.findByTestId('pdf-reattach-card');
+    expect(card).toHaveTextContent('sample.pdf');
+    // Never promises the review survives Replace (it does not).
+    expect(card.textContent ?? '').not.toMatch(/preserved/i);
+    // The recovery button routes through the existing destructive Replace flow:
+    // clicking it opens the confirm alertdialog (it does not reset on its own).
+    const btn = within(card).getByTestId('pdf-reattach-replace');
+    expect(btn.textContent ?? '').toMatch(/replace/i);
+    fireEvent.click(btn);
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
   it('renders the header strip with filename + page count + clause count', () => {
     render(<ParserResultsShell {...baseProps} />);
     const header = screen.getByTestId('results-header');
@@ -114,6 +157,18 @@ describe('ParserResultsShell', () => {
     expect(header.textContent).toContain('sample.pdf');
     expect(header.textContent).toMatch(/18\s*pages?/i);
     expect(header.textContent).toMatch(/13\s*clauses?/i);
+  });
+
+  // Sprint 50.5 — contrast. The header metadata ("18 pages · 13 clauses") was
+  // text-fg-subtle (#a8997e ≈ 2.26:1 on the cream card — fails WCAG AA for the
+  // 11px text it carries). It is real exposed text, not decoration, so it moves
+  // to text-fg-muted (≈ 6.46:1). (The body reasoning text already passed AA;
+  // its washed-out feel was figure-ground, fixed by the S50.3 elevation.)
+  it('Sprint 50.5 — header metadata uses an AA-contrast token (fg-muted, not fg-subtle)', () => {
+    render(<ParserResultsShell {...baseProps} />);
+    const meta = screen.getByTestId('results-header-meta');
+    expect(meta.className).toMatch(/text-fg-muted/);
+    expect(meta.className).not.toMatch(/text-fg-subtle/);
   });
 
   // Sprint 28.15 — Replace now opens a styled in-app alertdialog instead of

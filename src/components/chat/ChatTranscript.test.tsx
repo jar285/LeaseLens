@@ -50,6 +50,25 @@ describe('ChatTranscript', () => {
     cleanup();
   });
 
+  it('Sprint 52.4 — caps the message column to a comfortable reading measure (~66-75ch)', () => {
+    // The transcript body was `max-w-3xl` (768px ≈ ~86ch at the 14.5px body),
+    // which runs past the readable line-length ceiling in the wide
+    // expanded-reading drawer. Cap it to `max-w-2xl` so lines land in the
+    // 66-75ch band (Butterick / Wathan-Schoger measure). Margin, not reflow,
+    // absorbs any extra panel width.
+    render(
+      withChatStream(
+        <ChatTranscript messages={baseMessages} workspaceName="Test" />,
+      ),
+    );
+    const column = screen
+      .getByTestId('chat-transcript-scroll')
+      .querySelector('.mx-auto');
+    expect(column).not.toBeNull();
+    expect(column?.className).toContain('max-w-2xl');
+    expect(column?.className).not.toContain('max-w-3xl');
+  });
+
   it('scrolls to the bottom when pinned and content updates', () => {
     const { rerender } = render(
       withChatStream(

@@ -756,7 +756,9 @@ describe('Sprint 36 — context-sized display modes', () => {
     expect(drawer.getAttribute('data-display-mode')).toBe('workspace-drawer');
     expect(drawer.className).toContain('w-[min(560px,calc(100vw-3rem))]');
     expect(drawer.className).toContain('lg:w-[min(620px,calc(100vw-3rem))]');
-    expect(drawer.className).toContain('h-[min(720px,80vh)]');
+    // Sprint 52.4 — default desktop drawer gains a touch more height so an
+    // answer has room without forcing Expand.
+    expect(drawer.className).toContain('h-[min(760px,82vh)]');
   });
 
   it('clicking Expand grows the drawer into expanded-reading mode', () => {
@@ -843,11 +845,20 @@ describe('Sprint 36 — context-sized display modes', () => {
     expect(drawer).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('carries a mobile-safe size class so small viewports never overflow', () => {
+  it('on mobile becomes a bottom sheet (full-width, bottom-flush, top-rounded), not a floating card', () => {
+    // Sprint 52.3 — supersedes the old MOBILE_SAFE_SIZE floating-card override.
+    // On `max-sm` the drawer is a true bottom sheet anchored to the bottom edge
+    // (Apple HIG / Material sheet), so it reads like every other mobile chat
+    // surface and has room to grow.
     const refs = renderFab();
     const drawer = openDrawer(refs);
-    expect(drawer.className).toContain('max-sm:w-[calc(100vw-2rem)]');
-    expect(drawer.className).toContain('max-sm:h-[min(85vh,calc(100vh-7rem))]');
+    expect(drawer.className).toContain('max-sm:inset-x-0');
+    expect(drawer.className).toContain('max-sm:bottom-0');
+    expect(drawer.className).toContain('max-sm:w-full');
+    expect(drawer.className).toContain('max-sm:rounded-b-none');
+    expect(drawer.className).toContain('max-sm:origin-bottom');
+    // The old floating-card mobile override is gone.
+    expect(drawer.className).not.toContain('max-sm:w-[calc(100vw-2rem)]');
   });
 
   it('uses the hairline border + warm popover shadow instead of the heavy/generic treatment (Refactoring UI / Rams)', () => {
@@ -883,6 +894,64 @@ describe('Sprint 36 — context-sized display modes', () => {
       'assistant-context-bar',
     );
     expect(withLeaseBar.className).not.toContain('border-b');
+  });
+});
+
+describe('Sprint 52.1 — slim masthead (brand + status folded into one block)', () => {
+  const LEASE = { lease_id: 'L1', filename: 'sample.pdf', clause_count: 15 };
+
+  it('folds the brand identity and the lease-status row into a single masthead block (reclaims the double-padded seam)', () => {
+    // Before S52.1 the brand <header> and the assistant-context-bar were two
+    // separately-padded sibling strips (header pb-2.5 + bar py-2.5 ≈ 30px of
+    // stacked chrome above the answer). The slim direction folds them into ONE
+    // masthead so an answer starts higher (Dieter Rams: fewer hard blocks;
+    // Wathan/Schoger: hierarchy via spacing, not stacked strips).
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: LEASE });
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    const bar = screen.getByTestId('assistant-context-bar');
+    // The status row now lives INSIDE the same <header> as the brand heading,
+    // not as a sibling strip below it.
+    const masthead = bar.closest('header');
+    expect(masthead).not.toBeNull();
+    expect(masthead?.querySelector('h2')?.textContent).toMatch(
+      /leaselens assistant/i,
+    );
+    // The seam is gone: the context bar no longer carries its own vertical
+    // padding block (it shares the masthead's rhythm instead).
+    expect(bar.className).not.toContain('py-2.5');
+  });
+
+  it('keeps the brand identity, status content, and focus/detach intact after the fold', () => {
+    scanLifecycleMock.mockReturnValue(REVIEW_READY_SNAPSHOT);
+    const refs = renderFab({ activeLease: LEASE });
+    act(() => {
+      refs.fab?.openWith({
+        initialPrompt: 'Explain this clause',
+        clauseId: 'c-1',
+        severity: 'high',
+        statuteCitation: 'NJ Stat 46:8-19',
+      });
+    });
+    // Identity preserved.
+    expect(
+      screen.getByRole('heading', { name: /leaselens assistant/i }),
+    ).toBeInTheDocument();
+    const drawer = screen.getByTestId('assistant-fab-drawer');
+    expect(drawer.textContent).toContain('NJ tenant-law guidance');
+    // Status + focus both still present inside the masthead context group.
+    const bar = screen.getByTestId('assistant-context-bar');
+    expect(bar.querySelector('.font-mono')?.textContent).toContain(
+      'sample.pdf',
+    );
+    const focus = screen.getByTestId('assistant-context-bar-focus');
+    expect(bar.contains(focus)).toBe(true);
+    // Detach × keeps its 44px target (WCAG 2.5.5).
+    const detach = screen.getByTestId('assistant-context-bar-detach');
+    expect(detach.className).toMatch(/\bh-11\b/);
+    expect(detach.className).toMatch(/\bw-11\b/);
   });
 });
 
@@ -1022,26 +1091,128 @@ describe('Sprint 36.4 — drawer open/close + resize motion', () => {
   });
 });
 
-describe('Sprint 38.3 — FAB pill premium polish', () => {
-  it('renders a warm gradient FAB with an inner highlight + motion-safe hover lift + pressed state', () => {
+describe('Sprint 53 — FAB pill flat terracotta (de-gradiented)', () => {
+  it('renders a FLAT terracotta FAB on the house popover shadow, AA-safe label, tactile motion kept', () => {
     renderFab();
     const pill = screen.getByTestId('assistant-fab');
-    // Warm coral gradient (not a flat solid).
-    expect(pill.className).toContain('bg-gradient-to-br');
-    expect(pill.className).toContain('from-accent-500');
-    expect(pill.className).toContain('to-accent-600');
-    // Inner top highlight is baked into the layered shadow (premium material).
-    expect(pill.className).toContain('inset_0_1px_0');
+    // Sprint 53 — flat terracotta, NOT a diagonal gradient + glossy bevel.
+    // accent-700 (not 600) so the white label clears WCAG AA in light mode.
+    expect(pill.className).toContain('bg-accent-700');
+    expect(pill.className).not.toContain('bg-gradient-to-br');
+    expect(pill.className).not.toContain('inset_0_1px_0');
+    // Reuses the house warm popover shadow (same depth language as the drawer).
+    expect(pill.className).toContain('shadow-popover');
     // Tactile but calm: lift only when motion is safe; press settles it.
     expect(pill.className).toContain('motion-safe:hover:-translate-y-0.5');
     expect(pill.className).toContain('active:scale-[0.98]');
-    // Sprint 38.5 — the transition MUST name the `translate` + `scale`
-    // properties (Tailwind v4 animates those, NOT `transform`), or the lift
-    // snaps instantly instead of easing. Regression guard for that bug.
+    // Sprint 38.5 — the transition MUST name `translate` + `scale` (Tailwind v4
+    // animates those, NOT `transform`), or the lift snaps. Regression guard.
     expect(pill.className).toContain('transition-[translate,scale,');
     expect(pill.className).not.toContain('transition-[transform,');
     // Focus ring + reduced-motion guard retained.
     expect(pill.className).toContain('focus-visible:ring-2');
     expect(pill.className).toContain('motion-reduce:transition-none');
+  });
+});
+
+// Sprint 52.3 — mobile bottom sheet with a tap-to-snap handle (half → full).
+// Built by extending the existing displayMode/size system + the local
+// `expanded` flag (no Vaul, no free-drag, no new context field). happy-dom
+// can't evaluate the `max-sm:` media query, so we assert the class CONTRACT
+// (the bottom-sheet utilities + the snap-driven height tokens) and the
+// handle's behaviour; the real half/full visual is verified in Playwright.
+describe('Sprint 52.3 — mobile bottom sheet + snap handle', () => {
+  const LEASE = { lease_id: 'L1', filename: 'sample.pdf', clause_count: 15 };
+
+  function openDrawer(refs: ReturnType<typeof renderFab>): HTMLElement {
+    act(() => {
+      refs.fab?.openDrawer();
+    });
+    return screen.getByTestId('assistant-fab-drawer');
+  }
+
+  it('slides up from the bottom on mobile (closed sheet is translated fully off-screen)', () => {
+    const refs = renderFab({ activeLease: LEASE });
+    openDrawer(refs);
+    act(() => {
+      refs.fab?.close();
+    });
+    const drawer = screen.getByTestId('assistant-fab-drawer');
+    // Mobile sheet slides off the bottom edge when closed; desktop keeps the
+    // 12px corner nudge.
+    expect(drawer.className).toContain('max-sm:translate-y-full');
+    expect(drawer.className).toContain('translate-y-3');
+  });
+
+  it('renders a snap handle that is mobile-only, ≥44px, and labelled by snap state', () => {
+    const refs = renderFab({ activeLease: LEASE });
+    openDrawer(refs);
+    const handle = screen.getByTestId('assistant-fab-snap-handle');
+    expect(handle.tagName).toBe('BUTTON');
+    // Only meaningful for the mobile sheet — hidden once the floating card /
+    // desktop drawer takes over (≥ sm).
+    expect(handle.className).toContain('sm:hidden');
+    // 44px hit area (WCAG 2.5.5 / iOS HIG).
+    expect(handle.className).toMatch(/\bh-11\b/);
+    expect(handle.getAttribute('aria-label') ?? '').toMatch(/expand|collapse/i);
+    expect(handle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('tapping the handle snaps the sheet half → full (drives the mobile height token) and back', () => {
+    const refs = renderFab({ activeLease: LEASE });
+    const drawer = openDrawer(refs);
+    // Half snap by default.
+    expect(drawer.className).toContain('max-sm:h-[58vh]');
+    expect(drawer.className).not.toContain('max-sm:h-[92vh]');
+
+    const handle = screen.getByTestId('assistant-fab-snap-handle');
+    fireEvent.click(handle);
+    // Full snap.
+    expect(handle.getAttribute('aria-expanded')).toBe('true');
+    expect(drawer.className).toContain('max-sm:h-[92vh]');
+    expect(drawer.className).not.toContain('max-sm:h-[58vh]');
+
+    fireEvent.click(handle);
+    // Back to half.
+    expect(handle.getAttribute('aria-expanded')).toBe('false');
+    expect(drawer.className).toContain('max-sm:h-[58vh]');
+  });
+
+  it('the handle snaps the sheet even with no lease (mobile snap is independent of canExpand) without stranding the desktop compact panel', () => {
+    // Sprint 52.3 F3 — a pre-upload help sheet must still expand to read on
+    // mobile, but `expanded` must NOT promote the DESKTOP panel to
+    // expanded-reading (canExpand gate protects that — the original Sprint 36.1
+    // stranding bug). No lease, no question → desktop is compact-help.
+    const refs = renderFab();
+    const drawer = openDrawer(refs);
+    expect(drawer.getAttribute('data-display-mode')).toBe('compact-help');
+    fireEvent.click(screen.getByTestId('assistant-fab-snap-handle'));
+    // Mobile height snapped to full…
+    expect(drawer.className).toContain('max-sm:h-[92vh]');
+    // …but the desktop display mode is still the compact panel (not stranded
+    // large), because canExpand is false.
+    expect(drawer.getAttribute('data-display-mode')).toBe('compact-help');
+  });
+
+  it('snapping does NOT remount ChatUI (the typed draft / prefill survives)', () => {
+    const refs = renderFab({ activeLease: LEASE });
+    openDrawer(refs);
+    act(() => {
+      refs.fab?.openWith({ initialPrompt: 'Seed sheet question' });
+    });
+    expect(
+      screen.getByTestId('chat-ui-mock').getAttribute('data-prefill'),
+    ).toBe('Seed sheet question');
+    fireEvent.click(screen.getByTestId('assistant-fab-snap-handle'));
+    // Same ChatUI instance after the snap — prefill untouched.
+    expect(
+      screen.getByTestId('chat-ui-mock').getAttribute('data-prefill'),
+    ).toBe('Seed sheet question');
+  });
+
+  it('keeps the reduced-motion transition guard on the sheet', () => {
+    const refs = renderFab({ activeLease: LEASE });
+    const drawer = openDrawer(refs);
+    expect(drawer.className).toContain('motion-reduce:transition-none');
   });
 });

@@ -159,8 +159,10 @@ const SIZE_BY_MODE: Record<DisplayMode, string> = {
   // thread) without becoming the full workspace drawer. Still expandable to
   // expanded-reading for a long answer.
   'landing-chat': 'w-[min(460px,calc(100vw-3rem))] h-[min(620px,82vh)]',
+  // Sprint 52.4 — a touch more default height (720→760 / 80→82vh) so a typical
+  // answer has room to breathe without forcing the user into expanded-reading.
   'workspace-drawer':
-    'w-[min(560px,calc(100vw-3rem))] lg:w-[min(620px,calc(100vw-3rem))] h-[min(720px,80vh)]',
+    'w-[min(560px,calc(100vw-3rem))] lg:w-[min(620px,calc(100vw-3rem))] h-[min(760px,82vh)]',
   // Sprint 36.1 — height is clamped to the space ABOVE the bottom-28 anchor
   // (7rem) plus a 2rem top inset → calc(100vh-9rem). A raw 92vh panel anchored
   // 112px off the bottom pushes its top (the header with Collapse/Close) above
@@ -171,8 +173,20 @@ const SIZE_BY_MODE: Record<DisplayMode, string> = {
     'w-[min(720px,calc(100vw-3rem))] lg:w-[min(820px,calc(100vw-3rem))] h-[min(900px,calc(100vh-9rem))]',
 };
 
-const MOBILE_SAFE_SIZE =
-  'max-sm:w-[calc(100vw-2rem)] max-sm:h-[min(85vh,calc(100vh-7rem))]';
+// Sprint 52.3 — on phones the drawer is a true bottom sheet, not a floating
+// card: full-width, anchored to the bottom edge, top corners rounded, sliding
+// up from below (Apple HIG / Material sheet). It opens at a HALF snap so the
+// parser workspace stays visible behind it (chat is assistant-second), and the
+// snap handle grows it to FULL. Desktop / tablet (≥ sm) keep the floating card
+// sized by SIZE_BY_MODE. The `max-sm:` utilities win over the unconditional
+// SIZE_BY_MODE width/height AND the base `right-6 bottom-28` anchor because
+// Tailwind orders max-* variants after the base layer.
+const MOBILE_SHEET_BASE =
+  'max-sm:inset-x-0 max-sm:bottom-0 max-sm:w-full max-sm:rounded-b-none max-sm:rounded-t-[20px] max-sm:origin-bottom';
+// Snap points: half keeps the workspace visible; full leaves a sliver of page
+// at the top so the masthead (and its close control) stay reachable.
+const MOBILE_SHEET_SNAP_HALF = 'max-sm:h-[58vh]';
+const MOBILE_SHEET_SNAP_FULL = 'max-sm:h-[92vh]';
 
 // Sprint 36.4 — open/close + resize motion. The drawer stays mounted (drafts
 // persist), so a class-toggle CSS transition animates BOTH directions; the
@@ -232,6 +246,13 @@ export function AssistantFabClient({
   // popover grows slightly so answers have room. Local presentation state,
   // not context (keeps the AssistantFabContext boundary clean).
   const [hasAskedQuestion, setHasAskedQuestion] = useState(false);
+  // Sprint 52.5 — the masthead control slot the chat-thread overflow (⋯) menu
+  // portals into (next to Expand/Close), so it sits in the bar instead of
+  // floating over the transcript. A state-backed ref callback so ChatUI gets
+  // the node once the header mounts.
+  const [threadMenuSlot, setThreadMenuSlot] = useState<HTMLElement | null>(
+    null,
+  );
 
   const chipContext: ChipContext = {
     hasActiveClause: parser.activeClauseId !== null,
@@ -345,6 +366,16 @@ export function AssistantFabClient({
           ? 'landing-chat'
           : 'compact-help';
 
+  // Sprint 52.3 — mobile sheet sizing. The snap point reads the SAME local
+  // `expanded` flag the desktop Expand button drives, so half ↔ full is one
+  // state with two surfaces. On mobile the height is taken straight from
+  // `expanded` (NOT through `canExpand`): a pre-upload help sheet can still
+  // grow to read a long answer, while the desktop `displayMode` above stays
+  // gated by `canExpand` so a stale `expanded` never strands the compact panel.
+  const mobileSheetSize = `${MOBILE_SHEET_BASE} ${
+    expanded ? MOBILE_SHEET_SNAP_FULL : MOBILE_SHEET_SNAP_HALF
+  }`;
+
   // Sprint 29.6 — FAB pill state label (lg+). Same three-way split
   // as the chip set / empty-state subhead so the user sees a
   // matching cue at the pill, in the context bar, and in the
@@ -447,12 +478,18 @@ export function AssistantFabClient({
         aria-label={`Open assistant — ${pillLabel}`}
         aria-expanded={fab.state !== 'closed'}
         onClick={handlePillClick}
-        // Sprint 38.3 — premium FAB: a warm coral gradient + an inset top
-        // highlight + a soft accent-tinted drop shadow give it material depth;
-        // a subtle motion-safe hover lift and an active press make it feel
-        // confident and tactile (Apple HIG), never flashy (Rams). Focus ring +
-        // ≥44px touch retained; reduced-motion disables the transitions.
-        className="fixed right-6 bottom-6 z-overlay inline-flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-accent-500 to-accent-600 text-white shadow-[0_8px_24px_-6px_rgba(204,99,71,0.5),inset_0_1px_0_rgba(255,255,255,0.35)] transition-[translate,scale,box-shadow,background-color] duration-200 ease-out-soft hover:from-accent-600 hover:to-accent-700 motion-safe:hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 motion-reduce:transition-none dark:from-accent-500 dark:to-accent-600 dark:hover:from-accent-400 dark:hover:to-accent-500 lg:h-14 lg:w-auto lg:gap-2 lg:px-5"
+        // Sprint 53 — de-gradient. The diagonal coral gradient + glossy white
+        // bevel was the one "AI-made-this" tell on an otherwise flat editorial
+        // surface (Dieter Rams: avoid flashy gradients). It's now a FLAT
+        // terracotta on the house warm `shadow-popover` (the same depth
+        // language as the drawer it opens), so the closed pill and the open
+        // drawer read as one crafted world. `accent-700` (not 600) so the white
+        // label clears WCAG AA in light mode (5.39:1; 600 was 3.86:1 — fail).
+        // The tactile motion-safe lift + active press + focus ring are kept
+        // (Apple HIG); reduced-motion disables the transition. The transition
+        // MUST name `translate,scale` (Tailwind v4 animates those, not
+        // `transform`), or the lift snaps.
+        className="fixed right-6 bottom-6 z-overlay inline-flex h-16 w-16 items-center justify-center rounded-full bg-accent-700 text-white shadow-popover transition-[translate,scale,filter] duration-200 ease-out-soft motion-safe:hover:-translate-y-0.5 hover:brightness-95 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 motion-reduce:transition-none lg:h-14 lg:w-auto lg:gap-2 lg:px-5"
       >
         <MessageCircle className="h-7 w-7 lg:h-5 lg:w-5" aria-hidden="true" />
         <span
@@ -517,176 +554,223 @@ export function AssistantFabClient({
           // highlight (`before:` gradient line) for material depth. The hairline
           // border + warm shadow stay. `supports-[backdrop-filter]` keeps a more
           // opaque fallback where backdrop-blur isn't available.
-          className={`fixed right-6 bottom-28 z-overlay flex flex-col overflow-hidden rounded-[24px] border border-border-hairline bg-surface-card/85 shadow-popover backdrop-blur-xl supports-[backdrop-filter]:bg-surface-card/75 dark:bg-neutral-900/85 dark:supports-[backdrop-filter]:bg-neutral-900/75 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/55 before:to-transparent before:content-[''] dark:before:via-white/10 ${DRAWER_MOTION} ${SIZE_BY_MODE[displayMode]} ${MOBILE_SAFE_SIZE} ${
+          className={`fixed right-6 bottom-28 z-overlay flex flex-col overflow-hidden rounded-[24px] border border-border-hairline bg-surface-card/85 shadow-popover backdrop-blur-xl supports-[backdrop-filter]:bg-surface-card/75 dark:bg-neutral-900/85 dark:supports-[backdrop-filter]:bg-neutral-900/75 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/55 before:to-transparent before:content-[''] dark:before:via-white/10 ${DRAWER_MOTION} ${SIZE_BY_MODE[displayMode]} ${mobileSheetSize} ${
             drawerOpen
               ? 'translate-y-0 scale-100 opacity-100'
-              : 'pointer-events-none translate-y-3 scale-95 opacity-0'
+              : // Sprint 52.3 — the mobile sheet slides fully off the bottom edge
+                // on close (translate-y-full), while desktop keeps the 12px
+                // corner nudge.
+                'pointer-events-none translate-y-3 scale-95 opacity-0 max-sm:translate-y-full'
           }`}
         >
+          {/* Sprint 52.3 — bottom-sheet snap handle. Mobile-only (`sm:hidden`):
+              a tap snaps the sheet between the half and full snap points,
+              reusing the local `expanded` flag (the same state the desktop
+              Expand button drives — one state, two surfaces). The grab-bar is
+              the platform-expected sheet affordance (Apple HIG / Material); the
+              44px button wraps a small visual grip so the hit area clears WCAG
+              2.5.5 while the grip stays quiet. The drawer's height transition
+              (DRAWER_MOTION + the reduced-motion guard) animates the snap. */}
+          <button
+            type="button"
+            data-testid="assistant-fab-snap-handle"
+            aria-label={expanded ? 'Collapse chat' : 'Expand chat'}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+            className="flex h-11 w-full shrink-0 items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-300 sm:hidden"
+          >
+            <span
+              aria-hidden="true"
+              className="h-1 w-9 rounded-full bg-fg-subtle/40"
+            />
+          </button>
           {/* Sprint 38.2 — branded concierge header: the LeaseLens mark + a
               two-line identity (name over role) reads as "your LeaseLens
               assistant", not a generic chat label. Transparent + divider-free
               so it sits on the panel's parchment glass as one continuous
               material (Rams: fewer hard lines; hierarchy via type + space). */}
-          <header className="flex shrink-0 items-start justify-between gap-2 px-4 pt-4 pb-2.5">
-            <div className="flex items-center gap-2.5">
-              <span
-                aria-hidden="true"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300"
-              >
-                <LeaseLensMark size={20} animated={false} />
-              </span>
-              <div className="flex flex-col">
-                {/* "Assistant" stays the brand's one-italic-emphasis word. */}
-                <h2
-                  id={headingId}
-                  className="font-serif text-[15px] font-bold leading-tight tracking-tight text-fg-default"
-                >
-                  LeaseLens{' '}
-                  <span className="font-normal italic">Assistant</span>
-                </h2>
-                <span className="text-[11px] leading-tight text-fg-muted">
-                  NJ tenant-law guidance
-                </span>
-              </div>
-            </div>
-            {/* Sprint 36 / 37.3 — expand/collapse into reading mode, shown when
-                `canExpand` (lease attached OR a thread exists pre-upload).
-                Sprint 38.2 — circular icon button to match the close button's
-                refined treatment; keeps the 44px touch target + focus ring. */}
-            <div className="flex items-center gap-1">
-              {canExpand ? (
-                <button
-                  type="button"
-                  data-testid="assistant-fab-expand"
-                  aria-label={
-                    expanded ? 'Collapse assistant' : 'Expand assistant'
-                  }
-                  aria-pressed={expanded}
-                  onClick={() => setExpanded((v) => !v)}
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 motion-reduce:transition-none dark:hover:bg-neutral-800"
-                >
-                  {expanded ? (
-                    <Minimize2 className="h-4 w-4" aria-hidden="true" />
-                  ) : (
-                    <Maximize2 className="h-4 w-4" aria-hidden="true" />
-                  )}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                data-testid="assistant-fab-close"
-                aria-label="Close assistant"
-                onClick={() => fab.close()}
-                // Sprint 29.7 — 44×44 touch target (WCAG 2.5.5 / iOS HIG).
-                // Sprint 38.2 — circular icon button (premium concierge chrome).
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:hover:bg-neutral-800"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
-          </header>
-          {/* Sprint 29.3 — assistant context bar. Names what the
-              assistant is attached to (filename + clause count + scan
-              stage) and, when the user has focused on a specific
-              clause, surfaces a detach × so they can drop the clause
-              focus without losing their typed draft (Don Norman:
-              show state; Steve Krug: don't make the user think). */}
-          {/* Sprint 38.2 — status pill (replaces the debug-like "USING:" row).
-              Divider-free + transparent so it sits on the panel's parchment
-              glass as one continuous material. The status reads as a human
-              chip: a hollow ○ when no lease is attached (+ a quiet text hint to
-              upload in the dropzone — there is NO in-chat upload control), or a
-              filled ● radar (tinted by scan tone, motion-safe) + "Lease
-              attached: <file>" once a lease is loaded. The dot is always paired
-              with text, never colour-only (WCAG). */}
-          <div
-            data-testid="assistant-context-bar"
-            className="flex shrink-0 flex-col gap-1.5 px-4 py-2.5 text-[12px]"
-          >
-            {usingParts.filename ? (
-              // Lease attached — a filled radar dot leads the row (the masthead
-              // two-layer animate-ping, tinted by scan tone, motion-safe), then
-              // "Lease attached: <file> · N clauses · <scan status>". The dot
-              // carries tone + liveness; the trailing status word is its WCAG
-              // text pairing (never colour-only).
-              <div className="flex items-baseline gap-2">
+          <header className="flex shrink-0 flex-col gap-2 px-4 pt-4 pb-3">
+            {/* Sprint 52.1 — brand row + window controls, folded into the same
+                masthead as the status group below (was two separately-padded
+                sibling strips, ~30px of stacked chrome). One calm block starts
+                the answer higher (Dieter Rams; Wathan/Schoger: hierarchy via
+                spacing, not stacked strips). */}
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
                 <span
-                  data-testid="assistant-using-status-dot"
                   aria-hidden="true"
-                  className="relative inline-flex h-2 w-2 shrink-0 translate-y-px"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300"
                 >
-                  <span
-                    className={`absolute inline-flex h-full w-full rounded-full opacity-75 motion-safe:animate-ping ${STATUS_DOT[usingParts.statusTone]}`}
-                  />
-                  <span
-                    className={`relative inline-flex h-2 w-2 rounded-full ${STATUS_DOT[usingParts.statusTone]}`}
-                  />
+                  <LeaseLensMark size={20} animated={false} />
                 </span>
-                <span className="truncate">
-                  <span className="text-fg-muted">Lease attached: </span>
-                  <span className="font-mono text-fg-default">
-                    {usingParts.filename}
-                  </span>
-                  {usingParts.clauseLabel ? (
-                    <span className="text-fg-muted tabular-nums">
-                      {' '}
-                      · {usingParts.clauseLabel}
-                    </span>
-                  ) : null}
-                  <span className="text-fg-muted"> · {usingParts.status}</span>
-                </span>
-              </div>
-            ) : (
-              // No lease — a hollow ring dot + "No lease attached" + a quiet
-              // text hint pointing at the page's dropzone (no in-chat upload).
-              <div className="flex items-start gap-2">
-                <span
-                  data-testid="assistant-using-status-dot"
-                  aria-hidden="true"
-                  className="mt-0.5 inline-flex h-2 w-2 shrink-0 rounded-full border border-fg-subtle"
-                />
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-fg-default">No lease attached</span>
-                  {/* Sprint 38.4 — fg-muted (not fg-subtle) so the hint holds
-                      WCAG-AA contrast (~6.6:1) over the parchment glass. */}
-                  <span className="text-[11px] leading-snug text-fg-muted">
-                    Upload one in the dropzone for clause-specific help.
+                <div className="flex flex-col">
+                  {/* "Assistant" stays the brand's one-italic-emphasis word. */}
+                  <h2
+                    id={headingId}
+                    className="font-serif text-[15px] font-bold leading-tight tracking-tight text-fg-default"
+                  >
+                    LeaseLens{' '}
+                    <span className="font-normal italic">Assistant</span>
+                  </h2>
+                  <span className="text-[11px] leading-tight text-fg-muted">
+                    NJ tenant-law guidance
                   </span>
                 </div>
               </div>
-            )}
-            {focusLabel ? (
-              <div
-                data-testid="assistant-context-bar-focus"
-                className="flex items-baseline gap-2"
-              >
-                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
-                  Focused on:
-                </span>
-                <span className="truncate text-fg-default">{focusLabel}</span>
+              {/* Sprint 36 / 37.3 — expand/collapse into reading mode, shown when
+                `canExpand` (lease attached OR a thread exists pre-upload).
+                Sprint 38.2 — circular icon button to match the close button's
+                refined treatment; keeps the 44px touch target + focus ring.
+                Sprint 52.3 — hidden on the mobile sheet (`max-sm:hidden`): the
+                snap handle is the sole mobile expand affordance there, so the
+                two controls don't duplicate the same `expanded` toggle. */}
+              <div className="flex items-center gap-1">
+                {/* Sprint 52.5 — slot the chat-thread overflow (⋯) menu portals
+                    into, so it lives in the bar beside Expand/Close instead of
+                    floating over the transcript. Empty until ChatUI fills it. */}
+                <div ref={setThreadMenuSlot} className="flex items-center" />
+                {canExpand ? (
+                  <button
+                    type="button"
+                    data-testid="assistant-fab-expand"
+                    aria-label={
+                      expanded ? 'Collapse assistant' : 'Expand assistant'
+                    }
+                    aria-pressed={expanded}
+                    onClick={() => setExpanded((v) => !v)}
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 motion-reduce:transition-none max-sm:hidden dark:hover:bg-neutral-800"
+                  >
+                    {expanded ? (
+                      <Minimize2 className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <Maximize2 className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  data-testid="assistant-context-bar-detach"
-                  aria-label="Detach clause"
-                  onClick={() => fab.detachSelection()}
-                  // Sprint 29.7 — 28×28 → 44×44 touch target. The
-                  // small X glyph (h-3.5 w-3.5) keeps the visual
-                  // unobtrusive inside the context bar; the button
-                  // just expands its hit area.
-                  className="ml-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:hover:bg-neutral-800"
+                  data-testid="assistant-fab-close"
+                  aria-label="Close assistant"
+                  onClick={() => fab.close()}
+                  // Sprint 29.7 — 44×44 touch target (WCAG 2.5.5 / iOS HIG).
+                  // Sprint 38.2 — circular icon button (premium concierge chrome).
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:hover:bg-neutral-800"
                 >
-                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
-            ) : null}
-          </div>
+            </div>
+            {/* Sprint 29.3 — assistant context bar. Names what the
+                assistant is attached to (filename + clause count + scan
+                stage) and, when the user has focused on a specific
+                clause, surfaces a detach × so they can drop the clause
+                focus without losing their typed draft (Don Norman:
+                show state; Steve Krug: don't make the user think). */}
+            {/* Sprint 38.2 — status pill (replaces the debug-like "USING:" row).
+                Divider-free + transparent so it sits on the panel's parchment
+                glass as one continuous material. The status reads as a human
+                chip: a hollow ○ when no lease is attached (+ a quiet text hint
+                to upload in the dropzone — there is NO in-chat upload control),
+                or a filled ● radar (tinted by scan tone, motion-safe) + "Lease
+                attached: <file>" once a lease is loaded. The dot is always
+                paired with text, never colour-only (WCAG). */}
+            {/* Sprint 52.1 — folded into the masthead <header> above and
+                stripped of its own py-2.5 block so brand + status read as one
+                slim zone, not two stacked strips. */}
+            <div
+              data-testid="assistant-context-bar"
+              className="flex flex-col gap-1 text-[12px]"
+            >
+              {usingParts.filename ? (
+                // Lease attached — a filled radar dot leads the row (the masthead
+                // two-layer animate-ping, tinted by scan tone, motion-safe), then
+                // "Lease attached: <file> · N clauses · <scan status>". The dot
+                // carries tone + liveness; the trailing status word is its WCAG
+                // text pairing (never colour-only).
+                <div className="flex items-baseline gap-2">
+                  <span
+                    data-testid="assistant-using-status-dot"
+                    aria-hidden="true"
+                    className="relative inline-flex h-2 w-2 shrink-0 translate-y-px"
+                  >
+                    <span
+                      className={`absolute inline-flex h-full w-full rounded-full opacity-75 motion-safe:animate-ping ${STATUS_DOT[usingParts.statusTone]}`}
+                    />
+                    <span
+                      className={`relative inline-flex h-2 w-2 rounded-full ${STATUS_DOT[usingParts.statusTone]}`}
+                    />
+                  </span>
+                  <span className="truncate">
+                    <span className="text-fg-muted">Lease attached: </span>
+                    <span className="font-mono text-fg-default">
+                      {usingParts.filename}
+                    </span>
+                    {usingParts.clauseLabel ? (
+                      <span className="text-fg-muted tabular-nums">
+                        {' '}
+                        · {usingParts.clauseLabel}
+                      </span>
+                    ) : null}
+                    <span className="text-fg-muted">
+                      {' '}
+                      · {usingParts.status}
+                    </span>
+                  </span>
+                </div>
+              ) : (
+                // No lease — a hollow ring dot + "No lease attached" + a quiet
+                // text hint pointing at the page's dropzone (no in-chat upload).
+                <div className="flex items-start gap-2">
+                  <span
+                    data-testid="assistant-using-status-dot"
+                    aria-hidden="true"
+                    className="mt-0.5 inline-flex h-2 w-2 shrink-0 rounded-full border border-fg-subtle"
+                  />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-fg-default">No lease attached</span>
+                    {/* Sprint 38.4 — fg-muted (not fg-subtle) so the hint holds
+                      WCAG-AA contrast (~6.6:1) over the parchment glass. */}
+                    <span className="text-[11px] leading-snug text-fg-muted">
+                      Upload one in the dropzone for clause-specific help.
+                    </span>
+                  </div>
+                </div>
+              )}
+              {focusLabel ? (
+                <div
+                  data-testid="assistant-context-bar-focus"
+                  className="flex items-baseline gap-2"
+                >
+                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">
+                    Focused on:
+                  </span>
+                  <span className="truncate text-fg-default">{focusLabel}</span>
+                  <button
+                    type="button"
+                    data-testid="assistant-context-bar-detach"
+                    aria-label="Detach clause"
+                    onClick={() => fab.detachSelection()}
+                    // Sprint 29.7 — 28×28 → 44×44 touch target. The
+                    // small X glyph (h-3.5 w-3.5) keeps the visual
+                    // unobtrusive inside the context bar; the button
+                    // just expands its hit area.
+                    className="ml-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:hover:bg-neutral-800"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </header>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ChatUI
               workspaceName={workspaceName}
               conversationId={conversationId}
               initialMessages={initialMessages}
               onToolEvent={onToolEvent}
+              // Sprint 52.5 — render the chat-thread overflow (⋯) menu into the
+              // masthead control slot instead of floating it over the transcript.
+              threadMenuContainer={threadMenuSlot}
               initialComposerText={fab.pendingPrompt ?? undefined}
               suggestedPrompts={chips.map((chip) => ({
                 id: chip.id,

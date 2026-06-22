@@ -372,6 +372,7 @@ polish pass fixed the page-label contrast, lifted the masthead glow, and gave ci
 | 50 | Mode B depth: verdict moment (tier halo + glyph), elevated red-flag cards with warm shadow, masthead glow, header contrast fix, single-glide clause jump | Complete |
 | 51 | Mode B premium pass: severity-grouped cards + HIGH emphasis + OK roll-up, PDF recovery card, flat FAB, document header, segmented Explain pills, verdict click-anchor, highlight label, clauses inventory, contrast/glow/citation polish | Complete |
 | 52 | Assistant drawer readability (mobile-first): folded slim masthead, chat-thread overflow (⋯) menu reclaiming the toolbar strip, mobile bottom sheet with half→full snap handle, capped reading measure (~74ch) + taller desktop default | Complete |
+| 53 | Self-host fonts: vendor Geist / Geist Mono / Source Serif 4 latin variable `.woff2` via `next/font/local`, removing the build-time Google CDN fetch so `next build` is deterministic offline (P0 tech-debt) | Complete |
 
 ---
 

@@ -1,32 +1,10 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono, Source_Serif_4 } from 'next/font/google';
-
-const geistSans = Geist({
-  subsets: ['latin'],
-  variable: '--font-geist-sans',
-  display: 'swap',
-});
-
-const geistMono = Geist_Mono({
-  subsets: ['latin'],
-  variable: '--font-geist-mono',
-  display: 'swap',
-});
-
-const sourceSerif = Source_Serif_4({
-  subsets: ['latin'],
-  // Sprint 23i — added 700 + italic style for the Open-Design-inspired
-  // editorial hero treatment: bold upright body words with one italic
-  // word as emphasis ("Find what to /negotiate/, before you sign.").
-  // Without an explicit italic in the loader, browsers synthesise it
-  // from the upright face, which looks measurably worse than Source
-  // Serif 4's real italics.
-  weight: ['400', '600', '700'],
-  style: ['normal', 'italic'],
-  variable: '--font-source-serif',
-  display: 'swap',
-});
+// Sprint 53 — fonts are now self-hosted (vendored latin variable .woff2 loaded
+// via next/font/local in ./fonts.ts) so `next build` never fetches Google's CDN
+// and succeeds offline. The `--font-*` variable contract is unchanged, so
+// globals.css `@theme` and the `<html>` className below are untouched.
+import { geistMono, geistSans, sourceSerif } from './fonts';
 
 export const metadata: Metadata = {
   title: 'LeaseLens — NJ Tenant Lease Red-Flag Reviewer',

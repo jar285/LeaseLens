@@ -17,6 +17,17 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
+    // Sprint 54 — run e2e with reduced motion. The red-flag cards reveal their
+    // expanded body via a Motion height: 0 → auto spring (and stream in via
+    // AnimatePresence during a scan). Under load that animation made
+    // click-then-assert flows (expand a card, read the Explain/jump controls)
+    // intermittently time out — the same Motion-vs-Playwright timing fragility
+    // that T6 hit. These specs test BEHAVIOUR, not animation, so emulating
+    // reduced motion renders the expanded content instantly and makes them
+    // deterministic. The animated + reduced-motion render paths are covered by
+    // unit/component tests and by T18 (which asserts the data-motion="off"
+    // fallback explicitly). No e2e asserts the animated (data-motion="on") path.
+    reducedMotion: 'reduce',
   },
   webServer: {
     command: 'npm run dev',

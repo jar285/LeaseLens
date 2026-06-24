@@ -25,52 +25,72 @@ const h = vi.hoisted(() => ({
   registry: {} as Record<number, Array<{ str: string; hasEOL?: boolean }>>,
 }));
 
-vi.mock('react-pdf', () => ({
-  Document: ({
-    onLoadSuccess,
-    children,
-  }: {
-    onLoadSuccess?: (d: { numPages: number }) => void;
-    children?: React.ReactNode;
-  }) => {
-    const pages = Object.keys(h.registry).length || 1;
-    onLoadSuccess?.({ numPages: pages });
-    return <div data-testid="mock-pdf-document">{children}</div>;
-  },
-  Page: ({
-    pageNumber,
-    customTextRenderer,
-    onGetTextSuccess,
-  }: {
-    pageNumber: number;
-    customTextRenderer?: (a: { str: string; itemIndex: number }) => string;
-    onGetTextSuccess?: (d: {
-      items: Array<{ str: string; hasEOL?: boolean }>;
-    }) => void;
-  }) => {
-    const items = h.registry[pageNumber] ?? [];
-    onGetTextSuccess?.({ items });
-    return (
-      <div data-testid="mock-pdf-page" data-page-number={pageNumber}>
-        {items.map((it, i) => {
-          const html = customTextRenderer
-            ? customTextRenderer({ str: it.str, itemIndex: i })
-            : it.str;
-          return (
-            <span
-              // biome-ignore lint/suspicious/noArrayIndexKey: stable test items
-              key={i}
-              data-item-index={i}
-              // biome-ignore lint/security/noDangerouslySetInnerHtml: mock mirrors react-pdf's HTML injection
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          );
-        })}
-      </div>
-    );
-  },
-  pdfjs: { GlobalWorkerOptions: { workerSrc: '' } },
-}));
+// Sprint 54 — the mock fires react-pdf's load callbacks from effects
+// (post-render), not synchronously during render. Real react-pdf resolves the
+// document + text layer asynchronously (`.then`) and never calls these during
+// render; the old sync-during-render calls made PdfViewerClient's
+// setNumPages/setEmptyTextPages run while a different component (Document/Page)
+// was rendering, tripping React 19's "Cannot update a component while rendering
+// a different component" warning. Production was never affected (real callbacks
+// are async). The Page mock fires onGetTextSuccess in an effect (which populates
+// pageItemsRef) and then forces one re-render, so customTextRenderer reads the
+// now-populated ref and still draws marks — `act()` flushes both synchronously.
+vi.mock('react-pdf', async () => {
+  const { useEffect, useState } = await import('react');
+  return {
+    Document: ({
+      onLoadSuccess,
+      children,
+    }: {
+      onLoadSuccess?: (d: { numPages: number }) => void;
+      children?: React.ReactNode;
+    }) => {
+      useEffect(() => {
+        onLoadSuccess?.({ numPages: Object.keys(h.registry).length || 1 });
+      }, []);
+      return <div data-testid="mock-pdf-document">{children}</div>;
+    },
+    Page: ({
+      pageNumber,
+      customTextRenderer,
+      onGetTextSuccess,
+    }: {
+      pageNumber: number;
+      customTextRenderer?: (a: { str: string; itemIndex: number }) => string;
+      onGetTextSuccess?: (d: {
+        items: Array<{ str: string; hasEOL?: boolean }>;
+      }) => void;
+    }) => {
+      const items = h.registry[pageNumber] ?? [];
+      const [, forceRerender] = useState(0);
+      // Populate the text layer post-render, then re-render once so
+      // customTextRenderer reads the now-populated pageItemsRef and draws marks.
+      useEffect(() => {
+        onGetTextSuccess?.({ items });
+        forceRerender((n) => n + 1);
+      }, []);
+      return (
+        <div data-testid="mock-pdf-page" data-page-number={pageNumber}>
+          {items.map((it, i) => {
+            const html = customTextRenderer
+              ? customTextRenderer({ str: it.str, itemIndex: i })
+              : it.str;
+            return (
+              <span
+                // biome-ignore lint/suspicious/noArrayIndexKey: stable test items
+                key={i}
+                data-item-index={i}
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: mock mirrors react-pdf's HTML injection
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
+            );
+          })}
+        </div>
+      );
+    },
+    pdfjs: { GlobalWorkerOptions: { workerSrc: '' } },
+  };
+});
 
 import { PdfViewerClient } from './PdfViewer.client';
 

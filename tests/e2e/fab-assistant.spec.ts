@@ -11,6 +11,7 @@
 import { expect, test } from '@playwright/test';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import { expandRedFlagCard } from './helpers/expand-red-flag-card';
 import {
   clearUserConversations,
   seedGradedConversation,
@@ -99,7 +100,12 @@ test('red-flag "Explain" opens the FAB drawer with a clause-aware prompt', async
   const card = page.getByTestId('red-flag-card');
   await expect(card).toBeVisible();
 
-  await card.getByTestId('red-flag-card-toggle').click();
+  // Hydration-safe expand — the seeded card is visible before React attaches
+  // the toggle's onClick, so a pre-hydration click would silently no-op and the
+  // Explain control never appears (the CI flake this guards against). Once the
+  // card is expanded its subtree (incl. red-flag-explain) is hydrated, so the
+  // Explain click below is safe.
+  await expandRedFlagCard(card);
   await card.getByTestId('red-flag-explain').click();
 
   await expect(page.getByTestId('assistant-fab-drawer')).toBeVisible();
@@ -135,8 +141,16 @@ test('clause-row "Explain" opens the FAB drawer with a row-aware prompt', async 
   await page.goto('/');
   const explain = page.getByTestId('clauses-list-row-explain').first();
   await expect(explain).toBeVisible();
-  await explain.click();
+  // Hydration-safe — the clause row is visible before its onClick attaches, so
+  // a pre-hydration click is a silent no-op (the drawer never opens). Retry the
+  // click until the drawer appears; toPass stops on the first click that lands,
+  // so a registered click never gets a second one.
+  await expect(async () => {
+    await explain.click({ timeout: 3000 });
+    await expect(page.getByTestId('assistant-fab-drawer')).toBeVisible({
+      timeout: 2000,
+    });
+  }).toPass({ timeout: 15000 });
 
-  await expect(page.getByTestId('assistant-fab-drawer')).toBeVisible();
   await expect(page.getByLabel('Type a message')).toHaveValue(/explain/i);
 });

@@ -22,24 +22,40 @@ import { LeaseParserProvider, useLeaseParser } from './LeaseParserContext';
 import { PdfHighlightProvider } from './PdfHighlightContext';
 
 // react-pdf mock: deterministic, no Workers, no async loading.
-vi.mock('react-pdf', () => ({
-  Document: ({
-    onLoadSuccess,
-    children,
-  }: {
-    onLoadSuccess?: (data: { numPages: number }) => void;
-    children?: React.ReactNode;
-  }) => {
-    if (onLoadSuccess) onLoadSuccess({ numPages: 3 });
-    return <div data-testid="mock-pdf-document">{children}</div>;
-  },
-  Page: ({ pageNumber }: { pageNumber: number }) => (
-    <div data-testid="mock-pdf-page" data-page-number={pageNumber}>
-      Page {pageNumber}
-    </div>
-  ),
-  pdfjs: { GlobalWorkerOptions: { workerSrc: '' } },
-}));
+//
+// Sprint 54 — the mock fires onLoadSuccess from a useEffect (post-render), not
+// synchronously during the Document's render. Real react-pdf resolves the
+// document load asynchronously and calls onLoadSuccess in a `.then` callback —
+// it NEVER fires during render. The old sync-during-render call made
+// PdfViewerClient.setNumPages run while a different component (Document) was
+// rendering, which is what tripped React 19's "Cannot update a component while
+// rendering a different component" warning in the test output. Production was
+// never affected (real callbacks are async); aligning the mock with real
+// behaviour removes the spurious warning. `act()` flushes the effect, so the
+// pages still appear synchronously after render().
+vi.mock('react-pdf', async () => {
+  const { useEffect } = await import('react');
+  return {
+    Document: ({
+      onLoadSuccess,
+      children,
+    }: {
+      onLoadSuccess?: (data: { numPages: number }) => void;
+      children?: React.ReactNode;
+    }) => {
+      useEffect(() => {
+        onLoadSuccess?.({ numPages: 3 });
+      }, []);
+      return <div data-testid="mock-pdf-document">{children}</div>;
+    },
+    Page: ({ pageNumber }: { pageNumber: number }) => (
+      <div data-testid="mock-pdf-page" data-page-number={pageNumber}>
+        Page {pageNumber}
+      </div>
+    ),
+    pdfjs: { GlobalWorkerOptions: { workerSrc: '' } },
+  };
+});
 
 import { PdfViewerClient } from './PdfViewer.client';
 
@@ -58,6 +74,27 @@ describe('PdfViewerClient', () => {
     render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
     expect(screen.getByTestId('mock-pdf-document')).toBeInTheDocument();
     expect(screen.getAllByTestId('mock-pdf-page')).toHaveLength(3);
+  });
+
+  it('Sprint 54 — does not emit a React render-phase update warning during PDF load', () => {
+    // Regression guard: react-pdf's load callbacks must reach PdfViewerClient
+    // state from a post-render path (effect / async), never during another
+    // component's render. The mock now fires onLoadSuccess in a useEffect (like
+    // real react-pdf), so no "Cannot update a component while rendering a
+    // different component" warning should reach console.error across a load.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      render(wrap(<PdfViewerClient pdfUrl="/sample.pdf" />));
+      expect(screen.getAllByTestId('mock-pdf-page')).toHaveLength(3);
+      const renderPhaseWarnings = errorSpy.mock.calls.filter((args) =>
+        String(args[0] ?? '').includes(
+          'Cannot update a component while rendering a different component',
+        ),
+      );
+      expect(renderPhaseWarnings).toHaveLength(0);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('publishes scrollToPage onto ChatStreamContext.pdfViewerRef after mount', () => {

@@ -5,9 +5,10 @@
 // metrics, and the disclaimer support it. The AssistantFab stub claims
 // the bottom-right slot the real FAB will own in Sprint 26c.
 //
-// State: this shell intentionally does NOT mount LeaseLensWorkspaceShell.
-// When upload completes, the parent (`WorkspaceRouterShell`) is responsible for transitioning
-// to Mode B. In Sprint 26a the transition path is server-driven: the
+// State: this shell intentionally does NOT render the post-upload workspace
+// itself. When upload completes, the parent (`WorkspaceRouterShell`) is
+// responsible for transitioning to Mode B (`ParserResultsShell`). In Sprint 26a
+// the transition path is server-driven: the
 // user uploads, /api/leases sets the active-lease cookie, the page
 // re-renders, and the router picks the post-upload shell.
 

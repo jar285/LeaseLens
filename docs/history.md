@@ -374,6 +374,7 @@ polish pass fixed the page-label contrast, lifted the masthead glow, and gave ci
 | 52 | Assistant drawer readability (mobile-first): folded slim masthead, chat-thread overflow (⋯) menu reclaiming the toolbar strip, mobile bottom sheet with half→full snap handle, capped reading measure (~74ch) + taller desktop default | Complete |
 | 53 | Self-host fonts: vendor Geist / Geist Mono / Source Serif 4 latin variable `.woff2` via `next/font/local`, removing the build-time Google CDN fetch so `next build` is deterministic offline (P0 tech-debt) | Complete |
 | 54 | React-PDF render-phase warning: root-caused as a unit-test mock artifact (real react-pdf callbacks are async); aligned the mocks to fire post-render + added a regression guard. Production unchanged (P1 tech-debt) | Complete |
+| 56 | Docs truth-up: recreated `docs/_architecture/architecture.md` (technical map + Current Invariants) after the `docs/_meta/` deletion; corrected the stale `CLAUDE.md` dead-shell gotcha + present-tense `LeaseLensWorkspaceShell` comments (P1 tech-debt) | Complete |
 
 ---
 

@@ -40,9 +40,10 @@ export interface ResizableSplitLayoutProps {
   right: React.ReactNode;
   enabled?: boolean;
   /**
-   * Override for the root data-testid. Used by LeaseLensWorkspaceShell
-   * so existing `shell-root` asserts keep working without coupling
-   * this layout to a specific consumer.
+   * Override for the root data-testid so a consumer can keep a stable
+   * `shell-root` selector without coupling this layout to one consumer.
+   * (Originally added for the since-removed `LeaseLensWorkspaceShell`; kept
+   * generic.)
    */
   rootTestId?: string;
   /** Forwarded data-attribute on the root for routing-mode probes. */

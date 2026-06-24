@@ -698,6 +698,7 @@ Phase summary:
 | Assistant readability | 52 | Slim drawer masthead, chat-thread overflow menu, mobile bottom sheet (half→full snap), capped reading measure |
 | Technical debt | 53 | Self-hosted fonts (`next/font/local`) for deterministic offline builds |
 | Technical debt | 54 | React-PDF render-phase test warning removed (mock timing aligned to real async callbacks) |
+| Technical debt | 56 | Docs truth-up: recreated architecture doc + Current Invariants; corrected stale dead-shell references |
 
 Full sprint history:
  

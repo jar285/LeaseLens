@@ -25,7 +25,7 @@
 // imports are evaluated in source order; this side-effect import
 // patches the global before the next import line touches pdfjs.
 import './url-parse-polyfill';
-import { Maximize2, ScrollText } from 'lucide-react';
+import { ScrollText } from 'lucide-react';
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
@@ -51,11 +51,8 @@ import { PdfEvidenceGutter } from './PdfEvidenceGutter';
 import { PdfEvidenceOverlay } from './PdfEvidenceOverlay';
 import { PdfFocusDialog } from './PdfFocusDialog';
 import { useHighlightSettings } from './PdfHighlightContext';
-import {
-  PDF_ZOOM_MAX,
-  PDF_ZOOM_MIN,
-  PdfReadingControls,
-} from './PdfReadingControls';
+import { PDF_ZOOM_MAX, PDF_ZOOM_MIN } from './PdfReadingControls';
+import { PdfViewerHeader } from './PdfViewerHeader';
 import { useClauseHighlights } from './use-clause-highlights';
 
 // Worker is served as a static asset from /public. The
@@ -90,10 +87,6 @@ export interface PdfViewerClientProps {
 }
 
 const ZOOM_STEP = 0.25;
-
-function pluralize(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
-}
 
 // Sprint 46.5 — escape a clause id for use in a [data-clause-id="…"]
 // selector. Ids are server slugs, but escape defensively.
@@ -597,98 +590,29 @@ export function PdfViewerClient({
       data-testid="pdf-viewer"
       className="flex h-full min-h-0 w-full flex-1 flex-col bg-surface-muted dark:bg-neutral-950"
     >
-      {/* Sprint 23b Phase 3 — two-row dock header.
-          Row 1: brand icon + filename + parsed/failed pill + expand button.
-          Row 2: page/clause meta + reading controls (secondary),
-          set on `bg-surface-sunken` so the two visual registers separate
-          cleanly.
-          Sprint 23b Phase 6.1 — Expand moved from row 2 to row 1 and
-          row 2 takes flex-wrap so reading controls reflow under the
-          metadata at very narrow pane widths instead of overlapping. */}
-      <header
-        data-testid="pdf-viewer-header"
-        className="flex shrink-0 flex-col border-b border-neutral-100 dark:border-neutral-800"
-      >
-        <div
-          data-testid="pdf-viewer-header-row1"
-          className="flex items-center justify-between gap-3 bg-surface-card px-3 py-2 dark:bg-neutral-900"
-        >
-          <div className="flex min-w-0 items-center gap-2 text-[13px] leading-tight">
-            <span
-              aria-hidden="true"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-300"
-            >
-              <ScrollText className="h-3 w-3" strokeWidth={2.25} />
-            </span>
-            <span
-              data-testid="pdf-viewer-filename"
-              title={filename ?? 'Lease document'}
-              className="truncate font-medium text-fg-default"
-            >
-              {filename ?? 'Lease document'}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {loadError ? (
-              <span className="rounded-full bg-danger-100 px-2 py-0.5 text-[11px] font-medium text-danger-600 dark:bg-danger-600/15 dark:text-danger-100">
-                Failed
-              </span>
-            ) : numPages > 0 ? (
-              <span className="rounded-full bg-success-100 px-2 py-0.5 text-[11px] font-medium text-success-600 dark:bg-success-600/15 dark:text-success-100">
-                Parsed
-              </span>
-            ) : null}
-            {!hideFocusToggle ? (
-              <button
-                type="button"
-                aria-label="Expand to full viewport"
-                data-testid="pdf-viewer-expand"
-                onClick={() => setFocused(true)}
-                className="inline-flex min-h-9 items-center justify-center rounded-md border border-neutral-200 bg-surface-card px-2 text-[11px] font-medium text-fg-default transition-colors hover:border-accent-300 hover:bg-accent-50/40 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-1 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:border-accent-400/40 dark:hover:bg-accent-500/10 dark:hover:text-accent-200"
-              >
-                <Maximize2 className="h-3 w-3" aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-        <div
-          data-testid="pdf-viewer-header-row2"
-          className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 bg-surface-sunken px-3 py-1.5"
-        >
-          <div
-            data-testid="pdf-viewer-meta"
-            className="flex min-w-0 items-center gap-2 text-[11px] leading-tight text-fg-muted"
-          >
-            <span className="shrink-0">
-              {numPages > 0 ? pluralize(numPages, 'page') : 'Loading…'}
-            </span>
-            {typeof clauseCount === 'number' ? (
-              <>
-                <span className="shrink-0" aria-hidden="true">
-                  ·
-                </span>
-                <span className="shrink-0">
-                  {pluralize(clauseCount, 'clause')}
-                </span>
-              </>
-            ) : null}
-          </div>
-          <PdfReadingControls
-            zoom={zoom}
-            fit={fit}
-            currentPage={currentPage}
-            totalPages={numPages}
-            onZoomIn={handleZoomIn}
-            onZoomOut={handleZoomOut}
-            onToggleFit={handleToggleFit}
-            onPrevPage={handlePrevPage}
-            onNextPage={handleNextPage}
-            canGoPrev={canGoPrev}
-            canGoNext={canGoNext}
-            compact={!hideFocusToggle}
-          />
-        </div>
-      </header>
+      {/* Sprint 55.2 — the two-row dock header is a pure presenter
+          (PdfViewerHeader). The viewer keeps the <Document> loop, observers,
+          refs, and all reading-control state; the header receives derived
+          values + callbacks as props (render-phase safe, no react-pdf / parser
+          context inside it). */}
+      <PdfViewerHeader
+        filename={filename}
+        loadError={loadError}
+        numPages={numPages}
+        clauseCount={clauseCount}
+        hideFocusToggle={hideFocusToggle}
+        onExpand={() => setFocused(true)}
+        zoom={zoom}
+        fit={fit}
+        currentPage={currentPage}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
+        onToggleFit={handleToggleFit}
+        onPrevPage={handlePrevPage}
+        onNextPage={handleNextPage}
+        canGoPrev={canGoPrev}
+        canGoNext={canGoNext}
+      />
 
       {/* Scrollable pages area — canonical Ordo-style scroll chain.
           flex-1 + min-h-0 + overflow-y-auto on the same node so the

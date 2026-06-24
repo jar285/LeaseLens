@@ -54,12 +54,17 @@ test('FAB pill is keyboard reachable and has the right aria semantics', async ({
 
   const fab = page.getByTestId('assistant-fab');
   await expect(fab).toBeVisible();
-  await expect(fab).toHaveAttribute('aria-label', 'Open assistant');
   await expect(fab).toHaveAttribute('type', 'button');
   // Sprint 26c — the FAB is dynamically imported. The loading placeholder
-  // is disabled while the chunk hydrates; wait for the real pill before
-  // attempting to focus.
+  // is disabled while the chunk hydrates; wait for the real (enabled) pill
+  // before asserting its semantics and focusing.
   await expect(fab).toBeEnabled();
+  // Sprint 55 — assert the accessible-name PREFIX, not the exact placeholder
+  // label. The hydrated pill's name carries a state suffix ("Open assistant —
+  // Help" with no lease attached); asserting the bare placeholder label
+  // ("Open assistant") raced the placeholder→pill swap and flaked under CI
+  // load. The prefix is stable across both the loading and hydrated labels.
+  await expect(fab).toHaveAttribute('aria-label', /^Open assistant\b/);
 
   await fab.focus();
   await expect(fab).toBeFocused();

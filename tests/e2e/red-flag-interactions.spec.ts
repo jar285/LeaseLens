@@ -14,6 +14,7 @@
 import { expect, test } from '@playwright/test';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import { expandRedFlagCard } from './helpers/expand-red-flag-card';
 import {
   clearUserConversations,
   seedGradedConversation,
@@ -76,9 +77,9 @@ test('T11 — Tenant golden path: seeded gradings render, expand, jump-to-page',
   await expect(cards.nth(0)).toHaveAttribute('data-severity', 'high');
   await expect(cards.nth(1)).toHaveAttribute('data-severity', 'medium');
 
-  // Expand the first card.
-  await cards.nth(0).getByTestId('red-flag-card-toggle').click();
-  await expect(cards.nth(0)).toHaveAttribute('data-expanded', 'true');
+  // Expand the first card (hydration-safe: retries past the SSR-rehydration
+  // window so a pre-hydration toggle click can't leave the card collapsed).
+  await expandRedFlagCard(cards.nth(0));
   await expect(cards.nth(0).getByTestId('red-flag-jump-to-page')).toBeVisible();
 
   // Click "View on page N" — triggers activeClauseId broadcast.
@@ -129,8 +130,11 @@ test('T6 (R7) — rapid citation clicks: most recent owns full 4s ring', async (
   await expect(cards).toHaveCount(3);
 
   // Expand the first two so their jump-to-page buttons are visible.
-  await cards.nth(0).getByTestId('red-flag-card-toggle').click();
-  await cards.nth(1).getByTestId('red-flag-card-toggle').click();
+  // (hydration-safe — page.clock.install() freezes the browser clock, but the
+  // helper's retry runs on the Node-side test clock and the toggle's expand is
+  // synchronous React event handling, so it lands regardless.)
+  await expandRedFlagCard(cards.nth(0));
+  await expandRedFlagCard(cards.nth(1));
 
   // t=0: click card A → activeClauseId=A, timer scheduled at t=4000.
   await cards.nth(0).getByTestId('red-flag-jump-to-page').click();
@@ -180,7 +184,7 @@ test('T18 — reduced-motion: active ring renders static fallback (data-motion="
   await page.goto('/');
 
   const card = page.getByTestId('red-flag-card').nth(0);
-  await card.getByTestId('red-flag-card-toggle').click();
+  await expandRedFlagCard(card);
   await card.getByTestId('red-flag-jump-to-page').click();
 
   // RedFlagReport's <ActiveRing /> renders a static <span> (no motion)

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '@/lib/test/db';
-import { purgeExpiredWorkspaces } from './cleanup';
+import { purgeExpiredWorkspaces, WORKSPACE_SCOPED_TABLES } from './cleanup';
 import { SAMPLE_WORKSPACE } from './constants';
 
 function seedSample(db: Database.Database): void {
@@ -93,6 +93,38 @@ describe('purgeExpiredWorkspaces', () => {
         .get('expired-1') as { c: number }
     ).c;
     expect(workspaceRemaining).toBe(0);
+  });
+
+  it('Sprint A.7a (#7a) — covers EVERY workspace_id-bearing table (coverage guard)', () => {
+    // Introspect the live schema for every table that carries a workspace_id
+    // column, then assert cleanup handles each — directly via
+    // WORKSPACE_SCOPED_TABLES, or (for conversations) via its dedicated
+    // statement. This mechanically catches the class of bug #7a fixes: a new
+    // workspace_id table that cleanup forgot to purge would fail here.
+    const tableNames = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all() as { name: string }[]
+    ).map((r) => r.name);
+
+    const withWorkspaceId = tableNames.filter((t) => {
+      const cols = db.prepare(`PRAGMA table_info(${t})`).all() as {
+        name: string;
+      }[];
+      return cols.some((c) => c.name === 'workspace_id');
+    });
+
+    // `conversations` carries workspace_id but is purged by its own statement
+    // (messages cascade off conversation_id, not workspace_id).
+    const handled = new Set<string>([
+      ...WORKSPACE_SCOPED_TABLES,
+      'conversations',
+    ]);
+    const uncovered = withWorkspaceId.filter((t) => !handled.has(t));
+    expect(
+      uncovered,
+      `cleanup must purge every workspace_id-bearing table; uncovered: ${uncovered.join(', ')}`,
+    ).toEqual([]);
   });
 
   it('NEVER purges the sample workspace', () => {
@@ -199,6 +231,40 @@ describe('purgeExpiredWorkspaces', () => {
       ).c;
       expect(remaining, `${table} should have 0 rows after purge`).toBe(0);
     }
+  });
+
+  it('Sprint A.7a (#7a) — purges tool_calls for an expired non-sample workspace', () => {
+    const past = Math.floor(Date.now() / 1000) - 60;
+    insertWorkspace(db, { id: 'expired-tc', expires_at: past });
+    // A tool_calls row carries actor_user_id + tool I/O metadata — it must not
+    // survive the purge of its workspace (orphaned PII; Robert C. Martin:
+    // invariants in the data layer).
+    db.prepare(
+      `INSERT INTO tool_calls (id, tool_name, actor_user_id, actor_role, workspace_id, status, created_at)
+       VALUES ('tc-1', 'grade_clause_severity', 'u', 'Creator', 'expired-tc', 'success', 1)`,
+    ).run();
+    // A sample-workspace tool_calls row must survive (never purged).
+    db.prepare(
+      `INSERT INTO tool_calls (id, tool_name, actor_user_id, actor_role, workspace_id, status, created_at)
+       VALUES ('tc-sample', 'search_corpus', 'u', 'Creator', ?, 'success', 1)`,
+    ).run(SAMPLE_WORKSPACE.id);
+
+    expect(purgeExpiredWorkspaces(db).purged).toBe(1);
+
+    const expiredRemaining = (
+      db
+        .prepare('SELECT COUNT(*) as c FROM tool_calls WHERE workspace_id = ?')
+        .get('expired-tc') as { c: number }
+    ).c;
+    expect(expiredRemaining, 'tool_calls should have 0 rows after purge').toBe(
+      0,
+    );
+    const sampleRemaining = (
+      db
+        .prepare('SELECT COUNT(*) as c FROM tool_calls WHERE workspace_id = ?')
+        .get(SAMPLE_WORKSPACE.id) as { c: number }
+    ).c;
+    expect(sampleRemaining, 'sample tool_calls must survive').toBe(1);
   });
 
   it('Sprint 13 — does not violate FK during cascade with leases + clauses + emails present', () => {

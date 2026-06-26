@@ -7,6 +7,7 @@
 
 import type Database from 'better-sqlite3';
 import { getAnthropicClient } from '@/lib/anthropic/client';
+import { meterAnthropicClient } from '@/lib/anthropic/metered-client';
 import {
   createGetDocumentSummaryTool,
   createListDocumentsTool,
@@ -49,7 +50,12 @@ export function createToolRegistry(
   // Sprint 13 — LeaseLens tools.
   // The Anthropic-using tools accept the client as a constructor arg so
   // the lazy resolution and the test-injection path share one shape.
-  const llm = anthropic ?? lazyAnthropic();
+  // Sprint A.5a (#5a) — route the tool client through the metered gateway so
+  // grade_clause_severity / draft_negotiation_email calls are recorded to
+  // spend (they previously bypassed tracking). Wrapping here — the composition
+  // root — meters BOTH the lazy production client and any injected client (GoF
+  // Facade: one metered choke point).
+  const llm = meterAnthropicClient(anthropic ?? lazyAnthropic());
   registry.register(createExtractClausesTool(db));
   // Sprint 45 — read-only findings tool (no llm): lets the chat answer
   // finding questions from stored gradings instead of re-running the scan.

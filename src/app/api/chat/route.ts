@@ -21,6 +21,10 @@ import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
 import { isSpendCeilingExceeded, recordSpend } from '@/lib/db/spend';
 import { env } from '@/lib/env';
 import { errorResponse } from '@/lib/http/error-response';
+import {
+  exceedsContentLengthLimit,
+  exceedsMessageLength,
+} from '@/lib/http/request-limits';
 import { getLease } from '@/lib/lease/queries';
 import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
 import { logger } from '@/lib/log/logger';
@@ -168,6 +172,24 @@ export async function POST(req: NextRequest) {
   const requestId = requestIdFrom(req.headers);
   const log = logger.child({ requestId });
   try {
+    // Sprint A.8 (#8) — body-size bulkhead. Reject an oversized request by its
+    // Content-Length BEFORE buffering/parsing the body, so a large payload
+    // can't be read into memory just to be rejected (Addy Osmani: budgets;
+    // Michael Nygard: fail fast at the boundary). Next 16's
+    // experimental.proxyClientMaxBodySize (10MB default) is the platform-level
+    // cap; this is the tighter app-level limit and the testable unit.
+    if (
+      exceedsContentLengthLimit(
+        req.headers.get('content-length'),
+        env.LEASELENS_BODY_MAX_BYTES,
+      )
+    ) {
+      return errorResponse('PAYLOAD_TOO_LARGE', {
+        requestId,
+        message: 'Request body is too large.',
+      });
+    }
+
     let rawBody: unknown;
     try {
       rawBody = await req.json();
@@ -187,6 +209,16 @@ export async function POST(req: NextRequest) {
     }
     const { message, conversationId, forceScan, startNewConversation } =
       parsedBody.data;
+
+    // Sprint A.8 (#8) — message-length bulkhead. The empty case is the Zod
+    // min(1) above (400 VALIDATION); an over-long message is a size limit
+    // (413), distinct so the client can tell "say something" from "too long".
+    if (exceedsMessageLength(message, env.LEASELENS_MESSAGE_MAX_CHARS)) {
+      return errorResponse('PAYLOAD_TOO_LARGE', {
+        requestId,
+        message: 'Message is too long.',
+      });
+    }
 
     // Resolve userId and role from session cookie; fall back to default Creator
     const sessionCookie = req.cookies.get('leaselens_session');
@@ -472,17 +504,27 @@ export async function POST(req: NextRequest) {
 
             if (useStreaming) {
               // Streaming for final text response
-              const stream = getAnthropicClient().messages.stream({
-                model: env.LEASELENS_ANTHROPIC_MODEL,
-                system: systemForRequest,
-                // Phase 10.8.3 — context-window's content-block widening
-                // intentionally types content as `string | unknown[]` so
-                // that file stays SDK-agnostic. The cast here re-asserts
-                // the structured-block shape to the Anthropic types.
-                messages: contextMessages as MessageParam[],
-                max_tokens: MAX_OUTPUT_TOKENS,
-                tools: toolsForRequest as Tool[] | undefined,
-              });
+              const stream = getAnthropicClient().messages.stream(
+                {
+                  model: env.LEASELENS_ANTHROPIC_MODEL,
+                  system: systemForRequest,
+                  // Phase 10.8.3 — context-window's content-block widening
+                  // intentionally types content as `string | unknown[]` so
+                  // that file stays SDK-agnostic. The cast here re-asserts
+                  // the structured-block shape to the Anthropic types.
+                  messages: contextMessages as MessageParam[],
+                  max_tokens: MAX_OUTPUT_TOKENS,
+                  tools: toolsForRequest as Tool[] | undefined,
+                },
+                // Sprint A.8 (#8) — bound the provider call: a per-request
+                // timeout so a hung Anthropic call can't pin the invocation,
+                // and the request's AbortSignal so a client disconnect cancels
+                // it (Michael Nygard: timeouts).
+                {
+                  timeout: env.LEASELENS_ANTHROPIC_TIMEOUT_MS,
+                  signal: req.signal,
+                },
+              );
 
               let streamText = '';
               stream.on('text', (text: string) => {
@@ -563,20 +605,28 @@ export async function POST(req: NextRequest) {
               // model decide whether to call more or finish.
               const forceToolOnFirstIteration =
                 forceScan === true && iterations === 1;
-              const response = await getAnthropicClient().messages.create({
-                model: env.LEASELENS_ANTHROPIC_MODEL,
-                system: systemForRequest,
-                // Phase 10.8.3 — context-window's content-block widening
-                // intentionally types content as `string | unknown[]` so
-                // that file stays SDK-agnostic. The cast here re-asserts
-                // the structured-block shape to the Anthropic types.
-                messages: contextMessages as MessageParam[],
-                max_tokens: MAX_OUTPUT_TOKENS,
-                tools: toolsForRequest as Tool[] | undefined,
-                ...(forceToolOnFirstIteration
-                  ? { tool_choice: { type: 'any' as const } }
-                  : {}),
-              });
+              const response = await getAnthropicClient().messages.create(
+                {
+                  model: env.LEASELENS_ANTHROPIC_MODEL,
+                  system: systemForRequest,
+                  // Phase 10.8.3 — context-window's content-block widening
+                  // intentionally types content as `string | unknown[]` so
+                  // that file stays SDK-agnostic. The cast here re-asserts
+                  // the structured-block shape to the Anthropic types.
+                  messages: contextMessages as MessageParam[],
+                  max_tokens: MAX_OUTPUT_TOKENS,
+                  tools: toolsForRequest as Tool[] | undefined,
+                  ...(forceToolOnFirstIteration
+                    ? { tool_choice: { type: 'any' as const } }
+                    : {}),
+                },
+                // Sprint A.8 (#8) — per-request timeout + client-disconnect
+                // abort, same bulkhead as the streaming path above.
+                {
+                  timeout: env.LEASELENS_ANTHROPIC_TIMEOUT_MS,
+                  signal: req.signal,
+                },
+              );
 
               tokensIn += response.usage.input_tokens;
               tokensOut += response.usage.output_tokens;

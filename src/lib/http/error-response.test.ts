@@ -23,6 +23,20 @@ describe('errorResponse', () => {
     expect(errorResponse('RATE_LIMITED').status).toBe(429);
   });
 
+  // Sprint A.8 (#8) — request-guard codes: oversized body/message → 413,
+  // request/tool timeout → 408. Both carry a safe, client-facing message.
+  it('maps PAYLOAD_TOO_LARGE → 413 and TIMEOUT → 408 with safe messages', async () => {
+    expect(errorResponse('PAYLOAD_TOO_LARGE').status).toBe(413);
+    expect(errorResponse('TIMEOUT').status).toBe(408);
+    const tooLarge = await errorResponse('PAYLOAD_TOO_LARGE').json();
+    expect(tooLarge.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(typeof tooLarge.error).toBe('string');
+    expect(tooLarge.error.length).toBeGreaterThan(0);
+    const timeout = await errorResponse('TIMEOUT').json();
+    expect(timeout.code).toBe('TIMEOUT');
+    expect(timeout.error.length).toBeGreaterThan(0);
+  });
+
   it('omits requestId when not provided', async () => {
     const body = await errorResponse('VALIDATION').json();
     expect(body).not.toHaveProperty('requestId');

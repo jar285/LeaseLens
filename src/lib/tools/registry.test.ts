@@ -11,7 +11,11 @@ import { createTestDb } from '@/lib/test/db';
 import { seedUser } from '@/lib/test/seed';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import type { MutationOutcome, ToolDescriptor } from './domain';
-import { ToolAccessDeniedError, UnknownToolError } from './errors';
+import {
+  ToolAccessDeniedError,
+  ToolTimeoutError,
+  UnknownToolError,
+} from './errors';
 import { ToolRegistry } from './registry';
 
 describe('ToolRegistry', () => {
@@ -176,6 +180,35 @@ describe('ToolRegistry', () => {
       );
 
       expect(result).toEqual({ result: 'admin_only' });
+    });
+
+    // Sprint A.8 (#8) — per-tool wall-clock timeout (bulkhead). A read-only
+    // tool whose async work outruns the budget rejects with ToolTimeoutError
+    // rather than stalling the turn. Inject a tiny budget so the test is fast.
+    it('rejects with ToolTimeoutError when the tool outruns the timeout budget', async () => {
+      const registry = new ToolRegistry(undefined, { toolTimeoutMs: 20 });
+      registry.register({
+        name: 'slow_tool',
+        description: 'never resolves in time',
+        inputSchema: { type: 'object', properties: {} },
+        roles: 'ALL',
+        category: 'system',
+        // Resolves after 1s — well past the 20ms budget.
+        execute: () => new Promise((resolve) => setTimeout(resolve, 1000)),
+      });
+
+      await expect(
+        registry.execute(
+          'slow_tool',
+          {},
+          {
+            role: 'Tenant',
+            userId: 'user-1',
+            conversationId: 'conv-1',
+            workspaceId: SAMPLE_WORKSPACE.id,
+          },
+        ),
+      ).rejects.toBeInstanceOf(ToolTimeoutError);
     });
   });
 

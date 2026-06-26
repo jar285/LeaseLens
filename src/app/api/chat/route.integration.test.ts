@@ -395,6 +395,69 @@ describe('Chat API conversation scoping (Sprint 33.0)', () => {
   });
 });
 
+// Sprint A.8 (#8) — request guards: reject an oversized body before parsing
+// (413), and an over-long message after parsing (413, distinct from the empty
+// "Message is required" 400). Both reject BEFORE any Anthropic call, so no
+// provider mock interaction is needed (Michael Nygard: fail fast at the
+// boundary; Addy Osmani: budgets).
+describe('Chat API Request Guards (Sprint A.8 / #8)', () => {
+  beforeEach(() => {
+    db.prepare('DELETE FROM messages').run();
+    db.prepare('DELETE FROM conversations').run();
+    db.prepare('DELETE FROM users').run();
+    db.prepare('DELETE FROM rate_limit').run();
+    db.prepare('DELETE FROM spend_log').run();
+
+    db.prepare(
+      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, ?, ?, 1, ?, NULL)`,
+    ).run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      0,
+    );
+
+    process.env.LEASELENS_SESSION_SECRET =
+      'a-very-long-test-secret-that-is-at-least-32-chars';
+    process.env._TEST_DEMO_MODE = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env._TEST_DEMO_MODE;
+  });
+
+  // The Content-Length body guard's predicate (exceedsContentLengthLimit) is
+  // unit-tested in request-limits.test.ts — Content-Length is a UA-controlled
+  // header that NextRequest/undici won't let a test set, so it can't be
+  // exercised faithfully through a constructed Request here. The message-length
+  // guard below IS reachable through the route and is covered.
+
+  it('returns 413 PAYLOAD_TOO_LARGE for an over-long message (within body cap)', async () => {
+    // 8001 chars > LEASELENS_MESSAGE_MAX_CHARS (8000), but the body (~8KB) is
+    // well under the 1MB cap — so it passes the body guard and trips the
+    // message-length guard.
+    const longMessage = 'a'.repeat(8001);
+    const req = await makeSessionRequest(longMessage);
+    const res = await POST(req);
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { code: string; error: string };
+    expect(body.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(body.error).toBe('Message is too long.');
+  });
+
+  it('still returns 400 VALIDATION for an empty message (distinct from oversize)', async () => {
+    const req = await makeSessionRequest('');
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe('VALIDATION');
+  });
+});
+
 describe('Chat API Demo Guardrails', () => {
   beforeEach(() => {
     db.prepare('DELETE FROM messages').run();

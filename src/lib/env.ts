@@ -38,6 +38,25 @@ const envSchema = z.object({
   LEASELENS_LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
+  // Sprint A.8 (#8) — request guards (Michael Nygard: timeouts/bulkheads;
+  // Addy Osmani: performance budgets). All default to generous values so the
+  // demo/default profile is behavior-preserving — they only reject abuse.
+  // Max chat message length (chars). 8000 ≈ a long paragraph of questions;
+  // anything larger is almost certainly an abuse/oversize payload.
+  LEASELENS_MESSAGE_MAX_CHARS: z.coerce.number().int().positive().default(8000),
+  // Max request body size (bytes) accepted before parsing. 1MB matches the
+  // lease-upload precedent (LEASELENS_LEASE_MAX_BYTES default).
+  LEASELENS_BODY_MAX_BYTES: z.coerce.number().int().positive().default(1048576),
+  // Per-call Anthropic request timeout (ms). Bounds a hung provider call so it
+  // can't pin a serverless invocation until the platform timeout.
+  LEASELENS_ANTHROPIC_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60000),
+  // Per-tool wall-clock timeout (ms) for the async tool path (prepare +
+  // read-only execute). A bulkhead so one slow tool can't stall the turn.
+  LEASELENS_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

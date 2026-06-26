@@ -11,6 +11,10 @@ export const API_ERROR_CODES = [
   'UNAUTHENTICATED',
   'FORBIDDEN',
   'NOT_FOUND',
+  // Sprint A.8 (#8) — request-guard codes: oversized body/message (413) and
+  // request/tool timeout (408). Michael Nygard: bound the dependency.
+  'PAYLOAD_TOO_LARGE',
+  'TIMEOUT',
   'RATE_LIMITED',
   'TOOL_FAILED',
   'INTERNAL',
@@ -23,6 +27,8 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   UNAUTHENTICATED: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
+  PAYLOAD_TOO_LARGE: 413,
+  TIMEOUT: 408,
   RATE_LIMITED: 429,
   TOOL_FAILED: 422,
   INTERNAL: 500,
@@ -33,6 +39,8 @@ const SAFE_MESSAGE_BY_CODE: Record<ApiErrorCode, string> = {
   UNAUTHENTICATED: 'Authentication is required.',
   FORBIDDEN: 'You do not have access to this resource.',
   NOT_FOUND: 'Not found.',
+  PAYLOAD_TOO_LARGE: 'The request is too large.',
+  TIMEOUT: 'The request took too long and was stopped.',
   RATE_LIMITED: 'Too many requests — please slow down.',
   TOOL_FAILED: 'That action could not be completed.',
   INTERNAL: 'Something went wrong on our end.',

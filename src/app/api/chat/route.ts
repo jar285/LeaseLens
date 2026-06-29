@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { getAnthropicClient } from '@/lib/anthropic/client';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { ensureDemoUsersExist } from '@/lib/auth/ensure-demo-users';
+import { guardrailsEnforced } from '@/lib/auth/mode';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { buildContextWindow } from '@/lib/chat/context-window';
@@ -290,10 +291,13 @@ export async function POST(req: NextRequest) {
           )
         : undefined;
 
-    // Demo-only guardrails
+    // Sprint B.9 (#9) — cost/rate guardrails enforce whenever the app is
+    // exposed (public-anon OR demo), via guardrailsEnforced(). Previously gated
+    // SOLELY on LEASELENS_DEMO_MODE, so a real production deploy (demo off) ran
+    // with no rate limit and no spend ceiling (the inversion bug).
     let quotaRemaining: number | null = null;
 
-    if (env.LEASELENS_DEMO_MODE) {
+    if (guardrailsEnforced()) {
       const rateLimit = checkAndIncrementRateLimit(userId);
       if (!rateLimit.allowed) {
         return errorResponse('RATE_LIMITED', {

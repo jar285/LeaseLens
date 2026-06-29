@@ -23,6 +23,7 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { guardrailsEnforced } from '@/lib/auth/mode';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
@@ -81,8 +82,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const session = await resolveSession(req);
     const workspaceId = await resolveWorkspaceId(req);
 
-    // Demo-mode rate limit (charter §11b).
-    if (env.LEASELENS_DEMO_MODE) {
+    // Sprint B.9 (#9) — rate limit enforces whenever the app is exposed
+    // (public-anon OR demo), via guardrailsEnforced() — not solely in demo
+    // mode, which left real production unguarded.
+    if (guardrailsEnforced()) {
       const rl = checkAndIncrementRateLimit(session.userId);
       if (!rl.allowed) {
         return NextResponse.json(

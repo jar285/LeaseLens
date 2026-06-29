@@ -13,10 +13,17 @@ import { POST } from './route';
 vi.mock('@/lib/env', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/env')>();
   return {
+    ...actual,
     env: {
       ...actual.env,
       get LEASELENS_DEMO_MODE() {
         return process.env._TEST_DEMO_MODE === 'true';
+      },
+      // Sprint B.9 (#9) — toggle public-anon mode so the guardrail gate
+      // (guardrailsEnforced(), read by both the route and auth/mode.ts) can be
+      // exercised with demo OFF, proving guardrails enforce in production.
+      get LEASELENS_PUBLIC_ANON_MODE() {
+        return process.env._TEST_PUBLIC_ANON_MODE === 'true';
       },
     },
   };
@@ -518,6 +525,53 @@ describe('Chat API Demo Guardrails', () => {
 
     const body = await drainStream(res);
     expect(body).toContain('Daily demo quota reached');
+  });
+});
+
+// Sprint B.9 (#9) — the inversion fix: guardrails must enforce in public-anon
+// production (demo OFF), not only in demo mode. Mirrors the demo rate-limit
+// test but with _TEST_DEMO_MODE=false + _TEST_PUBLIC_ANON_MODE=true.
+describe('Chat API Public-Anon Guardrails (Sprint B.9 / #9)', () => {
+  beforeEach(() => {
+    db.prepare('DELETE FROM messages').run();
+    db.prepare('DELETE FROM conversations').run();
+    db.prepare('DELETE FROM users').run();
+    db.prepare('DELETE FROM rate_limit').run();
+    db.prepare('DELETE FROM spend_log').run();
+
+    db.prepare(
+      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, ?, ?, 1, ?, NULL)`,
+    ).run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      0,
+    );
+
+    process.env.LEASELENS_SESSION_SECRET =
+      'a-very-long-test-secret-that-is-at-least-32-chars';
+    process.env._TEST_DEMO_MODE = 'false';
+    process.env._TEST_PUBLIC_ANON_MODE = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env._TEST_DEMO_MODE;
+    delete process.env._TEST_PUBLIC_ANON_MODE;
+  });
+
+  it('enforces the rate limit in public-anon mode with demo OFF (inversion fixed)', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(
+      'INSERT INTO rate_limit (session_id, window_start, count) VALUES (?, ?, ?)',
+    ).run(TEST_USER_ID, now, 10);
+
+    const req = await makeSessionRequest('One too many');
+    const res = await POST(req);
+    expect(res.status).toBe(429);
   });
 });
 

@@ -64,6 +64,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 LEASELENS_SESSION_SECRET=<32+ chars>
 LEASELENS_DB_PATH=./data/leaselens.db
 LEASELENS_DEMO_MODE=false
+LEASELENS_PUBLIC_ANON_MODE=false
 LEASELENS_ANTHROPIC_MODEL=claude-haiku-4-5
 LEASELENS_DAILY_SPEND_CEILING_USD=2
 LEASELENS_LEASE_MAX_BYTES=1048576
@@ -71,6 +72,18 @@ LEASELENS_LEASE_MAX_PAGES=30
 LEASELENS_AUTO_SCAN_ENABLED=true
 LEASELENS_LOG_LEVEL=info
 ```
+
+**Deployment profiles** — `LEASELENS_DEMO_MODE` and `LEASELENS_PUBLIC_ANON_MODE`
+are independent concerns:
+
+| Profile | Flags | Behavior |
+| --- | --- | --- |
+| **Local dev** | both `false` | No guardrails (not exposed to untrusted traffic). |
+| **Portfolio demo** | `DEMO_MODE=true` | Demo UI (role switcher, cockpit) + seeded demo identities + budget guardrails (rate limit + spend ceiling). |
+| **Public anonymous** | `PUBLIC_ANON_MODE=true` | Per-visitor isolation + quota + retention + guardrails. **Fails closed at boot** unless `ANTHROPIC_API_KEY` and a positive `LEASELENS_DAILY_SPEND_CEILING_USD` are set. |
+
+`DEMO_MODE` controls demo UI affordances **only**; the cost/rate guardrails
+enforce whenever the app is exposed (demo **or** public-anon).
 
 ### 3. Start the dev server
 

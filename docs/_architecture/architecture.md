@@ -32,8 +32,10 @@ in `globals.css`. No build-time Google CDN fetch → `next build` is determinist
   `grade_clause_severity`, `get_lease_findings`, `draft_negotiation_email`, `render_workflow_diagram`.
   Mutating tools follow the audit + rollback pattern (async `prepare` → sync transaction; row insert + audit
   row insert wrap together).
-- **Database tables:** `users`, `sessions`, `documents`/`chunks` (NJ tenant-law corpus), `leases`/`clauses`
-  (uploaded lease + parsed clauses), `negotiation_emails`, `audit_log`.
+- **Database tables:** `users`, `sessions`, `workspaces` (per-visitor, TTL via `expires_at`; the seeded
+  sample workspaces are immortal, `is_sample=1`), `conversations`/`messages`, `documents`/`chunks` (NJ
+  tenant-law corpus), `leases`/`clauses` (uploaded lease + parsed clauses), `negotiation_emails`,
+  `tool_calls`, `audit_log`, `rate_limit`, `spend_log`.
 
 ## Workspace shells (Mode A → Mode B)
 
@@ -67,6 +69,18 @@ pivot; lingering `src/` comments that mention it are historical "why" notes only
    WCAG-AA contrast; `prefers-reduced-motion` honoured at every animation site.
 8. **Grounding:** `grade_clause_severity` validates the cited `chunk_id` + statute text and throws on failure;
    the assistant can't casually invent legal claims.
+9. **Deployment modes + fail-closed auth boundary** (backend hardening, opt-in; branch `backend/enhancement`,
+   not yet merged). Two independent env flags: `LEASELENS_DEMO_MODE` gates **UI affordances only** (role
+   switcher, cockpit); `LEASELENS_PUBLIC_ANON_MODE` gates the public-anonymous profile. Cost/rate **guardrails
+   enforce via `guardrailsEnforced()` = public-anon OR demo** (`src/lib/auth/mode.ts`) — *not* `DEMO_MODE`
+   alone (that inversion left a real production deploy unguarded). `env.ts` **fails closed at boot** when public
+   mode is on without `ANTHROPIC_API_KEY` + a positive spend ceiling. The **Edge** runtime (middleware) can't
+   import `env.ts`, so it reads mode from `src/lib/auth/mode-edge.ts` (raw `process.env`); Node uses `mode.ts`.
+   In public-anon mode each visitor is a **real, isolated, expiring `users` row (role Tenant) + its own
+   non-sample workspace** (`src/lib/auth/anon-identity.ts`), never the shared seeded Tenant or an immortal
+   sample; the lease routes resolve identity through the shared fail-closed `requireSessionOrAnon`
+   (`src/lib/auth/resolve-session.ts`) — missing/invalid session or workspace → 401, never a demo fallback.
+   Demo/default stays behavior-preserving.
 
 ## Testing
 

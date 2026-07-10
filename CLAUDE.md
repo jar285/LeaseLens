@@ -99,6 +99,8 @@ Node `>=20.9.0`. Env vars validated by Zod in `src/lib/env.ts`; copy `.env.examp
 - **Do not commit `.env.local`, `.mcp.json`, `.playwright-mcp/`, `.claude/settings.local.json`** — all gitignored. Use `.env.example` for env documentation.
 - **Severity color must never be the only signal.** Always pair with text + icon (`SeverityBadge` already does this).
 - Mock/demo data lives in `src/lib/test/` and seeded fixtures only; do not let it leak into production code paths.
+- **Deployment-mode / auth boundary (backend hardening — full detail in `docs/_architecture/architecture.md` invariant #9).** Cost/rate guardrails gate on `guardrailsEnforced()` (public-anon **OR** demo), **never `LEASELENS_DEMO_MODE` alone** — that inversion left a real production deploy unguarded. The **Edge** runtime (middleware) cannot import `env.ts` / `auth/mode.ts`; read mode via `auth/mode-edge.ts` (raw `process.env`). In public-anon mode a visitor is a **real, isolated `users` row (role Tenant) + own expiring workspace** (`auth/anon-identity.ts`), never the shared seeded Tenant or an immortal sample; lease routes fail closed via `requireSessionOrAnon` (`auth/resolve-session.ts`). **Do not re-introduce a demo-Tenant / sample-workspace fallback on any public-mode path.**
+- **Vitest shares `process.env` across files.** Any test toggling `LEASELENS_PUBLIC_ANON_MODE` / `_TEST_*` MUST snapshot + restore in `afterEach`, or it leaks into `middleware.test.ts` + the spend/lease suites and reds them. Node routes toggle it via `vi.mock('@/lib/env', importOriginal)` with a `get LEASELENS_PUBLIC_ANON_MODE()` reading `process.env._TEST_PUBLIC_ANON_MODE` (see `auth/mode.test.ts`, `api/chat/route.integration.test.ts`).
 
 ## Verification Before Finishing
 

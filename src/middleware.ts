@@ -1,6 +1,8 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { newAnonIdentity } from '@/lib/auth/anon-identity';
 import { DEMO_USERS } from '@/lib/auth/constants';
+import { isPublicAnonModeFromProcessEnv } from '@/lib/auth/mode-edge';
 import { decrypt, encrypt } from '@/lib/auth/session';
 import { REQUEST_ID_HEADER } from '@/lib/log/request-id';
 import {
@@ -55,23 +57,42 @@ export async function middleware(request: NextRequest) {
   const response = NextResponse.next(forward);
   response.headers.set(REQUEST_ID_HEADER, requestId);
 
-  // 3. Issue a default Creator session when none exists
+  // 3. Issue a session when none exists.
+  // Sprint B.14 (#14) — public-anon mode mints a UNIQUE per-visitor anonymous
+  // identity (a fresh, isolated, expiring session) instead of collapsing every
+  // visitor onto the shared seeded Tenant. The identity is minted here at the
+  // Edge boundary (Robert C. Martin: identity issued at the boundary, not
+  // conflated with demo convenience); its users row is materialized in Node
+  // (page.tsx) since the Edge runtime has no DB. Demo/default is unchanged.
+  const sessionCookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 60 * 60 * 24, // 24 hours
+  };
   if (!session) {
-    const creatorUser = DEMO_USERS.find((u) => u.role === 'Tenant');
-    if (creatorUser) {
+    if (isPublicAnonModeFromProcessEnv()) {
+      const anon = newAnonIdentity();
       session = {
-        userId: creatorUser.id,
-        role: creatorUser.role,
-        displayName: creatorUser.display_name,
+        userId: anon.userId,
+        role: anon.role,
+        displayName: anon.displayName,
+        anonymous: true,
       };
       const token = await encrypt(session);
-      response.cookies.set('leaselens_session', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 60 * 60 * 24, // 24 hours
-      });
+      response.cookies.set('leaselens_session', token, sessionCookieOptions);
+    } else {
+      const creatorUser = DEMO_USERS.find((u) => u.role === 'Tenant');
+      if (creatorUser) {
+        session = {
+          userId: creatorUser.id,
+          role: creatorUser.role,
+          displayName: creatorUser.display_name,
+        };
+        const token = await encrypt(session);
+        response.cookies.set('leaselens_session', token, sessionCookieOptions);
+      }
     }
   }
 
@@ -84,8 +105,14 @@ export async function middleware(request: NextRequest) {
     ? await decodeWorkspace(workspaceCookie.value)
     : null;
   if (!workspacePayload) {
+    // Sprint B.14 (#14) — public-anon gets its OWN per-visitor workspace id
+    // (materialized in Node) so anon uploads never land in — and never mutate —
+    // the shared read-only sample workspace. Demo/default keeps the sample.
+    const workspaceId = isPublicAnonModeFromProcessEnv()
+      ? crypto.randomUUID()
+      : SAMPLE_WORKSPACE.id;
     const token = await encodeWorkspace({
-      workspace_id: SAMPLE_WORKSPACE.id,
+      workspace_id: workspaceId,
       created_workspace_ids: [],
     });
     response.cookies.set(WORKSPACE_COOKIE_NAME, token, {

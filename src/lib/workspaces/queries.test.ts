@@ -4,6 +4,7 @@ import { createTestDb } from '@/lib/test/db';
 import { SAMPLE_WORKSPACE } from './constants';
 import {
   createWorkspace,
+  ensureAnonWorkspaceExists,
   getActiveWorkspace,
   getWorkspace,
   listExpiredWorkspaceIds,
@@ -45,6 +46,31 @@ describe('workspace queries', () => {
 
       const stored = getWorkspace(db, ws.id);
       expect(stored?.id).toBe(ws.id);
+    });
+  });
+
+  describe('ensureAnonWorkspaceExists (#14)', () => {
+    it('materializes a non-sample expiring workspace with the given id', () => {
+      const before = Math.floor(Date.now() / 1000);
+      const ws = ensureAnonWorkspaceExists(db, 'anon-ws-1');
+      expect(ws.id).toBe('anon-ws-1');
+      expect(ws.is_sample).toBe(0);
+      expect(ws.expires_at).not.toBeNull();
+      expect(ws.expires_at).toBeGreaterThanOrEqual(before + 86_400 - 5);
+      // It is active immediately.
+      expect(getActiveWorkspace(db, 'anon-ws-1')?.id).toBe('anon-ws-1');
+    });
+
+    it('is idempotent (does not overwrite or duplicate)', () => {
+      const first = ensureAnonWorkspaceExists(db, 'anon-ws-2');
+      const second = ensureAnonWorkspaceExists(db, 'anon-ws-2');
+      expect(second.created_at).toBe(first.created_at);
+      const count = (
+        db
+          .prepare('SELECT COUNT(*) as c FROM workspaces WHERE id = ?')
+          .get('anon-ws-2') as { c: number }
+      ).c;
+      expect(count).toBe(1);
     });
   });
 

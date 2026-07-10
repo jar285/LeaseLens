@@ -34,6 +34,33 @@ export function getActiveWorkspace(
   return null;
 }
 
+// Sprint B.14 (#14) — the per-visitor anonymous workspace. Its id is minted in
+// middleware (Edge) into the workspace cookie; this materializes the row in Node
+// on first page load so uploads/conversations bind to it (keeping the sample
+// workspace read-only demo data). Expiring, non-sample — retention is the
+// existing workspace TTL.
+export const ANON_WORKSPACE_NAME = 'Your lease review';
+const ANON_WORKSPACE_DESCRIPTION =
+  'Temporary anonymous workspace — expires automatically.';
+
+/**
+ * Idempotently materialize a non-sample, expiring workspace with the GIVEN id
+ * (unlike createWorkspace, which generates its own id — here the id already
+ * lives in the visitor's signed cookie). Returns the live row.
+ */
+export function ensureAnonWorkspaceExists(
+  db: Database.Database,
+  id: string,
+): Workspace {
+  const now = Math.floor(Date.now() / 1000);
+  const expires_at = now + WORKSPACE_TTL_SECONDS;
+  db.prepare(
+    `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+     VALUES (?, ?, ?, 0, ?, ?)`,
+  ).run(id, ANON_WORKSPACE_NAME, ANON_WORKSPACE_DESCRIPTION, now, expires_at);
+  return getWorkspace(db, id) as Workspace;
+}
+
 export interface CreateWorkspaceInput {
   name: string;
   description: string;

@@ -10,6 +10,7 @@ import {
 import type { ChatMessageProps } from '@/components/chat/ChatMessage';
 import type { ToolEvent } from '@/components/chat/ChatStreamContext';
 import { WorkspaceRouterShell } from '@/components/lease/WorkspaceRouterShell';
+import { ensureAnonUserExists } from '@/lib/auth/anon-identity';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { ensureDemoUsersExist } from '@/lib/auth/ensure-demo-users';
 import { decrypt } from '@/lib/auth/session';
@@ -30,24 +31,79 @@ import {
   decodeWorkspace,
   WORKSPACE_COOKIE_NAME,
 } from '@/lib/workspaces/cookie';
-import { getActiveWorkspace } from '@/lib/workspaces/queries';
+import {
+  ensureAnonWorkspaceExists,
+  getActiveWorkspace,
+} from '@/lib/workspaces/queries';
 
 export const runtime = 'nodejs';
 
 export default async function Home() {
   const cookieStore = await cookies();
 
-  // Sprint 11 (revised) — middleware always issues a sample-workspace
-  // cookie when none exists, so the cookie should be present on every
-  // request. The remaining null cases are: (a) an extremely brief race
-  // where the cookie fails decode (treated as fresh visit — fall through
-  // to sample), and (b) a previously-valid custom workspace that's been
-  // TTL-purged while its cookie remains valid (rare; fall back to sample
-  // and clear cookie so middleware re-issues on the next request).
+  // Sprint B.14 (#14) — decode the session BEFORE resolving the workspace, so
+  // an anonymous visitor is known in time to materialize their OWN workspace
+  // (below) instead of falling through to the shared sample.
+  const sessionCookie = cookieStore.get('leaselens_session');
+
+  let currentRole: 'Tenant' | 'Reviewer' | 'Admin' = 'Tenant';
+  let currentUserId = DEMO_USERS.find((u) => u.role === 'Tenant')?.id;
+  let isAnon = false;
+
+  if (sessionCookie) {
+    const payload = await decrypt(sessionCookie.value);
+    if (payload?.userId) {
+      if (payload.anonymous) {
+        // Sprint B.14 (#14) — a real per-visitor anonymous identity (public-anon
+        // mode). Materialize its users row so the conversations FK holds, and
+        // trust the id directly. NEVER fall back to the seeded demo Tenant here
+        // — that is exactly the shared-state leak #14 removes (React Team /
+        // Dan Abramov: each visitor owns their own state).
+        ensureAnonUserExists(db, payload.userId);
+        currentRole = 'Tenant';
+        currentUserId = payload.userId;
+        isAnon = true;
+      } else {
+        // Sprint 15.2 — self-heal against dev-DB pollution. The role
+        // switcher sets a session cookie pointing to a stable demo-user
+        // id; if that row is missing (e.g. an integration test wiped it
+        // before the .env.test prefix fix landed), the userExists check
+        // below would silently demote the user back to Creator and the
+        // role tabs would appear broken. Idempotent INSERT OR IGNORE.
+        ensureDemoUsersExist(db);
+
+        // Verify user still exists in DB after refresh
+        const userExists = db
+          .prepare('SELECT 1 FROM users WHERE id = ?')
+          .get(payload.userId);
+
+        if (userExists) {
+          currentRole = payload.role;
+          currentUserId = payload.userId;
+        }
+      }
+    }
+  }
+
+  // Sprint 11 (revised) — middleware always issues a workspace cookie when none
+  // exists, so it should be present on every request. Null cases: (a) a brief
+  // decode race (treated as fresh visit → sample), and (b) a TTL-purged custom
+  // workspace whose cookie is still valid (rare; fall back to sample).
+  // Sprint B.14 (#14) — an anonymous visitor owns a per-visitor expiring
+  // workspace whose id middleware minted into the cookie; materialize its row
+  // here (Edge had no DB) so uploads/conversations bind to it and the sample
+  // stays read-only demo data.
   const workspaceCookie = cookieStore.get(WORKSPACE_COOKIE_NAME);
   const workspacePayload = workspaceCookie
     ? await decodeWorkspace(workspaceCookie.value)
     : null;
+  if (
+    isAnon &&
+    workspacePayload &&
+    workspacePayload.workspace_id !== SAMPLE_WORKSPACE.id
+  ) {
+    ensureAnonWorkspaceExists(db, workspacePayload.workspace_id);
+  }
   let workspace = workspacePayload
     ? getActiveWorkspace(db, workspacePayload.workspace_id)
     : null;
@@ -60,34 +116,6 @@ export default async function Home() {
       created_at: 0,
       expires_at: null,
     };
-  }
-
-  const sessionCookie = cookieStore.get('leaselens_session');
-
-  let currentRole: 'Tenant' | 'Reviewer' | 'Admin' = 'Tenant';
-  let currentUserId = DEMO_USERS.find((u) => u.role === 'Tenant')?.id;
-
-  if (sessionCookie) {
-    const payload = await decrypt(sessionCookie.value);
-    if (payload?.userId) {
-      // Sprint 15.2 — self-heal against dev-DB pollution. The role
-      // switcher sets a session cookie pointing to a stable demo-user
-      // id; if that row is missing (e.g. an integration test wiped it
-      // before the .env.test prefix fix landed), the userExists check
-      // below would silently demote the user back to Creator and the
-      // role tabs would appear broken. Idempotent INSERT OR IGNORE.
-      ensureDemoUsersExist(db);
-
-      // Verify user still exists in DB after refresh
-      const userExists = db
-        .prepare('SELECT 1 FROM users WHERE id = ?')
-        .get(payload.userId);
-
-      if (userExists) {
-        currentRole = payload.role;
-        currentUserId = payload.userId;
-      }
-    }
   }
 
   // Fetch conversation and messages

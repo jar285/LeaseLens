@@ -105,4 +105,29 @@ describe('Session Utilities (Edge-safe)', () => {
     const decrypted = await decrypt(legacy);
     expect(decrypted?.role).toBe('Reviewer');
   });
+
+  // Sprint B.14 (#14) — the per-visitor anonymous claim round-trips, and legacy
+  // cookies (no `anonymous` field) decode as anonymous:false (backward compat).
+  it('round-trips the anonymous claim and defaults legacy cookies to false', async () => {
+    const anonToken = await encrypt({
+      userId: 'anon-1',
+      role: 'Tenant' as Role,
+      displayName: 'Anonymous Tenant',
+      anonymous: true,
+    });
+    expect((await decrypt(anonToken))?.anonymous).toBe(true);
+
+    // A demo/seeded session omits the claim → decodes as anonymous:false.
+    const demoToken = await encrypt({
+      userId: 'demo-1',
+      role: 'Tenant' as Role,
+      displayName: 'Demo Tenant',
+    });
+    expect((await decrypt(demoToken))?.anonymous).toBe(false);
+    // And the claim is absent from the wire for non-anon sessions.
+    const wire = JSON.parse(
+      Buffer.from(demoToken.split('.')[1], 'base64url').toString('utf8'),
+    );
+    expect(wire.anonymous).toBeUndefined();
+  });
 });

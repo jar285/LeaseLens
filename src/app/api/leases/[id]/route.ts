@@ -7,85 +7,56 @@
  *
  * Status codes:
  *   200 — lease + clauses returned
+ *   401 — public-anon mode with no/invalid session or workspace (fail closed)
  *   403 — Tenant attempting access to another user's lease
  *   404 — lease not found in active workspace
+ *
+ * Sprint B.15 (#15) — identity + workspace resolve through the shared
+ * fail-closed `requireSessionOrAnon`. In public-anon mode a missing/invalid
+ * session or workspace → 401; it NEVER falls back to the seeded demo Tenant or
+ * the immortal sample workspace (which collapsed every visitor onto one shared
+ * identity). Read path → `requireActiveWorkspace: true` (parity with /api/chat).
  */
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { DEMO_USERS } from '@/lib/auth/constants';
-import { decrypt } from '@/lib/auth/session';
-import type { Role } from '@/lib/auth/types';
+import { requireSessionOrAnon } from '@/lib/auth/resolve-session';
 import { db } from '@/lib/db';
+import { errorResponse } from '@/lib/http/error-response';
 import { assertLeaseOwnership } from '@/lib/lease/assert-lease-ownership';
 import { getLease, listClauses } from '@/lib/lease/queries';
-import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
-import {
-  decodeWorkspace,
-  WORKSPACE_COOKIE_NAME,
-} from '@/lib/workspaces/cookie';
+import { requestIdFrom } from '@/lib/log/request-id';
 
 export const runtime = 'nodejs';
-
-interface ResolvedSession {
-  userId: string;
-  role: Role;
-}
-
-async function resolveSession(req: NextRequest): Promise<ResolvedSession> {
-  const cookie = req.cookies.get('leaselens_session');
-  if (cookie) {
-    const claims = await decrypt(cookie.value);
-    if (claims) {
-      return { userId: claims.userId, role: claims.role };
-    }
-  }
-  const fallback = DEMO_USERS.find((u) => u.role === 'Tenant');
-  if (!fallback) {
-    throw new Error('No Creator demo user seeded; seed.ts must run first');
-  }
-  return { userId: fallback.id, role: 'Tenant' };
-}
-
-async function resolveWorkspaceId(req: NextRequest): Promise<string> {
-  const cookie = req.cookies.get(WORKSPACE_COOKIE_NAME);
-  if (cookie) {
-    const decoded = await decodeWorkspace(cookie.value);
-    if (decoded?.workspace_id) {
-      const exists = db
-        .prepare('SELECT id FROM workspaces WHERE id = ?')
-        .get(decoded.workspace_id);
-      if (exists) return decoded.workspace_id;
-    }
-  }
-  return SAMPLE_WORKSPACE.id;
-}
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
+  const requestId = requestIdFrom(req.headers);
   const { id: leaseId } = await params;
-  const session = await resolveSession(req);
-  const workspaceId = await resolveWorkspaceId(req);
+
+  const resolved = await requireSessionOrAnon(req, db, {
+    requestId,
+    requireActiveWorkspace: true,
+  });
+  if (!resolved.ok) return resolved.response;
+  const { userId, role, workspaceId } = resolved;
 
   const lease = getLease(db, leaseId, workspaceId);
   if (!lease) {
-    return NextResponse.json(
-      { error: 'Lease not found in active workspace' },
-      { status: 404 },
-    );
+    return errorResponse('NOT_FOUND', {
+      requestId,
+      message: 'Lease not found in active workspace',
+    });
   }
 
   try {
-    assertLeaseOwnership(lease, {
-      role: session.role,
-      userId: session.userId,
-    });
+    assertLeaseOwnership(lease, { role, userId });
   } catch (_err) {
-    return NextResponse.json(
-      { error: 'You do not have access to this lease' },
-      { status: 403 },
-    );
+    return errorResponse('FORBIDDEN', {
+      requestId,
+      message: 'You do not have access to this lease',
+    });
   }
 
   const clauses = listClauses(db, leaseId, workspaceId);

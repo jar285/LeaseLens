@@ -5,14 +5,39 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NextRequest } from 'next/server';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { newAnonIdentity } from '@/lib/auth/anon-identity';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { toDbRole } from '@/lib/auth/role-codec';
 import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
+import {
+  encodeWorkspace,
+  WORKSPACE_COOKIE_NAME,
+} from '@/lib/workspaces/cookie';
+import { getActiveWorkspace } from '@/lib/workspaces/queries';
 import { POST } from './route';
+
+// Sprint B.15 (#15) — toggle public-anon mode so the fail-closed upload path
+// can be exercised. Default (no _TEST_* var) keeps the demo/default fallback
+// the existing tests below rely on.
+vi.mock('@/lib/env', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/env')>();
+  return {
+    ...actual,
+    env: {
+      ...actual.env,
+      get LEASELENS_PUBLIC_ANON_MODE() {
+        return process.env._TEST_PUBLIC_ANON_MODE === 'true';
+      },
+      get LEASELENS_DEMO_MODE() {
+        return process.env._TEST_DEMO_MODE === 'true';
+      },
+    },
+  };
+});
 
 const SAMPLE_PDF_BUFFER = readFileSync(
   join(process.cwd(), 'src', 'lib', 'lease', '__fixtures__', 'simple.pdf'),
@@ -224,5 +249,159 @@ describe('POST /api/leases', () => {
 
     // Cleanup
     db.prepare('DELETE FROM conversations WHERE id = ?').run(convId);
+  });
+});
+
+// Sprint B.15 (#15) — public-anon upload path. A cookieless upload fails closed
+// (401, never the seeded Tenant), and a valid anon upload materializes the
+// visitor's OWN users row + non-sample expiring workspace so anon lease data
+// never lands in the immortal sample workspace.
+describe('POST /api/leases — public-anon mode (#15)', () => {
+  let priorMode: string | undefined;
+
+  async function makeAnonUpload(opts: {
+    userId?: string | null;
+    workspaceId?: string | null;
+  }): Promise<NextRequest> {
+    const form = new FormData();
+    const ab = SAMPLE_PDF_BUFFER.buffer.slice(
+      SAMPLE_PDF_BUFFER.byteOffset,
+      SAMPLE_PDF_BUFFER.byteOffset + SAMPLE_PDF_BUFFER.byteLength,
+    ) as ArrayBuffer;
+    form.append(
+      'file',
+      new Blob([ab], { type: 'application/pdf' }),
+      'lease.pdf',
+    );
+    const req = new NextRequest('http://localhost:3000/api/leases', {
+      method: 'POST',
+      body: form,
+    });
+    if (opts.userId) {
+      req.cookies.set(
+        'leaselens_session',
+        await encrypt({
+          userId: opts.userId,
+          role: 'Tenant',
+          displayName: 'Anon',
+          anonymous: true,
+        }),
+      );
+    }
+    if (opts.workspaceId) {
+      req.cookies.set(
+        WORKSPACE_COOKIE_NAME,
+        await encodeWorkspace({
+          workspace_id: opts.workspaceId,
+          created_workspace_ids: [],
+        }),
+      );
+    }
+    return req;
+  }
+
+  const WS_NEW = 'ws-post-anon-new-15';
+  const WS_EXP = 'ws-post-anon-exp-15';
+
+  beforeEach(() => {
+    priorMode = process.env._TEST_PUBLIC_ANON_MODE;
+    process.env._TEST_PUBLIC_ANON_MODE = 'true';
+  });
+
+  afterEach(() => {
+    if (priorMode === undefined) delete process.env._TEST_PUBLIC_ANON_MODE;
+    else process.env._TEST_PUBLIC_ANON_MODE = priorMode;
+    for (const id of [WS_NEW, WS_EXP]) {
+      db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(id);
+      db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+    }
+    db.prepare('DELETE FROM users WHERE email LIKE ?').run(
+      'anon+%@anon.leaselens.local',
+    );
+  });
+
+  it('401s when there is no session cookie (never the seeded Tenant)', async () => {
+    const req = await makeAnonUpload({ userId: null, workspaceId: WS_NEW });
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('401s when a session is present but no workspace cookie', async () => {
+    const anon = newAnonIdentity();
+    const req = await makeAnonUpload({
+      userId: anon.userId,
+      workspaceId: null,
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('401s when the workspace cookie points at the immortal sample workspace', async () => {
+    const anon = newAnonIdentity();
+    const req = await makeAnonUpload({
+      userId: anon.userId,
+      workspaceId: SAMPLE_WORKSPACE.id,
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('materializes the anon user + non-sample expiring workspace and binds the lease to them', async () => {
+    const anon = newAnonIdentity();
+    const req = await makeAnonUpload({
+      userId: anon.userId,
+      workspaceId: WS_NEW,
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { lease_id: string };
+
+    const lease = db
+      .prepare('SELECT uploaded_by, workspace_id FROM leases WHERE id = ?')
+      .get(body.lease_id) as { uploaded_by: string; workspace_id: string };
+    expect(lease.uploaded_by).toBe(anon.userId);
+    expect(lease.workspace_id).toBe(WS_NEW);
+
+    // The user row was materialized (FK) and the workspace is a live,
+    // non-sample, expiring one — not the immortal sample.
+    const user = db
+      .prepare('SELECT id FROM users WHERE id = ?')
+      .get(anon.userId);
+    expect(user).toBeDefined();
+    const ws = getActiveWorkspace(db, WS_NEW);
+    expect(ws).not.toBeNull();
+    expect(ws?.is_sample).toBe(0);
+    expect(ws?.expires_at).toBeTypeOf('number');
+  });
+
+  it('re-materializes an expired workspace AFTER the TTL purge so a returning visitor can still upload', async () => {
+    // A returning visitor whose per-visitor workspace has aged past the 24h
+    // TTL. purgeExpiredWorkspaces (run inside the route before the insert)
+    // deletes it; the route must re-create it AFTER the purge, or the insert
+    // orphans/FK-fails. Regression for the ordering fix.
+    const anon = newAnonIdentity();
+    const past = Math.floor(Date.now() / 1000) - 100;
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, 'stale', 'stale', 0, ?, ?)`,
+    ).run(WS_EXP, past, past);
+
+    const req = await makeAnonUpload({
+      userId: anon.userId,
+      workspaceId: WS_EXP,
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { lease_id: string };
+
+    // Workspace re-materialized with a fresh future expiry, and the lease
+    // binds to it (not orphaned into a purged id).
+    const ws = getActiveWorkspace(db, WS_EXP);
+    expect(ws).not.toBeNull();
+    expect(ws?.expires_at ?? 0).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    const lease = db
+      .prepare('SELECT workspace_id FROM leases WHERE id = ?')
+      .get(body.lease_id) as { workspace_id: string };
+    expect(lease.workspace_id).toBe(WS_EXP);
   });
 });

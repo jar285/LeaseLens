@@ -8,28 +8,34 @@
 // every call's usage — GoF Facade: a single metered choke point. It's wired in
 // at createToolRegistry, so every tool-issued Anthropic call is captured.
 //
-// Scope note: #5a only METERS (records actual usage). The reserve-before-spend
-// budget LEDGER (pre-flight estimate, fail-closed when exhausted, per-tier
-// cache pricing) is #5b in Phase C, which reuses this gateway.
+// Scope note: #5a METERS (records actual usage). Sprint B.5b (#18) adds the
+// reserve-before-spend budget LEDGER — see `budgetedAnthropicClient` below,
+// which supersedes the plain metering sink on the tool path (it reserves before
+// the call and records via the ledger's commit).
 
+import { commit, release, reserve } from '@/lib/db/budget-ledger';
 import { recordSpend } from '@/lib/db/spend';
 import type { AnthropicLike } from '@/lib/tools/lease-tools';
 
 // The usage block on an Anthropic message response. Tool stubs return only
 // `{ content }`, so every field is optional and read defensively.
+// Fields are `number | null | undefined` to match the SDK's `Usage` (cache
+// fields are nullable) as well as tool stubs that omit usage entirely;
+// normalizeUsage coalesces every field with `?? 0`.
 export interface AnthropicUsageLike {
-  input_tokens?: number;
-  output_tokens?: number;
-  cache_creation_input_tokens?: number;
-  cache_read_input_tokens?: number;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
 }
 
 export interface MeteredUsage {
   // Total input tokens = base input + cache-creation + cache-read. We sum all
-  // three because the current pricing model (spend.ts) prices input at one
-  // rate; counting cache tokens at the base rate over-estimates slightly,
-  // which is the SAFE direction for a spend ceiling. #5b refines this into
-  // per-tier cache pricing.
+  // three because the pricing model (spend.ts) prices input at one rate;
+  // counting cache tokens at the base rate over-estimates slightly, the SAFE
+  // direction for a spend ceiling. (Per-tier cache pricing is intentionally out
+  // of scope — spend.ts is the frozen single pricing source; base-rate folding
+  // is the accepted conservative over-estimate.)
   input: number;
   output: number;
 }
@@ -76,6 +82,64 @@ export function meterAnthropicClient(
           normalizeUsage((response as { usage?: AnthropicUsageLike }).usage),
         );
         return response;
+      },
+    },
+  };
+}
+
+/**
+ * Estimate input tokens from a request payload (system + messages + tools).
+ * Cheap heuristic (~4 chars/token) — a reservation only needs a rough upper
+ * bound; commit() records the ACTUAL after the call, so an under-estimate only
+ * causes a bounded single-call overshoot. Avoids a countTokens round-trip.
+ */
+export function estimateInputTokens(...parts: unknown[]): number {
+  let chars = 0;
+  for (const part of parts) {
+    if (part == null) continue;
+    chars +=
+      typeof part === 'string' ? part.length : JSON.stringify(part).length;
+  }
+  return Math.ceil(chars / 4);
+}
+
+/**
+ * Sprint B.5b (#18) — budget-enforcing gateway. Wraps `messages.create` to
+ * reserve estimated max cost BEFORE the call (fail closed via the ledger when
+ * the daily budget is exhausted), commit the ACTUAL usage AFTER (which records
+ * to spend_log — so this REPLACES the recordSpend sink; do NOT also wrap with
+ * meterAnthropicClient or spend double-records), and release in `finally`
+ * (leak-proof against a client abort mid-await or a throwing commit — release is
+ * an idempotent no-op on an already-committed reservation).
+ */
+export function budgetedAnthropicClient(
+  base: AnthropicLike,
+  opts: { sessionId?: string | null } = {},
+): AnthropicLike {
+  return {
+    messages: {
+      create: async (args) => {
+        const a = (args ?? {}) as {
+          system?: unknown;
+          messages?: unknown;
+          tools?: unknown;
+          max_tokens?: unknown;
+        };
+        const reservationId = reserve({
+          sessionId: opts.sessionId ?? null,
+          estIn: estimateInputTokens(a.system, a.messages, a.tools),
+          maxOut: typeof a.max_tokens === 'number' ? a.max_tokens : 1024,
+        });
+        try {
+          const response = await base.messages.create(args);
+          const usage = normalizeUsage(
+            (response as { usage?: AnthropicUsageLike }).usage,
+          );
+          commit(reservationId, usage.input, usage.output);
+          return response;
+        } finally {
+          release(reservationId);
+        }
       },
     },
   };

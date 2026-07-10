@@ -46,6 +46,29 @@ export const SCHEMA = `
     tokens_out INTEGER NOT NULL DEFAULT 0
   );
 
+  -- Sprint B.5b (#18) — hard budget ledger. One row per Anthropic call:
+  -- reserved (estimated max cost) BEFORE the call, then committed (actual) or
+  -- released. The reserved-sum + today's committed spend_log are checked in one
+  -- transaction to fail closed BEFORE overspending (closes the check-then-spend
+  -- TOCTOU). session_id is attribution-only (nullable, no FK — matches
+  -- spend_log/rate_limit; per-session caps are #4). spend_log stays the pricing
+  -- source of truth; commit writes there too.
+  CREATE TABLE IF NOT EXISTS provider_call (
+    id             TEXT PRIMARY KEY,
+    status         TEXT NOT NULL CHECK(status IN ('reserved', 'committed', 'released')) DEFAULT 'reserved',
+    session_id     TEXT,
+    estimated_in   INTEGER NOT NULL DEFAULT 0,
+    estimated_out  INTEGER NOT NULL DEFAULT 0,
+    estimated_cost REAL NOT NULL DEFAULT 0,
+    actual_in      INTEGER,
+    actual_out     INTEGER,
+    date           TEXT NOT NULL,
+    created_at     INTEGER NOT NULL,
+    committed_at   INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_provider_call_date_status ON provider_call(date, status);
+
   CREATE TABLE IF NOT EXISTS rate_limit (
     session_id TEXT PRIMARY KEY,
     window_start INTEGER NOT NULL,

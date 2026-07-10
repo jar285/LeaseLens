@@ -1,44 +1,45 @@
-// Sprint A.5a (#5a) — createToolRegistry must route the tool Anthropic client
-// through the metered gateway, so grade_clause_severity / draft_negotiation_email
-// calls are recorded to spend. Mock the gateway with a passthrough spy to prove
-// the wiring without exercising a full grading flow.
+// Sprint A.5a (#5a) → B.5b (#18) — createToolRegistry must route the tool
+// Anthropic client through the BUDGETED gateway (which superseded the plain
+// metered gateway): grade_clause_severity / draft_negotiation_email calls
+// reserve budget before the call and record actual spend on commit. Mock the
+// gateway with a passthrough spy to prove the wiring without a full grading flow.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDb } from '@/lib/test/db';
 import type { AnthropicLike } from './lease-tools';
 
 // vi.hoisted so the spy exists before vi.mock's hoisted factory runs.
-const { meterSpy } = vi.hoisted(() => ({
-  meterSpy: vi.fn((base: AnthropicLike) => base),
+const { budgetSpy } = vi.hoisted(() => ({
+  budgetSpy: vi.fn((base: AnthropicLike) => base),
 }));
 
 vi.mock('@/lib/anthropic/metered-client', () => ({
-  meterAnthropicClient: meterSpy,
+  budgetedAnthropicClient: budgetSpy,
 }));
 
 import { createToolRegistry } from './create-registry';
 
-describe('createToolRegistry — metered Anthropic client (Sprint A.5a / #5a)', () => {
+describe('createToolRegistry — budgeted Anthropic client (#5a → #18)', () => {
   beforeEach(() => {
-    meterSpy.mockClear();
+    budgetSpy.mockClear();
   });
 
-  it('routes an injected Anthropic client through meterAnthropicClient', () => {
+  it('routes an injected Anthropic client through budgetedAnthropicClient', () => {
     const db = createTestDb();
     const injected: AnthropicLike = { messages: { create: vi.fn() } };
 
     createToolRegistry(db, injected);
 
-    expect(meterSpy).toHaveBeenCalledTimes(1);
-    expect(meterSpy).toHaveBeenCalledWith(injected);
+    expect(budgetSpy).toHaveBeenCalledTimes(1);
+    expect(budgetSpy).toHaveBeenCalledWith(injected);
   });
 
-  it('meters even when no client is injected (lazy production path)', () => {
+  it('budgets even when no client is injected (lazy production path)', () => {
     const db = createTestDb();
 
     createToolRegistry(db);
 
-    // The lazy client is resolved and still passed through the meter.
-    expect(meterSpy).toHaveBeenCalledTimes(1);
+    // The lazy client is resolved and still passed through the budgeted gateway.
+    expect(budgetSpy).toHaveBeenCalledTimes(1);
   });
 });

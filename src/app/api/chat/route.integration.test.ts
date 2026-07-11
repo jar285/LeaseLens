@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
+import { QUOTA_LIMITS } from '@/lib/db/quota';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   encodeWorkspace,
@@ -537,6 +538,7 @@ describe('Chat API Public-Anon Guardrails (Sprint B.9 / #9)', () => {
     db.prepare('DELETE FROM conversations').run();
     db.prepare('DELETE FROM users').run();
     db.prepare('DELETE FROM rate_limit').run();
+    db.prepare('DELETE FROM quota_counter').run();
     db.prepare('DELETE FROM spend_log').run();
 
     db.prepare(
@@ -561,17 +563,22 @@ describe('Chat API Public-Anon Guardrails (Sprint B.9 / #9)', () => {
   afterEach(() => {
     delete process.env._TEST_DEMO_MODE;
     delete process.env._TEST_PUBLIC_ANON_MODE;
+    db.prepare('DELETE FROM quota_counter').run();
   });
 
-  it('enforces the rate limit in public-anon mode with demo OFF (inversion fixed)', async () => {
+  // Sprint C.17 (#17) — public-anon now enforces the composite-key quota
+  // (quota_counter), not the legacy single-key rate_limit. Seed the per-session
+  // tier at its limit so the next turn is refused.
+  it('enforces the quota in public-anon mode with demo OFF (inversion fixed)', async () => {
     const now = Math.floor(Date.now() / 1000);
     db.prepare(
-      'INSERT INTO rate_limit (session_id, window_start, count) VALUES (?, ?, ?)',
-    ).run(TEST_USER_ID, now, 10);
+      'INSERT INTO quota_counter (quota_key, window_start, count) VALUES (?, ?, ?)',
+    ).run(`session:${TEST_USER_ID}`, now, QUOTA_LIMITS.session.limit);
 
     const req = await makeSessionRequest('One too many');
     const res = await POST(req);
     expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).not.toBeNull();
   });
 });
 

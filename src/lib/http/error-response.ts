@@ -54,14 +54,28 @@ export interface ApiErrorBody {
 
 export function errorResponse(
   code: ApiErrorCode,
-  opts?: { requestId?: string; status?: number; message?: string },
+  opts?: {
+    requestId?: string;
+    status?: number;
+    message?: string;
+    // Sprint C.17 (#17) — when set, emit a `Retry-After` header (seconds). Used
+    // by RATE_LIMITED so a client knows how long until the quota window frees.
+    retryAfterSeconds?: number;
+  },
 ): NextResponse {
   const body: ApiErrorBody = {
     error: opts?.message ?? SAFE_MESSAGE_BY_CODE[code],
     code,
     ...(opts?.requestId ? { requestId: opts.requestId } : {}),
   };
-  return NextResponse.json(body, {
+  const res = NextResponse.json(body, {
     status: opts?.status ?? STATUS_BY_CODE[code],
   });
+  if (opts?.retryAfterSeconds != null) {
+    res.headers.set(
+      'Retry-After',
+      String(Math.max(0, Math.ceil(opts.retryAfterSeconds))),
+    );
+  }
+  return res;
 }

@@ -32,14 +32,18 @@ import { ensureAnonUserExists } from '@/lib/auth/anon-identity';
 import { guardrailsEnforced, isPublicAnonMode } from '@/lib/auth/mode';
 import { requireSessionOrAnon } from '@/lib/auth/resolve-session';
 import { db } from '@/lib/db';
+import { defaultTiers, enforceQuota } from '@/lib/db/quota';
 import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
 import { env } from '@/lib/env';
+import { clientSubnet } from '@/lib/http/client-ip';
+import { errorResponse } from '@/lib/http/error-response';
 import { MIN_PAGE_TEXT_CHARS, parsePdf } from '@/lib/lease/parse-pdf';
 import { insertClause, insertLease, setActiveLease } from '@/lib/lease/queries';
 import { segmentClauses } from '@/lib/lease/segment-clauses';
 import { validateLeaseUpload } from '@/lib/lease/validate-upload';
 import { logger } from '@/lib/log/logger';
 import { requestIdFrom } from '@/lib/log/request-id';
+import { weightFor } from '@/lib/quota/weights';
 import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import { ensureAnonWorkspaceExists } from '@/lib/workspaces/queries';
 
@@ -55,16 +59,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!resolved.ok) return resolved.response;
     const { userId, workspaceId } = resolved;
 
-    // Sprint B.9 (#9) — rate limit enforces whenever the app is exposed
-    // (public-anon OR demo), via guardrailsEnforced() — not solely in demo
-    // mode, which left real production unguarded.
+    // Sprint B.9 (#9) / C.17 (#17) — guardrails enforce whenever the app is
+    // exposed. Public-anon uses the composite-key quota (upload is a heavier
+    // weighted action); the demo profile keeps the legacy single-key limiter.
     if (guardrailsEnforced()) {
-      const rl = checkAndIncrementRateLimit(userId);
-      if (!rl.allowed) {
-        return NextResponse.json(
-          { error: 'Rate limit exceeded. Try again in an hour.' },
-          { status: 429 },
+      if (isPublicAnonMode()) {
+        const result = enforceQuota(
+          db,
+          defaultTiers({
+            userId,
+            subnet: clientSubnet(req.headers),
+            route: '/api/leases',
+          }),
+          weightFor('upload'),
         );
+        if (!result.allowed) {
+          return errorResponse('RATE_LIMITED', {
+            requestId,
+            retryAfterSeconds: result.retryAfterSeconds,
+          });
+        }
+      } else {
+        const rl = checkAndIncrementRateLimit(userId);
+        if (!rl.allowed) {
+          return NextResponse.json(
+            { error: 'Rate limit exceeded. Try again in an hour.' },
+            { status: 429 },
+          );
+        }
       }
     }
 

@@ -50,4 +50,15 @@ describe('errorResponse', () => {
     expect(body.error).toBe('Message is required');
     expect(body.code).toBe('VALIDATION');
   });
+
+  // Sprint C.17 (#17) — RATE_LIMITED carries a Retry-After header (ceil'd secs).
+  it('sets a Retry-After header when retryAfterSeconds is provided', () => {
+    const res = errorResponse('RATE_LIMITED', { retryAfterSeconds: 42.3 });
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('43');
+  });
+
+  it('omits Retry-After when not provided', () => {
+    expect(errorResponse('RATE_LIMITED').headers.get('Retry-After')).toBeNull();
+  });
 });

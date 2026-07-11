@@ -75,6 +75,19 @@ export const SCHEMA = `
     count INTEGER NOT NULL DEFAULT 0
   );
 
+  -- Sprint C.17 (#17) — composite-key quota. One row per quota_key (e.g.
+  -- 'session:<uid>', 'ip:<subnet>', 'route:/api/chat', 'global:daily'), each a
+  -- rolling window with its own count. enforceQuota() checks + increments every
+  -- tier for a request in ONE transaction (all-or-nothing). Enforced in
+  -- public-anon mode only; the demo profile keeps the legacy single-key
+  -- rate_limit table above. session_id analogue is encoded in quota_key; no FK
+  -- (matches rate_limit/spend_log/provider_call).
+  CREATE TABLE IF NOT EXISTS quota_counter (
+    quota_key    TEXT PRIMARY KEY,
+    window_start INTEGER NOT NULL,
+    count        INTEGER NOT NULL DEFAULT 0
+  );
+
   CREATE TABLE IF NOT EXISTS workspaces (
     id            TEXT PRIMARY KEY,
     name          TEXT NOT NULL,

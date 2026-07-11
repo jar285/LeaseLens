@@ -13,7 +13,7 @@ import {
 } from '@/lib/anthropic/metered-client';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { ensureDemoUsersExist } from '@/lib/auth/ensure-demo-users';
-import { guardrailsEnforced } from '@/lib/auth/mode';
+import { guardrailsEnforced, isPublicAnonMode } from '@/lib/auth/mode';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { buildContextWindow } from '@/lib/chat/context-window';
@@ -23,9 +23,11 @@ import {
 } from '@/lib/chat/system-prompt';
 import { db } from '@/lib/db';
 import { commit, release, reserve } from '@/lib/db/budget-ledger';
+import { defaultTiers, enforceQuota, QUOTA_LIMITS } from '@/lib/db/quota';
 import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
 import { isSpendCeilingExceeded } from '@/lib/db/spend';
 import { env } from '@/lib/env';
+import { clientSubnet } from '@/lib/http/client-ip';
 import { errorResponse } from '@/lib/http/error-response';
 import {
   exceedsContentLengthLimit,
@@ -35,6 +37,7 @@ import { getLease } from '@/lib/lease/queries';
 import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
 import { logger } from '@/lib/log/logger';
 import { requestIdFrom } from '@/lib/log/request-id';
+import { weightFor } from '@/lib/quota/weights';
 import { retrieve } from '@/lib/rag/retrieve';
 import { createToolRegistry } from '@/lib/tools/create-registry';
 import type { AnthropicTool } from '@/lib/tools/domain';
@@ -296,22 +299,50 @@ export async function POST(req: NextRequest) {
           )
         : undefined;
 
-    // Sprint B.9 (#9) — cost/rate guardrails enforce whenever the app is
-    // exposed (public-anon OR demo), via guardrailsEnforced(). Previously gated
-    // SOLELY on LEASELENS_DEMO_MODE, so a real production deploy (demo off) ran
-    // with no rate limit and no spend ceiling (the inversion bug).
-    let quotaRemaining: number | null = null;
+    // Sprint B.9 (#9) / C.17 (#17) — guardrails enforce whenever the app is
+    // exposed (public-anon OR demo), via guardrailsEnforced(). Public-anon uses
+    // the composite-key quota (per-session / IP-subnet / route / global-daily,
+    // weighted); the demo profile keeps the legacy single-key rate limiter
+    // (behavior-preserving). `quota` (per-session remaining + limit) is streamed
+    // to the client every turn so the drawer can render a usage meter.
+    let quota: { remaining: number; limit: number } | null = null;
 
     if (guardrailsEnforced()) {
-      const rateLimit = checkAndIncrementRateLimit(userId);
-      if (!rateLimit.allowed) {
-        return errorResponse('RATE_LIMITED', {
-          requestId,
-          message: 'Rate limit exceeded. Try again in the next hour.',
-        });
-      }
-      if (rateLimit.remaining <= 2) {
-        quotaRemaining = rateLimit.remaining;
+      if (isPublicAnonMode()) {
+        // Auto-scan turns (forceScan) draw down more of the window than a plain
+        // question. `draft` is a nested tool, weighted with the budget ledger,
+        // not here (see weights.ts).
+        const action = forceScan === true ? 'scan' : 'chat';
+        const result = enforceQuota(
+          db,
+          defaultTiers({
+            userId,
+            subnet: clientSubnet(req.headers),
+            route: '/api/chat',
+          }),
+          weightFor(action),
+        );
+        if (!result.allowed) {
+          return errorResponse('RATE_LIMITED', {
+            requestId,
+            retryAfterSeconds: result.retryAfterSeconds,
+          });
+        }
+        quota = {
+          remaining: result.remainingByKey[`session:${userId}`] ?? 0,
+          limit: QUOTA_LIMITS.session.limit,
+        };
+      } else {
+        const rateLimit = checkAndIncrementRateLimit(userId);
+        if (!rateLimit.allowed) {
+          return errorResponse('RATE_LIMITED', {
+            requestId,
+            message: 'Rate limit exceeded. Try again in the next hour.',
+          });
+        }
+        if (rateLimit.remaining <= 2) {
+          quota = { remaining: rateLimit.remaining, limit: 10 };
+        }
       }
 
       if (isSpendCeilingExceeded()) {
@@ -464,13 +495,11 @@ export async function POST(req: NextRequest) {
 
     const responseStream = new ReadableStream({
       async start(controller) {
-        // Emit quota notice before conversationId when demo quota is low
-        if (quotaRemaining !== null) {
-          controller.enqueue(
-            encoder.encode(
-              `${JSON.stringify({ quota: { remaining: quotaRemaining } })}\n`,
-            ),
-          );
+        // Sprint C.17 (#17) — stream the per-session quota (remaining + limit)
+        // before conversationId so the drawer can render a usage meter. Public
+        // mode sends it every turn; the demo path only when low (legacy).
+        if (quota !== null) {
+          controller.enqueue(encoder.encode(`${JSON.stringify({ quota })}\n`));
         }
 
         controller.enqueue(

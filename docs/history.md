@@ -412,8 +412,12 @@ resolves. Issues stay open until the branch merges.
 | `sB.9` (5407c2b) | Separate `LEASELENS_PUBLIC_ANON_MODE` from `DEMO_MODE`; fail-closed env at boot; guardrails gated on `guardrailsEnforced()` | Closes **#22** |
 | `sB.14` (ef2bb60) | Per-visitor anonymous sessions: real isolated `users` row + own expiring workspace, minted at the Edge | Closes **#14** |
 | `sB.15` (3c469a6) | Lease routes fail closed via shared `requireSessionOrAnon`; per-visitor lease isolation (404 cross-workspace, 403 cross-owner) | Closes **#15** |
-| Phase C (planned) | Real quota (per-session / IP / route / global) + hard budget reserve/commit ledger | **#17**, **#18** (`#5b`) |
-| Phase D (planned) | Expiring anon retention + delete-now, FK constraints, PII policy, normalized error/event envelopes | **#19**, **#20** (`#7b`), **#24**, **#25** |
+| `sB.5b` (052c675) | Hard budget ledger: `provider_call` reserve/commit/release in one transaction, fail-closed before the Anthropic call (closes the check-then-overspend TOCTOU) | Closes **#18** |
+| `sC.17` (56abb5d) | Composite-key quota: `quota_counter` + `enforceQuota` (session / IP-subnet / route / global-daily, weighted, all-or-nothing), typed 429 + `Retry-After`; demo keeps the legacy limiter | Closes **#17** |
+| `sD.12a` (5ec5ea5) | All non-streaming errors normalized onto the `{ error, code, requestId }` envelope (RFC 9457-aligned); rollback-500 / workspaces-400 PII echo closed | Advances **#25** |
+| `sD.12b` (c7c8e0f) | Typed `{budget}` / widened `{quota}` NDJSON events (demo ceiling copy retired), `X-Request-Id` on stream responses, calm at-limit client dispatch | Closes **#25** |
+| Phase C (next) | Progressive `QuotaMeter` drawer indicator on the typed events (3 states, WCAG, reduced-motion) | UI for **#17**/**#25** |
+| Phase D (planned) | Expiring anon retention + delete-now, FK constraints, PII policy | **#19**, **#20** (`#7b`), **#24** |
 | Deferred | Production DB discipline (managed Postgres / Turso decision spike) | **#23** |
 
 ---

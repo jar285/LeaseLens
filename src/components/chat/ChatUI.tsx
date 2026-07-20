@@ -14,6 +14,7 @@ import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps, ToolInvocation } from './ChatMessage';
 import { useChatStream } from './ChatStreamContext';
 import { ChatTranscript } from './ChatTranscript';
+import { isQuotaLow, QuotaMeter } from './QuotaMeter';
 
 // Sprint 28.8 — announcement copy for the aria-live region. Screen
 // readers fire on textContent change, so we set this string into the
@@ -176,12 +177,21 @@ export function ChatUI({
   const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
-  const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
+  // Sprint D.17ui (#17, #25) — widened per-turn quota snapshot (remaining +
+  // window limit) feeding the QuotaMeter's progressive low state.
+  const [quota, setQuota] = useState<{
+    remaining: number;
+    limit?: number;
+  } | null>(null);
+  // Announce the low-threshold crossing ONCE (not every decrement — that
+  // would spam SR users). The ref tracks the previous low-ness; the shared
+  // isQuotaLow predicate keeps this in lockstep with the meter's rendering.
+  const prevQuotaLowRef = useRef(false);
   // Sprint D.12b (#12) — at-limit pause state, fed by the typed {budget}
   // stream event (daily ceiling) or an HTTP 429 (per-visitor rate window).
   // Renders a CALM status notice — never the red generic-error banner (a
   // reached limit is expected behavior, not a failure). Cleared on the next
-  // successful turn. Phase C replaces the plain notice with the QuotaMeter.
+  // successful turn.
   const [budgetPause, setBudgetPause] = useState<{
     scope: 'daily' | 'rate';
     retryAfterSeconds?: number;
@@ -390,7 +400,12 @@ export function ChatUI({
     setActiveConversationId(null);
     setStatus('idle');
     setErrorMsg('');
-    setQuotaRemaining(null);
+    // Sprint D.17ui (#17, #25) — reset the full quota surface with the
+    // thread: snapshot, at-limit pause, and the announce-once crossing latch
+    // (a fresh thread should re-announce if the visitor is still low).
+    setQuota(null);
+    setBudgetPause(null);
+    prevQuotaLowRef.current = false;
     // Sprint 28.8 — drop the FAB's pendingPrompt + selection so the
     // next user question isn't biased toward the prior clause
     // context. The drawer stays open (clearPendingContext doesn't
@@ -525,7 +540,17 @@ export function ChatUI({
           if ('conversationId' in data) {
             setActiveConversationId(data.conversationId);
           } else if ('quota' in data) {
-            setQuotaRemaining(data.quota.remaining);
+            setQuota(data.quota);
+            // Announce-once on crossing INTO low; going lower stays silent.
+            const low = isQuotaLow(data.quota);
+            if (low && !prevQuotaLowRef.current) {
+              const noun =
+                data.quota.remaining === 1 ? 'question' : 'questions';
+              setAnnouncement(
+                `${data.quota.remaining} ${noun} left this hour.`,
+              );
+            }
+            prevQuotaLowRef.current = low;
           } else if ('budget' in data) {
             // Sprint D.12b (#12) — typed at-limit event (daily ceiling): show
             // the calm notice and drop the pending empty bubble; the turn is
@@ -914,30 +939,11 @@ export function ChatUI({
         </div>
 
         <div className="flex flex-col">
-          {/* Sprint D.12b (#12) — calm at-limit notice (typed budget event /
-              429). Deliberately plain + neutral-toned: a reached limit is
-              expected behavior, so it must not read as an error (danger red
-              stays reserved for real failures). role="status" (polite) so SR
-              users hear it without interruption. Phase C replaces this with
-              the designed QuotaMeter. */}
-          {budgetPause && (
-            <div
-              data-testid="budget-notice"
-              role="status"
-              className="mx-6 mb-1 mt-2 rounded-md border border-neutral-200 bg-surface-muted px-3 py-2 text-xs text-fg-default dark:border-neutral-700"
-            >
-              {budgetPause.scope === 'daily'
-                ? 'The assistant is paused for today. Your lease review and red flags stay available.'
-                : "You've reached this hour's question limit. It resets within the hour. Your lease review stays available."}
-            </div>
-          )}
-
-          {quotaRemaining !== null && quotaRemaining <= 2 && (
-            <div className="mx-6 mb-1 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-              Demo quota: {quotaRemaining} message
-              {quotaRemaining !== 1 ? 's' : ''} remaining this hour.
-            </div>
-          )}
+          {/* Sprint D.17ui (#17, #25) — the designed usage indicator replaces
+              both the D.12b plain at-limit notice and the legacy raw-amber
+              "Demo quota" banner. One presenter, three states (nothing / low
+              meter / calm paused notice); ChatUI stays the state owner. */}
+          <QuotaMeter quota={quota} pause={budgetPause} />
 
           {status === 'error' && (
             <div className="mx-6 mb-2 mt-2 flex shrink-0 items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3.5 text-red-700">

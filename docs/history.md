@@ -416,7 +416,7 @@ resolves. Issues stay open until the branch merges.
 | `sC.17` (56abb5d) | Composite-key quota: `quota_counter` + `enforceQuota` (session / IP-subnet / route / global-daily, weighted, all-or-nothing), typed 429 + `Retry-After`; demo keeps the legacy limiter | Closes **#17** |
 | `sD.12a` (5ec5ea5) | All non-streaming errors normalized onto the `{ error, code, requestId }` envelope (RFC 9457-aligned); rollback-500 / workspaces-400 PII echo closed | Advances **#25** |
 | `sD.12b` (c7c8e0f) | Typed `{budget}` / widened `{quota}` NDJSON events (demo ceiling copy retired), `X-Request-Id` on stream responses, calm at-limit client dispatch | Closes **#25** |
-| Phase C (next) | Progressive `QuotaMeter` drawer indicator on the typed events (3 states, WCAG, reduced-motion) | UI for **#17**/**#25** |
+| `sD.17ui` | `QuotaMeter` drawer indicator: quiet → draining low meter ("N questions left this hour", `role=progressbar`, announce-once crossing) → calm at-limit notice; retires the raw-amber demo banner | UI for **#17**/**#25** |
 | Phase D (planned) | Expiring anon retention + delete-now, FK constraints, PII policy | **#19**, **#20** (`#7b`), **#24** |
 | Deferred | Production DB discipline (managed Postgres / Turso decision spike) | **#23** |
 

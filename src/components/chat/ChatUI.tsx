@@ -177,6 +177,15 @@ export function ChatUI({
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
+  // Sprint D.12b (#12) — at-limit pause state, fed by the typed {budget}
+  // stream event (daily ceiling) or an HTTP 429 (per-visitor rate window).
+  // Renders a CALM status notice — never the red generic-error banner (a
+  // reached limit is expected behavior, not a failure). Cleared on the next
+  // successful turn. Phase C replaces the plain notice with the QuotaMeter.
+  const [budgetPause, setBudgetPause] = useState<{
+    scope: 'daily' | 'rate';
+    retryAfterSeconds?: number;
+  } | null>(null);
 
   // Sprint 26c.11 — adopt the auto-scan's conversationId when ChatUI's
   // own prop is null. AutoScanRunner runs silently before the user
@@ -448,6 +457,9 @@ export function ChatUI({
     setMessages((prev) => [...prev, userMessage, initialAssistantMessage]);
     setStatus('streaming');
     setErrorMsg('');
+    // Sprint D.12b (#12) — a fresh attempt clears the at-limit notice; the
+    // server re-emits budget/429 if the window is still exhausted.
+    setBudgetPause(null);
 
     // Track pending tool invocations for this response
     const pendingTools = new Map<string, ToolInvocation>();
@@ -468,6 +480,23 @@ export function ChatUI({
         }),
         signal: controller.signal,
       });
+
+      // Sprint D.12b (#12) — a 429 is the visitor's own quota window filling,
+      // not a system failure: drop the pending bubble, show the calm rate
+      // notice, and stay idle (frame-04 fix — no red generic banner).
+      if (response.status === 429) {
+        const retryAfterRaw = response.headers?.get?.('Retry-After');
+        const retryAfterSeconds = retryAfterRaw
+          ? Number(retryAfterRaw)
+          : undefined;
+        setBudgetPause({
+          scope: 'rate',
+          ...(Number.isFinite(retryAfterSeconds) ? { retryAfterSeconds } : {}),
+        });
+        setMessages((prev) => prev.filter((m) => m.id !== assistantMessageId));
+        setStatus('idle');
+        return;
+      }
 
       if (!response.ok || !response.body) {
         throw new Error('Failed to generate response');
@@ -497,6 +526,14 @@ export function ChatUI({
             setActiveConversationId(data.conversationId);
           } else if ('quota' in data) {
             setQuotaRemaining(data.quota.remaining);
+          } else if ('budget' in data) {
+            // Sprint D.12b (#12) — typed at-limit event (daily ceiling): show
+            // the calm notice and drop the pending empty bubble; the turn is
+            // over by design, not by failure.
+            setBudgetPause(data.budget);
+            setMessages((prev) =>
+              prev.filter((m) => m.id !== assistantMessageId),
+            );
           } else if ('error' in data) {
             throw new Error(data.error);
           } else if ('chunk' in data) {
@@ -877,6 +914,24 @@ export function ChatUI({
         </div>
 
         <div className="flex flex-col">
+          {/* Sprint D.12b (#12) — calm at-limit notice (typed budget event /
+              429). Deliberately plain + neutral-toned: a reached limit is
+              expected behavior, so it must not read as an error (danger red
+              stays reserved for real failures). role="status" (polite) so SR
+              users hear it without interruption. Phase C replaces this with
+              the designed QuotaMeter. */}
+          {budgetPause && (
+            <div
+              data-testid="budget-notice"
+              role="status"
+              className="mx-6 mb-1 mt-2 rounded-md border border-neutral-200 bg-surface-muted px-3 py-2 text-xs text-fg-default dark:border-neutral-700"
+            >
+              {budgetPause.scope === 'daily'
+                ? 'The assistant is paused for today. Your lease review and red flags stay available.'
+                : "You've reached this hour's question limit. It resets within the hour. Your lease review stays available."}
+            </div>
+          )}
+
           {quotaRemaining !== null && quotaRemaining <= 2 && (
             <div className="mx-6 mb-1 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
               Demo quota: {quotaRemaining} message

@@ -513,7 +513,10 @@ describe('Chat API Demo Guardrails', () => {
     expect(body.error).toContain('Rate limit exceeded');
   });
 
-  it('streams the spend-ceiling message when daily ceiling is exceeded', async () => {
+  // Sprint D.12b (#12) — the ceiling now streams a TYPED budget event (scope
+  // 'daily') instead of the demo-copy {chunk} text, and the stream Response
+  // carries the correlation id header.
+  it('streams a typed budget event when the daily ceiling is exceeded', async () => {
     // Insert a spend_log row that exceeds the $2 default ceiling
     // 2_000_000 input + 500_000 output → $3.60
     db.prepare(
@@ -521,11 +524,25 @@ describe('Chat API Demo Guardrails', () => {
     ).run(2_000_000, 500_000);
 
     const req = await makeSessionRequest('Will hit ceiling');
+    // Middleware stamps x-request-id on every real request; simulate it so
+    // the echo-on-stream-Response behavior is observable here.
+    req.headers.set('x-request-id', 'REQ-CEILING-TEST');
     const res = await POST(req);
     expect(res.status).toBe(200);
+    expect(res.headers.get('x-request-id')).toBe('REQ-CEILING-TEST');
 
     const body = await drainStream(res);
-    expect(body).toContain('Daily demo quota reached');
+    const events = body
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    const budget = events.find((e) => 'budget' in e) as
+      | { budget: { scope: string; requestId?: string } }
+      | undefined;
+    expect(budget).toBeDefined();
+    expect(budget?.budget.scope).toBe('daily');
+    // The old demo copy is fully retired.
+    expect(body).not.toContain('Daily demo quota reached');
   });
 });
 

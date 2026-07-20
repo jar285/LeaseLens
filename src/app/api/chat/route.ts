@@ -36,7 +36,7 @@ import {
 import { getLease } from '@/lib/lease/queries';
 import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
 import { logger } from '@/lib/log/logger';
-import { requestIdFrom } from '@/lib/log/request-id';
+import { REQUEST_ID_HEADER, requestIdFrom } from '@/lib/log/request-id';
 import { weightFor } from '@/lib/quota/weights';
 import { retrieve } from '@/lib/rag/retrieve';
 import { createToolRegistry } from '@/lib/tools/create-registry';
@@ -68,9 +68,6 @@ const chatRequestBodySchema = z.object({
   // forceScan (composable, no implicit coupling).
   startNewConversation: z.boolean().optional(),
 });
-
-const SPEND_CEILING_MESSAGE =
-  'Daily demo quota reached. Clone the repo for unlimited local use: github.com/jar285/leaselens';
 
 // Maximum tool-use iterations per turn. Bumped from 3 → 15 in Sprint 13
 // (charter v1.13) to support per-clause grading flows on a 13-clause lease
@@ -350,12 +347,17 @@ export async function POST(req: NextRequest) {
       }
 
       if (isSpendCeilingExceeded()) {
+        // Sprint D.12b (#12) — a TYPED budget event replaces the old
+        // demo-copy {chunk} text, so the client renders a designed, calm
+        // at-limit state instead of a fake chat message (Nygard / Google SRE:
+        // graceful degradation — only the AI dependency is paused; the parsed
+        // lease + red flags remain fully usable).
         const encoder = new TextEncoder();
         const ceilingStream = new ReadableStream({
           start(controller) {
             controller.enqueue(
               encoder.encode(
-                `${JSON.stringify({ chunk: SPEND_CEILING_MESSAGE })}\n`,
+                `${JSON.stringify({ budget: { scope: 'daily', requestId } })}\n`,
               ),
             );
             controller.close();
@@ -365,6 +367,10 @@ export async function POST(req: NextRequest) {
           headers: {
             'Content-Type': 'application/x-ndjson',
             'Cache-Control': 'no-cache',
+            'X-Content-Type-Options': 'nosniff',
+            // requestIdFrom is undefined when middleware didn't run (unit
+            // tests hit the handler directly) — omit rather than send "".
+            ...(requestId ? { [REQUEST_ID_HEADER]: requestId } : {}),
           },
         });
       }
@@ -817,6 +823,11 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/x-ndjson',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
+        // Sprint D.12b (#12) — correlation id on the stream Response so a
+        // client-reported failure can be joined to server logs even when the
+        // stream dies mid-flight; nosniff per the platform streaming guidance.
+        'X-Content-Type-Options': 'nosniff',
+        ...(requestId ? { [REQUEST_ID_HEADER]: requestId } : {}),
       },
     });
   } catch (error) {

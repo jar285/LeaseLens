@@ -139,5 +139,39 @@ export interface ToolResultEvent {
     name: string;
     result: unknown;
     error?: string;
+    // Sprint D.12b (#12) — reconciled with the real route emit: mutating-tool
+    // successes carry rollback metadata (chat/route.ts executeToolAndPersist).
+    audit_id?: string;
+    compensating_available?: boolean;
+  };
+}
+
+/**
+ * Sprint D.12b (#12) — typed budget event. Streamed when a spend/quota limit
+ * pauses the assistant, replacing the old demo-copy `{chunk}` text so the
+ * client can render a calm, designed at-limit state (Michael Nygard /
+ * Google SRE: graceful degradation — the parser and red flags still work;
+ * only the AI dependency is paused).
+ *
+ * scope: 'daily' = the shared daily spend ceiling; 'rate' = the caller's own
+ * per-visitor quota window (retryAfterSeconds says when it frees).
+ */
+export interface BudgetEvent {
+  budget: {
+    scope: 'daily' | 'rate';
+    retryAfterSeconds?: number;
+    requestId?: string;
+  };
+}
+
+/**
+ * Sprint D.12b (#12) — per-turn quota snapshot (remaining + window limit) so
+ * the client can render a usage meter. `limit` is optional for backward
+ * compatibility with the legacy demo emit.
+ */
+export interface QuotaEvent {
+  quota: {
+    remaining: number;
+    limit?: number;
   };
 }

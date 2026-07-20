@@ -1,7 +1,11 @@
 import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb } from '@/lib/test/db';
-import { purgeExpiredWorkspaces, WORKSPACE_SCOPED_TABLES } from './cleanup';
+import {
+  purgeExpiredWorkspaces,
+  purgeWorkspaceNow,
+  WORKSPACE_SCOPED_TABLES,
+} from './cleanup';
 import { SAMPLE_WORKSPACE } from './constants';
 
 function seedSample(db: Database.Database): void {
@@ -293,5 +297,91 @@ describe('purgeExpiredWorkspaces', () => {
     ).run();
 
     expect(() => purgeExpiredWorkspaces(db)).not.toThrow();
+  });
+});
+
+// Sprint D.19 (#19) — on-demand deletion. purgeWorkspaceNow deletes ONE
+// workspace by id regardless of expiry (the "Delete my review now" endpoint's
+// engine), sharing the exact TTL-purge cascade so the #7a coverage guard +
+// FK-order tests protect both paths. Samples are never deletable (same
+// invariant as the TTL purge — the shared demo data is not a visitor's to
+// destroy).
+describe('purgeWorkspaceNow (#19)', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = createTestDb();
+    seedSample(db);
+  });
+
+  it('deletes an UNEXPIRED workspace and all child rows by id (FK-safe order)', () => {
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    insertWorkspace(db, { id: 'ws-now', expires_at: future });
+    // FK-valid parents (Sprint D.20): the lease uploader must be a users row.
+    db.prepare(
+      `INSERT INTO users (id, email, role, display_name, created_at)
+       VALUES ('u-now', 'now@test.local', 'Creator', 'U', 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+       VALUES ('lease-now', 'ws-now', 'a.pdf', 't', 1, 'u-now', 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
+       VALUES ('clause-now', 'lease-now', 'ws-now', 0, 'late_fee', 't', 1, 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO negotiation_emails (id, clause_id, workspace_id, tone, subject, body, drafted_by, created_at)
+       VALUES ('email-now', 'clause-now', 'ws-now', 'polite', 's', 'b', 'u-now', 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
+       VALUES ('conv-now', 'u-now', 'ws-now', 't', 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at)
+       VALUES ('msg-now', 'conv-now', 'user', 'hi', 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO tool_calls (id, tool_name, actor_user_id, actor_role, workspace_id, created_at)
+       VALUES ('tc-now', 'extract_clauses', 'u-now', 'Creator', 'ws-now', 1)`,
+    ).run();
+
+    const result = purgeWorkspaceNow(db, 'ws-now');
+    expect(result).toEqual({ purged: 1 });
+
+    for (const [table, id] of [
+      ['workspaces', 'ws-now'],
+      ['leases', 'lease-now'],
+      ['clauses', 'clause-now'],
+      ['negotiation_emails', 'email-now'],
+      ['conversations', 'conv-now'],
+      ['messages', 'msg-now'],
+      ['tool_calls', 'tc-now'],
+    ]) {
+      expect(
+        db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(id),
+        `${table}/${id} should be purged`,
+      ).toBeUndefined();
+    }
+    // The sample workspace is untouched.
+    expect(
+      db
+        .prepare('SELECT 1 FROM workspaces WHERE id = ?')
+        .get(SAMPLE_WORKSPACE.id),
+    ).toBeDefined();
+  });
+
+  it('refuses to delete a sample workspace — {purged: 0}, rows intact', () => {
+    expect(purgeWorkspaceNow(db, SAMPLE_WORKSPACE.id)).toEqual({ purged: 0 });
+    expect(
+      db
+        .prepare('SELECT 1 FROM workspaces WHERE id = ?')
+        .get(SAMPLE_WORKSPACE.id),
+    ).toBeDefined();
+  });
+
+  it('is a no-op for a nonexistent workspace id', () => {
+    expect(purgeWorkspaceNow(db, 'no-such-ws')).toEqual({ purged: 0 });
   });
 });

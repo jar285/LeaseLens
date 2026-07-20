@@ -51,33 +51,65 @@ export function purgeExpiredWorkspaces(db: Database.Database): PurgeResult {
       )
       .all() as { id: string }[];
     if (expired.length === 0) return { purged: 0 };
-
-    const ids = expired.map((r) => r.id);
-    const placeholders = ids.map(() => '?').join(',');
-
-    // Sprint 13 §3e / A.7a — children-first cascade over every workspace_id
-    // table. With FK enforcement on (boot-time pragma), order matters; the
-    // WORKSPACE_SCOPED_TABLES list is already in FK-safe order. Table names
-    // come from a fixed const (never user input), so the interpolation is safe.
-    for (const table of WORKSPACE_SCOPED_TABLES) {
-      db.prepare(
-        `DELETE FROM ${table} WHERE workspace_id IN (${placeholders})`,
-      ).run(...ids);
-    }
-    // Round 3 — messages cascade through conversations.workspace_id, then
-    // delete the conversations themselves. Order: children first.
-    db.prepare(
-      `DELETE FROM messages WHERE conversation_id IN (
-         SELECT id FROM conversations WHERE workspace_id IN (${placeholders})
-       )`,
-    ).run(...ids);
-    db.prepare(
-      `DELETE FROM conversations WHERE workspace_id IN (${placeholders})`,
-    ).run(...ids);
-    db.prepare(`DELETE FROM workspaces WHERE id IN (${placeholders})`).run(
-      ...ids,
+    return purgeWorkspaceIds(
+      db,
+      expired.map((r) => r.id),
     );
-
-    return { purged: ids.length };
   })();
+}
+
+/**
+ * Sprint D.19 (#19) — delete ONE workspace by id regardless of expiry: the
+ * engine behind the "Delete my review now" endpoint (Dieter Rams: if data is
+ * temporary, storage must enforce it — including on demand, not only at the
+ * TTL). Same invariants as the TTL purge: samples are NEVER deletable (the
+ * shared demo data is not a visitor's to destroy), nonexistent ids are a
+ * no-op, and the cascade is the shared FK-safe children-first sweep.
+ */
+export function purgeWorkspaceNow(
+  db: Database.Database,
+  workspaceId: string,
+): PurgeResult {
+  return db.transaction((): PurgeResult => {
+    const row = db
+      .prepare('SELECT id FROM workspaces WHERE id = ? AND is_sample = 0')
+      .get(workspaceId) as { id: string } | undefined;
+    if (!row) return { purged: 0 };
+    return purgeWorkspaceIds(db, [row.id]);
+  })();
+}
+
+/**
+ * Sprint D.19 (#19) — the ONE cascade both purge paths share (extracted from
+ * purgeExpiredWorkspaces so the #7a coverage guard + FK-order tests protect
+ * the TTL sweep AND on-demand deletion identically). Caller owns the
+ * transaction and the sample/expiry policy; this only deletes.
+ */
+function purgeWorkspaceIds(db: Database.Database, ids: string[]): PurgeResult {
+  const placeholders = ids.map(() => '?').join(',');
+
+  // Sprint 13 §3e / A.7a — children-first cascade over every workspace_id
+  // table. With FK enforcement on (boot-time pragma), order matters; the
+  // WORKSPACE_SCOPED_TABLES list is already in FK-safe order. Table names
+  // come from a fixed const (never user input), so the interpolation is safe.
+  for (const table of WORKSPACE_SCOPED_TABLES) {
+    db.prepare(
+      `DELETE FROM ${table} WHERE workspace_id IN (${placeholders})`,
+    ).run(...ids);
+  }
+  // Round 3 — messages cascade through conversations.workspace_id, then
+  // delete the conversations themselves. Order: children first.
+  db.prepare(
+    `DELETE FROM messages WHERE conversation_id IN (
+       SELECT id FROM conversations WHERE workspace_id IN (${placeholders})
+     )`,
+  ).run(...ids);
+  db.prepare(
+    `DELETE FROM conversations WHERE workspace_id IN (${placeholders})`,
+  ).run(...ids);
+  db.prepare(`DELETE FROM workspaces WHERE id IN (${placeholders})`).run(
+    ...ids,
+  );
+
+  return { purged: ids.length };
 }

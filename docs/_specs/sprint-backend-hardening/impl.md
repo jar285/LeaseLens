@@ -51,6 +51,9 @@ at-limit notice naming what still works). Guardrails gate on
 | `05-quota-meter-low.png` | **After:** QuotaMeter low state — "19 questions left this hour" + draining bar (19/60) |
 | `06-quota-rate-limit-calm.png` | **After:** 429 → calm "question limit… resets within the hour" notice |
 | `07-quota-daily-paused.png` | **After:** typed daily budget event → "paused for today" notice |
+| `08-delete-review-button.png` | sD.19: "Delete my review" beside Replace (non-sample workspaces only) |
+| `09-delete-confirm-dialog.png` | sD.19: honest destructive confirm ("permanently deletes … from our server") |
+| `10-post-delete-mode-a.png` | sD.19: post-delete — back to Mode A, cookie cleared, server rows verified gone |
 
 ## Known follow-ups
 
@@ -59,7 +62,11 @@ at-limit notice naming what still works). Guardrails gate on
   race-tolerant rebuild migration (live-verified on the dev DB: 768 leases +
   11 tool_calls preserved, 0 legacy orphans per `PRAGMA foreign_key_check`),
   purge-expired-before-resolve on the chat/leases-GET/SSR read paths.
-- Remaining issues: #19 (expiring anon job model + delete-now), #24 (PII
-  retention policy), #23 (DB spike, deferred).
+- ~~#19 delete-review-now~~ done (`sD.19`): `purgeWorkspaceNow` + the
+  no-body `delete-current` endpoint + header affordance + honest privacy/FAQ
+  retention copy; live-verified end-to-end (200 → Mode A → cookie cleared →
+  rows gone). Workspace-as-job satisfies the `lease_jobs` criteria; a
+  dedicated job table remains the documented future evolution.
+- Remaining issues: #24 (PII retention policy doc), #23 (DB spike, deferred).
 - A public-anon Playwright *project* (second webServer env) is future CI
   work; today public-mode behavior is integration-tested in vitest.

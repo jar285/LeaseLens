@@ -295,6 +295,9 @@ export default async function Home() {
         initialToolEvents={initialToolEvents}
         initialActiveLease={initialActiveLease}
         autoScanEnabled={env.LEASELENS_AUTO_SCAN_ENABLED}
+        // Sprint D.19 (#19) — the sample workspaces are never deletable; a
+        // visitor's own (non-sample) review gets the Delete-my-review action.
+        canDeleteWorkspace={workspace.is_sample === 0}
       />
     </main>
   );

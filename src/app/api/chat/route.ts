@@ -42,6 +42,7 @@ import { retrieve } from '@/lib/rag/retrieve';
 import { createToolRegistry } from '@/lib/tools/create-registry';
 import type { AnthropicTool } from '@/lib/tools/domain';
 import { toSafeToolError } from '@/lib/tools/safe-tool-error';
+import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import {
   decodeWorkspace,
   WORKSPACE_COOKIE_NAME,
@@ -263,6 +264,10 @@ export async function POST(req: NextRequest) {
         extra: { redirect: '/' },
       });
     }
+    // Sprint D.20 (#20) — purge-before-resolve on the hot read path: an
+    // expired workspace's children (tenant PII) are deleted here, not merely
+    // hidden by getActiveWorkspace's expiry filter until the next upload.
+    purgeExpiredWorkspaces(db);
     const workspace = getActiveWorkspace(db, workspacePayload.workspace_id);
     if (!workspace) {
       const res = errorResponse('UNAUTHENTICATED', {

@@ -14,6 +14,7 @@
 import type Database from 'better-sqlite3';
 import type { NextRequest, NextResponse } from 'next/server';
 import { errorResponse } from '@/lib/http/error-response';
+import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import {
   SAMPLE_CLEAN_WORKSPACE,
   SAMPLE_WORKSPACE,
@@ -111,11 +112,17 @@ export async function requireSessionOrAnon(
         response: errorResponse('UNAUTHENTICATED', { requestId }),
       };
     }
-    if (requireActiveWorkspace && !getActiveWorkspace(db, wsId)) {
-      return {
-        ok: false,
-        response: errorResponse('UNAUTHENTICATED', { requestId }),
-      };
+    if (requireActiveWorkspace) {
+      // Sprint D.20 (#20) — purge-before-resolve: without this, an expired
+      // workspace's children (tenant PII) linger until someone happens to hit
+      // a write route. Cheap when idle (one indexed SELECT, early return).
+      purgeExpiredWorkspaces(db);
+      if (!getActiveWorkspace(db, wsId)) {
+        return {
+          ok: false,
+          response: errorResponse('UNAUTHENTICATED', { requestId }),
+        };
+      }
     }
     workspaceId = wsId;
   } else {

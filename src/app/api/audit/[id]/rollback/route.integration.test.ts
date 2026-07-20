@@ -100,6 +100,17 @@ describe('POST /api/audit/[id]/rollback', () => {
     for (const u of DEMO_USERS) {
       insertUser.run(u.id, u.email, toDbRole(u.role), u.display_name, now);
     }
+    // Sprint D.20 (#20) — leases.workspace_id now carries an FK; the sample
+    // workspace row must exist before the seeded lease below.
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, ?, ?, 1, ?, NULL)`,
+    ).run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      now,
+    );
     db.prepare(
       'INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
     ).run(

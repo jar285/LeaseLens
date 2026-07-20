@@ -54,9 +54,12 @@ at-limit notice naming what still works). Guardrails gate on
 
 ## Known follow-ups
 
-- `(#12)` → `(#25)` reword on the two sD.12 commit subjects before push
-  (local-only; GH autolink correctness).
-- Remaining issues: #19 (expiring anon job model), #20 `#7b` (FK
-  constraints), #24 (PII retention policy), #23 (DB spike, deferred).
+- ~~`(#12)` → `(#25)` reword~~ done (commits rebuilt content-identical).
+- ~~#20 `#7b` FK constraints~~ done (`sD.20`): FK net on leases/tool_calls,
+  race-tolerant rebuild migration (live-verified on the dev DB: 768 leases +
+  11 tool_calls preserved, 0 legacy orphans per `PRAGMA foreign_key_check`),
+  purge-expired-before-resolve on the chat/leases-GET/SSR read paths.
+- Remaining issues: #19 (expiring anon job model + delete-now), #24 (PII
+  retention policy), #23 (DB spike, deferred).
 - A public-anon Playwright *project* (second webServer env) is future CI
   work; today public-mode behavior is integration-tested in vitest.

@@ -87,6 +87,117 @@ function hasLegacySlugUnique(db: Database.Database): boolean {
  * The pragma must be set OUTSIDE the transaction — SQLite forbids changing
  * `foreign_keys` inside one. See https://www.sqlite.org/lang_altertable.html#otheralter
  */
+/**
+ * Sprint D.20 (#20) — does `table` already declare an FK from `fromColumn`?
+ * Guards the FK-adding rebuilds below so they fire once per DB (fresh DBs get
+ * the FKs straight from SCHEMA and skip the rebuild entirely).
+ */
+function fkExists(
+  db: Database.Database,
+  table: string,
+  fromColumn: string,
+): boolean {
+  const fks = db.prepare(`PRAGMA foreign_key_list(${table})`).all() as {
+    from: string;
+  }[];
+  return fks.some((f) => f.from === fromColumn);
+}
+
+/**
+ * Sprint D.20 (#20) — run an FK-adding 12-step table rebuild, tolerant of the
+ * parallel-`next build` race (multiple workers open this same DB file; the
+ * duplicate-column swallow doesn't map to DROP/RENAME, so instead: if the
+ * rebuild throws but the FK now exists, another worker completed it first —
+ * the desired end state — and the error is swallowed; anything else rethrows).
+ */
+function rebuildWithFkRaceTolerance(
+  db: Database.Database,
+  table: string,
+  guardColumn: string,
+  rebuild: () => void,
+): void {
+  try {
+    rebuild();
+  } catch (err) {
+    if (!fkExists(db, table, guardColumn)) throw err;
+  }
+}
+
+/**
+ * Sprint D.20 (#20) — rebuild `leases` adding the FK invariant net:
+ * workspace_id → workspaces(id), uploaded_by → users(id). Bare FKs (no ON
+ * DELETE — deletion stays the explicit children-first purge in
+ * WORKSPACE_SCOPED_TABLES); they prevent orphan CREATION, so tenant PII can't
+ * be stranded outside the retention sweep. Same pragma discipline as the
+ * documents rebuild above (FK pragma toggled OUTSIDE the transaction).
+ */
+function rebuildLeasesTableWithFks(db: Database.Database): void {
+  const fkWasOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  if (fkWasOn) db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE leases_new (
+          id            TEXT PRIMARY KEY,
+          workspace_id  TEXT NOT NULL REFERENCES workspaces(id),
+          filename      TEXT NOT NULL,
+          text_extract  TEXT NOT NULL,
+          page_count    INTEGER NOT NULL,
+          uploaded_by   TEXT NOT NULL REFERENCES users(id),
+          created_at    INTEGER NOT NULL
+        );
+        INSERT INTO leases_new (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+          SELECT id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at FROM leases;
+        DROP TABLE leases;
+        ALTER TABLE leases_new RENAME TO leases;
+        CREATE INDEX IF NOT EXISTS idx_leases_workspace ON leases(workspace_id);
+      `);
+    })();
+  } finally {
+    if (fkWasOn) db.pragma('foreign_keys = ON');
+  }
+}
+
+/**
+ * Sprint D.20 (#20) — rebuild `tool_calls` adding workspace_id →
+ * workspaces(id). actor_user_id deliberately gets NO FK: the MCP server
+ * writes the synthetic actor 'mcp-server' (no users row), and observability
+ * rows shouldn't couple to deletable parents. Must run AFTER the error_code
+ * ADD COLUMN migration (the copy needs the modern column set).
+ */
+function rebuildToolCallsTableWithFks(db: Database.Database): void {
+  const fkWasOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  if (fkWasOn) db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE tool_calls_new (
+          id              TEXT PRIMARY KEY,
+          tool_name       TEXT NOT NULL,
+          tool_use_id     TEXT,
+          actor_user_id   TEXT NOT NULL,
+          actor_role      TEXT NOT NULL CHECK(actor_role IN ('Creator', 'Editor', 'Admin')),
+          conversation_id TEXT,
+          workspace_id    TEXT NOT NULL REFERENCES workspaces(id),
+          status          TEXT NOT NULL CHECK(status IN ('success', 'error')) DEFAULT 'success',
+          error_message   TEXT,
+          error_code      TEXT,
+          latency_ms      INTEGER,
+          created_at      INTEGER NOT NULL
+        );
+        INSERT INTO tool_calls_new (id, tool_name, tool_use_id, actor_user_id, actor_role, conversation_id, workspace_id, status, error_message, error_code, latency_ms, created_at)
+          SELECT id, tool_name, tool_use_id, actor_user_id, actor_role, conversation_id, workspace_id, status, error_message, error_code, latency_ms, created_at FROM tool_calls;
+        DROP TABLE tool_calls;
+        ALTER TABLE tool_calls_new RENAME TO tool_calls;
+        CREATE INDEX IF NOT EXISTS idx_tool_calls_workspace ON tool_calls(workspace_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tool_calls_tool      ON tool_calls(tool_name, created_at DESC);
+      `);
+    })();
+  } finally {
+    if (fkWasOn) db.pragma('foreign_keys = ON');
+  }
+}
+
 function rebuildDocumentsTableWithoutSlugUnique(db: Database.Database): void {
   const fkWasOn = db.pragma('foreign_keys', { simple: true }) === 1;
   if (fkWasOn) db.pragma('foreign_keys = OFF');
@@ -241,5 +352,25 @@ export function migrate(db: Database.Database): void {
         `UPDATE clauses SET graded_at = created_at WHERE severity IS NOT NULL AND graded_at IS NULL`,
       );
     }
+  }
+
+  // Sprint D.20 (#20) — FK invariant net on the job-owned tables. Runs LAST so
+  // the rebuilt copies carry every column added by the migrations above
+  // (tool_calls.error_code). Fresh DBs get the FKs from SCHEMA (guard false);
+  // legacy DBs rebuild once. Pre-existing orphan rows survive the copy (FK
+  // pragma is OFF during the rebuild; SQLite enforces on new writes only) —
+  // `PRAGMA foreign_key_check` is the ops tool for auditing legacy data.
+  if (tableExists(db, 'leases') && !fkExists(db, 'leases', 'workspace_id')) {
+    rebuildWithFkRaceTolerance(db, 'leases', 'workspace_id', () =>
+      rebuildLeasesTableWithFks(db),
+    );
+  }
+  if (
+    tableExists(db, 'tool_calls') &&
+    !fkExists(db, 'tool_calls', 'workspace_id')
+  ) {
+    rebuildWithFkRaceTolerance(db, 'tool_calls', 'workspace_id', () =>
+      rebuildToolCallsTableWithFks(db),
+    );
   }
 }

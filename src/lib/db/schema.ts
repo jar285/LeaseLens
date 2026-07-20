@@ -148,6 +148,11 @@ export const SCHEMA = `
   -- per-tool stats. Joined to audit_log via tool_use_id when present
   -- so mutating rows can surface their Undo button by pulling the
   -- matching audit_id at read time.
+  -- Sprint D.20 (#20) — workspace_id carries a bare FK (orphan tool I/O can't
+  -- be created outside the retention sweep; deletion stays the explicit
+  -- children-first purge in WORKSPACE_SCOPED_TABLES). actor_user_id has NO FK
+  -- on purpose: the MCP server writes the synthetic actor 'mcp-server' (no
+  -- users row), and observability rows shouldn't couple to deletable parents.
   CREATE TABLE IF NOT EXISTS tool_calls (
     id              TEXT PRIMARY KEY,
     tool_name       TEXT NOT NULL,
@@ -155,7 +160,7 @@ export const SCHEMA = `
     actor_user_id   TEXT NOT NULL,
     actor_role      TEXT NOT NULL CHECK(actor_role IN ('Creator', 'Editor', 'Admin')),
     conversation_id TEXT,
-    workspace_id    TEXT NOT NULL,
+    workspace_id    TEXT NOT NULL REFERENCES workspaces(id),
     status          TEXT NOT NULL CHECK(status IN ('success', 'error')) DEFAULT 'success',
     -- Sprint 44B: error_message holds a SAFE error NAME (e.g. 'SyntaxError'),
     -- never the raw message (which can embed lease/draft PII); error_code is the
@@ -191,13 +196,17 @@ export const SCHEMA = `
   -- Sprint 13 §3e — LeaseLens session-input tables. Per charter §5.12,
   -- leases are per-session input documents, NOT corpus content. They live
   -- in their own table and are NOT embedded into chunks.
+  -- Sprint D.20 (#20) — bare FKs (no ON DELETE; house design keeps deletion
+  -- as the explicit purge): a lease can never be created pointing at a
+  -- nonexistent workspace or uploader, so tenant PII can't be stranded
+  -- outside the retention sweep by a write-path bug.
   CREATE TABLE IF NOT EXISTS leases (
     id            TEXT PRIMARY KEY,
-    workspace_id  TEXT NOT NULL,
+    workspace_id  TEXT NOT NULL REFERENCES workspaces(id),
     filename      TEXT NOT NULL,
     text_extract  TEXT NOT NULL,
     page_count    INTEGER NOT NULL,
-    uploaded_by   TEXT NOT NULL,
+    uploaded_by   TEXT NOT NULL REFERENCES users(id),
     created_at    INTEGER NOT NULL
   );
 

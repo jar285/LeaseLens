@@ -26,6 +26,7 @@ import {
   getActiveLeaseSnapshot,
 } from '@/lib/lease/queries';
 import { LEASELENS_STATUS, LEASELENS_VERSION } from '@/lib/version';
+import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   decodeWorkspace,
@@ -97,6 +98,10 @@ export default async function Home() {
   const workspacePayload = workspaceCookie
     ? await decodeWorkspace(workspaceCookie.value)
     : null;
+  // Sprint D.20 (#20) — purge-before-resolve on the SSR path (and BEFORE the
+  // anon re-materialize below, so a TTL'd-out workspace is deleted with its
+  // children rather than resurrected around stale rows).
+  purgeExpiredWorkspaces(db);
   if (
     isAnon &&
     workspacePayload &&

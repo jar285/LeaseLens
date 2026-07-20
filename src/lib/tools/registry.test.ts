@@ -485,6 +485,12 @@ describe('ToolRegistry', () => {
   describe('execute (tool-failure redaction — Sprint 44B)', () => {
     it('persists a safe { name, code } error record, never the raw PII message', async () => {
       const db = createTestDb();
+      // Sprint D.20 (#20) — tool_calls.workspace_id now carries an FK; the
+      // workspace the failed call is logged against must exist.
+      db.prepare(
+        `INSERT INTO workspaces (id, name, description, is_sample, created_at)
+         VALUES (?, 'W', 'test', 1, 1)`,
+      ).run(SAMPLE_WORKSPACE.id);
       const registry = new ToolRegistry(db);
       registry.register({
         name: 'parse_tool',

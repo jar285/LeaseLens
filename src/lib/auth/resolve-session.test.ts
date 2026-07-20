@@ -98,7 +98,10 @@ describe('requireSessionOrAnon (#15)', () => {
     else process.env._TEST_PUBLIC_ANON_MODE = priorPublic;
     if (priorDemo === undefined) delete process.env._TEST_DEMO_MODE;
     else process.env._TEST_DEMO_MODE = priorDemo;
+    // Sprint D.20 — children first: leases.workspace_id now carries an FK,
+    // so a workspace delete with surviving children is refused by design.
     for (const id of [ACTIVE_WS, EXPIRED_WS, ABSENT_WS]) {
+      db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(id);
       db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
     }
   });
@@ -180,6 +183,42 @@ describe('requireSessionOrAnon (#15)', () => {
       });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.response.status).toBe(401);
+    });
+
+    // Sprint D.20 (#20) — purge-before-resolve: an expired workspace's child
+    // rows (tenant PII) must not linger until someone happens to upload. The
+    // read path fires the lazy TTL purge, so resolving an expired workspace
+    // both 401s AND deletes its children (Google SRE: retention mechanically
+    // reliable, not dependent on user behavior).
+    it('purges the expired workspace and its children on the read path (D.20)', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      // FK-valid parents: the lease needs a real uploader row.
+      db.prepare(
+        `INSERT OR IGNORE INTO users (id, email, role, display_name, created_at)
+         VALUES ('u-d20', 'd20@anon.leaselens.local', 'Creator', 'D20', ?)`,
+      ).run(now);
+      db.prepare(
+        `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+         VALUES ('lease-d20', ?, 'x.pdf', 't', 1, 'u-d20', ?)`,
+      ).run(EXPIRED_WS, now);
+
+      const req = await makeReq({
+        session: anonSession,
+        workspaceId: EXPIRED_WS,
+      });
+      const r = await requireSessionOrAnon(req, db, {
+        requireActiveWorkspace: true,
+      });
+      expect(r.ok).toBe(false);
+
+      // The expired workspace AND its lease are gone, not merely hidden.
+      expect(
+        db.prepare('SELECT 1 FROM workspaces WHERE id = ?').get(EXPIRED_WS),
+      ).toBeUndefined();
+      expect(
+        db.prepare('SELECT 1 FROM leases WHERE id = ?').get('lease-d20'),
+      ).toBeUndefined();
+      db.prepare('DELETE FROM users WHERE id = ?').run('u-d20');
     });
 
     it('resolves on the read path for an active per-visitor workspace', async () => {

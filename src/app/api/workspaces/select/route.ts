@@ -12,6 +12,8 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { errorResponse } from '@/lib/http/error-response';
+import { requestIdFrom } from '@/lib/log/request-id';
 import {
   SAMPLE_WORKSPACE,
   WORKSPACE_TTL_SECONDS,
@@ -26,17 +28,23 @@ import { getActiveWorkspace } from '@/lib/workspaces/queries';
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // Sprint D.12a (#12) — normalized error envelope throughout; original
+  // messages preserved as developer-authored overrides.
+  const requestId = requestIdFrom(req.headers);
   const incoming = req.cookies.get(WORKSPACE_COOKIE_NAME);
   const prior = incoming ? await decodeWorkspace(incoming.value) : null;
   if (!prior) {
-    return NextResponse.json({ error: 'No workspace cookie' }, { status: 401 });
+    return errorResponse('UNAUTHENTICATED', {
+      requestId,
+      message: 'No workspace cookie',
+    });
   }
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return errorResponse('VALIDATION', { requestId, message: 'Invalid JSON' });
   }
   const targetId =
     typeof body === 'object' &&
@@ -46,32 +54,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ? (body as { workspace_id: string }).workspace_id
       : null;
   if (!targetId) {
-    return NextResponse.json(
-      { error: 'workspace_id required' },
-      { status: 400 },
-    );
+    return errorResponse('VALIDATION', {
+      requestId,
+      message: 'workspace_id required',
+    });
   }
 
   if (targetId === SAMPLE_WORKSPACE.id) {
-    return NextResponse.json(
-      { error: 'Use /api/workspaces/select-sample for the sample workspace' },
-      { status: 403 },
-    );
+    return errorResponse('FORBIDDEN', {
+      requestId,
+      message: 'Use /api/workspaces/select-sample for the sample workspace',
+    });
   }
 
   if (!prior.created_workspace_ids.includes(targetId)) {
-    return NextResponse.json(
-      { error: 'Target workspace is not in your created list' },
-      { status: 403 },
-    );
+    return errorResponse('FORBIDDEN', {
+      requestId,
+      message: 'Target workspace is not in your created list',
+    });
   }
 
   const target = getActiveWorkspace(db, targetId);
   if (!target) {
-    return NextResponse.json(
-      { error: 'Workspace not found or expired' },
-      { status: 404 },
-    );
+    return errorResponse('NOT_FOUND', {
+      requestId,
+      message: 'Workspace not found or expired',
+    });
   }
 
   const token = await encodeWorkspace({

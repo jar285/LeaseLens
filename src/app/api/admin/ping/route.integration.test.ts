@@ -46,12 +46,16 @@ describe('Admin Ping Endpoint Integration', () => {
     expect(body).toEqual({ message: 'Admin verified' });
   });
 
+  // Sprint D.12a (#12) — the middleware 403 now carries the normalized
+  // envelope ({ error, code, requestId }) instead of the raw { error } body.
   it('should return 403 Forbidden for Creator role', async () => {
     const response = await executeRequestFlow('Tenant');
     expect(response?.status).toBe(403);
 
     const body = await response?.json();
-    expect(body).toEqual({ error: 'Forbidden' });
+    expect(body.code).toBe('FORBIDDEN');
+    expect(typeof body.error).toBe('string');
+    expect(typeof body.requestId).toBe('string');
   });
 
   it('should return 403 Forbidden for Editor role', async () => {
@@ -59,6 +63,8 @@ describe('Admin Ping Endpoint Integration', () => {
     expect(response?.status).toBe(403);
 
     const body = await response?.json();
-    expect(body).toEqual({ error: 'Forbidden' });
+    expect(body.code).toBe('FORBIDDEN');
+    expect(typeof body.error).toBe('string');
+    expect(typeof body.requestId).toBe('string');
   });
 });

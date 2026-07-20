@@ -82,10 +82,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       } else {
         const rl = checkAndIncrementRateLimit(userId);
         if (!rl.allowed) {
-          return NextResponse.json(
-            { error: 'Rate limit exceeded. Try again in an hour.' },
-            { status: 429 },
-          );
+          return errorResponse('RATE_LIMITED', {
+            requestId,
+            message: 'Rate limit exceeded. Try again in an hour.',
+          });
         }
       }
     }
@@ -104,20 +104,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const errMsg = validation.error.toLowerCase();
       // Order matters: a missing file produces a "PDF file is required"
       // string that would otherwise match the content-type branch below.
-      let status = 400;
+      // Sprint D.12a (#12) — normalized envelope; validation.error is
+      // developer-authored copy from validateLeaseUpload (safe to surface).
+      let code: 'VALIDATION' | 'PAYLOAD_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE' =
+        'VALIDATION';
       if (
         errMsg.includes('exceeds') ||
         errMsg.includes('too large') ||
         errMsg.includes('byte')
       ) {
-        status = 413;
+        code = 'PAYLOAD_TOO_LARGE';
       } else if (
         errMsg.includes('content-type') ||
         errMsg.includes('unsupported')
       ) {
-        status = 415;
+        code = 'UNSUPPORTED_MEDIA_TYPE';
       }
-      return NextResponse.json({ error: validation.error }, { status });
+      return errorResponse(code, { requestId, message: validation.error });
     }
 
     // Lazy TTL purge (Spec §4.5) before inserting.
@@ -141,34 +144,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       parsed = await parsePdf(buffer);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'parse failed';
-      return NextResponse.json(
-        { error: `PDF parse error: ${message}` },
-        { status: 422 },
+      // Sprint D.12a (#12) — canned message, never the raw pdfjs err.message
+      // (a library message is not our copy and could embed anything). Detail
+      // stays in the server log via the top-level catch pattern.
+      logger.warn(
+        { err, requestId },
+        'lease.pdf_parse_failed: returning 422 to client',
       );
+      return errorResponse('TOOL_FAILED', {
+        requestId,
+        message: 'PDF parse error: the file could not be read as a PDF.',
+      });
     }
 
     if (parsed.pageCount > env.LEASELENS_LEASE_MAX_PAGES) {
-      return NextResponse.json(
-        {
-          error: `PDF has ${parsed.pageCount} pages; cap is ${env.LEASELENS_LEASE_MAX_PAGES}.`,
-        },
-        { status: 413 },
-      );
+      return errorResponse('PAYLOAD_TOO_LARGE', {
+        requestId,
+        message: `PDF has ${parsed.pageCount} pages; cap is ${env.LEASELENS_LEASE_MAX_PAGES}.`,
+      });
     }
 
     const allBelowMin = parsed.pages.every(
       (p) => p.text.trim().length < MIN_PAGE_TEXT_CHARS,
     );
     if (allBelowMin) {
-      return NextResponse.json(
-        {
-          error:
-            'PDF text layer is empty or unreadable. The lease may be a scanned image; paste the text directly instead.',
-          code: 'pdf_no_text_layer',
-        },
-        { status: 422 },
-      );
+      // Sprint D.12a (#12) — the envelope `code` is now the typed enum; the
+      // old ad-hoc `pdf_no_text_layer` identity (unconsumed by any client)
+      // rides along as `reason` for greppability/API compat.
+      return errorResponse('TOOL_FAILED', {
+        requestId,
+        message:
+          'PDF text layer is empty or unreadable. The lease may be a scanned image; paste the text directly instead.',
+        extra: { reason: 'pdf_no_text_layer' },
+      });
     }
 
     const segmented = segmentClauses(parsed.pages);
@@ -229,6 +237,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     logger.error({ err }, 'lease.upload_failed');
-    return NextResponse.json({ error: 'Lease upload failed' }, { status: 500 });
+    return errorResponse('INTERNAL', {
+      requestId,
+      message: 'Lease upload failed',
+    });
   }
 }

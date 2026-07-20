@@ -8,12 +8,16 @@ import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
+import { errorResponse } from '@/lib/http/error-response';
+import { requestIdFrom } from '@/lib/log/request-id';
 import { listAuditRows } from '@/lib/tools/audit-log';
 
 const MAX_LIMIT = 200;
 const DEFAULT_LIMIT = 50;
 
 export async function GET(request: NextRequest) {
+  // Sprint D.12a (#12) — correlation id for the normalized error envelope.
+  const requestId = requestIdFrom(request.headers);
   // Resolve session (mirrors the chat route fallback at route.ts:111-124)
   const sessionCookie = request.cookies.get('leaselens_session');
   let userId: string | undefined = DEMO_USERS.find(
@@ -28,7 +32,7 @@ export async function GET(request: NextRequest) {
     }
   }
   if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return errorResponse('UNAUTHENTICATED', { requestId });
   }
 
   const url = new URL(request.url);

@@ -615,9 +615,16 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
     // Note: NO workspace cookie.
     const res = await POST(req);
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error: string; redirect: string };
+    // Sprint D.12a (#12) — normalized envelope: typed code + requestId join
+    // the preserved message + redirect hint.
+    const body = (await res.json()) as {
+      error: string;
+      redirect: string;
+      code: string;
+    };
     expect(body.error).toBe('No workspace selected');
     expect(body.redirect).toBe('/');
+    expect(body.code).toBe('UNAUTHENTICATED');
   });
 
   it('returns 401 + clears cookie when workspace decodes but no longer exists', async () => {
@@ -638,8 +645,9 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
     req.cookies.set(WORKSPACE_COOKIE_NAME, ghostWorkspaceToken);
     const res = await POST(req);
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error: string };
+    const body = (await res.json()) as { error: string; code: string };
     expect(body.error).toBe('Workspace expired');
+    expect(body.code).toBe('UNAUTHENTICATED');
     // Set-Cookie clears the workspace cookie.
     const setCookie = res.headers.get('set-cookie') ?? '';
     expect(setCookie).toContain('leaselens_workspace=');

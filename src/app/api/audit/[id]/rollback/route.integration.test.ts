@@ -268,6 +268,13 @@ describe('POST /api/audit/[id]/rollback', () => {
     );
     expect(res.status).toBe(500);
 
+    // Sprint D.12a (#12) — PII regression: the 500 must NOT echo the raw
+    // err.message (a compensating-action error can embed draft-email/clause
+    // content); the normalized envelope carries a safe canned message + code.
+    const body = (await res.json()) as { error: string; code: string };
+    expect(body.error).not.toContain('forced rollback failure');
+    expect(body.code).toBe('INTERNAL');
+
     const audit = db
       .prepare('SELECT status, rolled_back_at FROM audit_log WHERE id = ?')
       .get(auditId) as { status: string; rolled_back_at: number | null };

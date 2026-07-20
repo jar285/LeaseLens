@@ -4,6 +4,9 @@ import { newAnonIdentity } from '@/lib/auth/anon-identity';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { isPublicAnonModeFromProcessEnv } from '@/lib/auth/mode-edge';
 import { decrypt, encrypt } from '@/lib/auth/session';
+// Sprint D.12a (#12) — errorResponse is Edge-safe (imports only next/server);
+// the middleware 401/403 now carry the same typed envelope as the Node routes.
+import { errorResponse } from '@/lib/http/error-response';
 import { REQUEST_ID_HEADER } from '@/lib/log/request-id';
 import {
   SAMPLE_WORKSPACE,
@@ -130,19 +133,13 @@ export async function middleware(request: NextRequest) {
       ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p)) &&
       session.role !== 'Admin'
     ) {
-      const forbidden = NextResponse.json(
-        { error: 'Forbidden' },
-        { status: 403 },
-      );
+      const forbidden = errorResponse('FORBIDDEN', { requestId });
       forbidden.headers.set(REQUEST_ID_HEADER, requestId);
       return forbidden;
     }
   } else if (pathname.startsWith('/api/')) {
     // Only block API routes — page route falls through to the Server Component
-    const unauthorized = NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 },
-    );
+    const unauthorized = errorResponse('UNAUTHENTICATED', { requestId });
     unauthorized.headers.set(REQUEST_ID_HEADER, requestId);
     return unauthorized;
   }

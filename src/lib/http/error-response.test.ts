@@ -61,4 +61,39 @@ describe('errorResponse', () => {
   it('omits Retry-After when not provided', () => {
     expect(errorResponse('RATE_LIMITED').headers.get('Retry-After')).toBeNull();
   });
+
+  // Sprint D.12a (#12) — `extra` merges caller-supplied safe fields into the
+  // body (e.g. chat's `redirect: '/'` recovery hint) WITHOUT letting them
+  // clobber the envelope's own contract keys.
+  it('merges extra fields into the body', async () => {
+    const body = await errorResponse('UNAUTHENTICATED', {
+      requestId: 'REQ-2',
+      extra: { redirect: '/' },
+    }).json();
+    expect(body.redirect).toBe('/');
+    expect(body.code).toBe('UNAUTHENTICATED');
+    expect(body.requestId).toBe('REQ-2');
+  });
+
+  it('extra can never clobber the envelope contract keys', async () => {
+    const body = await errorResponse('VALIDATION', {
+      extra: { code: 'SPOOFED', error: 'spoofed', requestId: 'spoofed' },
+    }).json();
+    expect(body.code).toBe('VALIDATION');
+    expect(body.error).not.toBe('spoofed');
+    expect(body).not.toHaveProperty('requestId');
+  });
+
+  // Sprint D.12a (#12) — codes for the raw routes being normalized: the
+  // rollback 410 ("tool no longer registered") and the leases 415.
+  it('maps GONE → 410 and UNSUPPORTED_MEDIA_TYPE → 415 with safe messages', async () => {
+    expect(errorResponse('GONE').status).toBe(410);
+    expect(errorResponse('UNSUPPORTED_MEDIA_TYPE').status).toBe(415);
+    const gone = await errorResponse('GONE').json();
+    expect(gone.code).toBe('GONE');
+    expect(gone.error.length).toBeGreaterThan(0);
+    const media = await errorResponse('UNSUPPORTED_MEDIA_TYPE').json();
+    expect(media.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+    expect(media.error.length).toBeGreaterThan(0);
+  });
 });

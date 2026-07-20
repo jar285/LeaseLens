@@ -4,7 +4,7 @@ import type {
   Tool,
   ToolUseBlock,
 } from '@anthropic-ai/sdk/resources/messages';
-import { type NextRequest, NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getAnthropicClient } from '@/lib/anthropic/client';
 import {
@@ -257,18 +257,22 @@ export async function POST(req: NextRequest) {
     const workspacePayload = workspaceCookie
       ? await decodeWorkspace(workspaceCookie.value)
       : null;
+    // Sprint D.12a (#12) — normalized envelope; the `redirect` recovery hint
+    // rides along via `extra` (the home page re-issues the cookie).
     if (!workspacePayload) {
-      return NextResponse.json(
-        { error: 'No workspace selected', redirect: '/' },
-        { status: 401 },
-      );
+      return errorResponse('UNAUTHENTICATED', {
+        requestId,
+        message: 'No workspace selected',
+        extra: { redirect: '/' },
+      });
     }
     const workspace = getActiveWorkspace(db, workspacePayload.workspace_id);
     if (!workspace) {
-      const res = NextResponse.json(
-        { error: 'Workspace expired', redirect: '/' },
-        { status: 401 },
-      );
+      const res = errorResponse('UNAUTHENTICATED', {
+        requestId,
+        message: 'Workspace expired',
+        extra: { redirect: '/' },
+      });
       res.cookies.delete(WORKSPACE_COOKIE_NAME);
       return res;
     }

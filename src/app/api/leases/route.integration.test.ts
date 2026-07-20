@@ -162,8 +162,10 @@ describe('POST /api/leases', () => {
 
     const res = await POST(req);
     expect(res.status).toBe(415);
-    const body = (await res.json()) as { error: string };
+    // Sprint D.12a (#12) — normalized envelope carries the typed code.
+    const body = (await res.json()) as { error: string; code: string };
     expect(body.error).toMatch(/pdf|content[\s-]type/i);
+    expect(body.code).toBe('UNSUPPORTED_MEDIA_TYPE');
   });
 
   it('returns 413 when the file exceeds LEASELENS_LEASE_MAX_BYTES (default 1 MB)', async () => {
@@ -198,8 +200,11 @@ describe('POST /api/leases', () => {
 
     const res = await POST(req);
     expect(res.status).toBe(422);
-    const body = (await res.json()) as { error: string };
+    // Sprint D.12a (#12) — typed code; the message is canned (never the raw
+    // pdfjs err.message).
+    const body = (await res.json()) as { error: string; code: string };
     expect(body.error).toMatch(/pdf|parse|extract|text/i);
+    expect(body.code).toBe('TOOL_FAILED');
   });
 
   it("attaches the lease to the caller's user_id (uploaded_by)", async () => {

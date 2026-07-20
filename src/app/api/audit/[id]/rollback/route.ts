@@ -11,6 +11,9 @@ import { DEMO_USERS } from '@/lib/auth/constants';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
+import { errorResponse } from '@/lib/http/error-response';
+import { logger } from '@/lib/log/logger';
+import { requestIdFrom } from '@/lib/log/request-id';
 import { getAuditRow, markRolledBack } from '@/lib/tools/audit-log';
 import { createToolRegistry } from '@/lib/tools/create-registry';
 
@@ -19,6 +22,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  // Sprint D.12a (#12) — correlation id for the normalized error envelope.
+  const requestId = requestIdFrom(request.headers);
 
   // 1. Resolve session (no-cookie → Creator default, mirrors chat route).
   const sessionCookie = request.cookies.get('leaselens_session');
@@ -34,18 +39,18 @@ export async function POST(
     }
   }
   if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return errorResponse('UNAUTHENTICATED', { requestId });
   }
 
   // 2. Load audit row.
   const row = getAuditRow(db, id);
   if (!row) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return errorResponse('NOT_FOUND', { requestId });
   }
 
   // 3. RBAC — audit-ownership policy (P1).
   if (role !== 'Admin' && row.actor_user_id !== userId) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return errorResponse('FORBIDDEN', { requestId });
   }
 
   // 4. Idempotent.
@@ -57,10 +62,10 @@ export async function POST(
   const registry = createToolRegistry(db);
   const descriptor = registry.getDescriptor(row.tool_name);
   if (!descriptor?.compensatingAction) {
-    return NextResponse.json(
-      { error: 'Tool no longer registered' },
-      { status: 410 },
-    );
+    return errorResponse('GONE', {
+      requestId,
+      message: 'Tool no longer registered',
+    });
   }
   const compensatingAction = descriptor.compensatingAction;
 
@@ -80,10 +85,15 @@ export async function POST(
       markRolledBack(db, id);
     })();
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Rollback failed' },
-      { status: 500 },
-    );
+    // Sprint D.12a (#12) — PII fix: a compensating-action error can embed
+    // draft-email/clause content in err.message (e.g. a JSON.parse
+    // SyntaxError). Log the detail server-side (the err serializer scrubs);
+    // the client gets only the safe canned envelope.
+    logger.error({ err, requestId, auditId: id }, 'audit.rollback_failed');
+    return errorResponse('INTERNAL', {
+      requestId,
+      message: 'Rollback failed',
+    });
   }
 
   return NextResponse.json({ rolled_back: true, audit_id: id });

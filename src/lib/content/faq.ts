@@ -37,6 +37,6 @@ export const LEASELENS_FAQ = [
     id: 'data',
     question: 'What happens to my lease?',
     answer:
-      'Your lease is analyzed for clauses and red flags in your current session, and the review is temporary: it expires and is deleted from our server within 24 hours, or immediately if you use "Delete my review" in the workspace header. Lease PDFs are never embedded into the public NJ tenant-law index. See Privacy & data for the details.',
+      'Your lease is analyzed for clauses and red flags in your current session, and the review is temporary: it expires 24 hours after upload — no longer accessible, and removed from our server by routine cleanup — or is deleted immediately if you use "Delete my review" in the workspace header. Lease PDFs are never embedded into the public NJ tenant-law index. See Privacy & data for the details.',
   },
 ] as const;

@@ -62,9 +62,13 @@ pivot; lingering `src/` comments that mention it are historical "why" notes only
    `leases`/`clauses` and are **never** embedded into the RAG index.
 5. **Chat tool loop:** `MAX_TOOL_ITERATIONS = 15` (`src/app/api/chat/route.ts`) — raised from 3 in Sprint 13 to
    support per-clause grading on multi-clause leases.
-6. **Destructive reset = Replace only.** The sole workspace-reset path is **Replace** in `ParserResultsShell`'s
-   header, via the in-app `ConfirmDialog` (`role="alertdialog"`) — **not** `window.confirm`. "Clear assistant
-   chat" resets only the chat thread, never the lease/clauses/red flags.
+6. **Three distinct reset/delete actions — never merged (Sprint D.19).** **Replace** (`ParserResultsShell`
+   header) swaps the active document via the in-app `ConfirmDialog` (`role="alertdialog"`, never
+   `window.confirm`) and clears that lease's browser-cached PDF state — client-side only, server rows survive
+   until the workspace TTL. **Delete my review** (beside Replace, non-sample workspaces only) permanently
+   purges the caller's server-side workspace cascade via `POST /api/workspaces/delete-current` and clears the
+   browser cache (see [`data-retention.md`](data-retention.md)). **Clear assistant chat** resets only the chat
+   thread, never the lease/clauses/red flags.
 7. **Severity** is communicated by text + icon/shape **and** colour, never colour alone (`SeverityBadge`).
    WCAG-AA contrast; `prefers-reduced-motion` honoured at every animation site.
 8. **Grounding:** `grade_clause_severity` validates the cited `chunk_id` + statute text and throws on failure;
@@ -80,7 +84,10 @@ pivot; lingering `src/` comments that mention it are historical "why" notes only
    non-sample workspace** (`src/lib/auth/anon-identity.ts`), never the shared seeded Tenant or an immortal
    sample; the lease routes resolve identity through the shared fail-closed `requireSessionOrAnon`
    (`src/lib/auth/resolve-session.ts`) — missing/invalid session or workspace → 401, never a demo fallback.
-   Demo/default stays behavior-preserving.
+   Demo/default stays behavior-preserving. **Retention:** what is stored, for how long, who can see it, and
+   how it dies — every statement traced to code + test — lives in [`data-retention.md`](data-retention.md)
+   (Sprint D.24, #24): 24h workspace TTL + purge-on-resolve, on-demand delete-now, immortal samples,
+   documented non-goals (export, further audit redaction).
 
 ## Testing
 

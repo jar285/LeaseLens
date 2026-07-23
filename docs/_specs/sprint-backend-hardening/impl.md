@@ -67,6 +67,11 @@ at-limit notice naming what still works). Guardrails gate on
   retention copy; live-verified end-to-end (200 → Mode A → cookie cleared →
   rows gone). Workspace-as-job satisfies the `lease_jobs` criteria; a
   dedicated job table remains the documented future evolution.
-- Remaining issues: #24 (PII retention policy doc), #23 (DB spike, deferred).
+- ~~#24 retention policy~~ done (`sD.24`):
+  [`docs/_architecture/data-retention.md`](../../_architecture/data-retention.md)
+  — store inventory with per-row code+test tracing; AC2-export + AC4-further-
+  redaction closed as reasoned non-goals; AC5's deletion tests were delivered
+  by sA.7a/sD.19/sD.20 (see the doc's verification map).
+- Remaining: #23 (DB spike) stays deferred — the sprint's only open issue.
 - A public-anon Playwright *project* (second webServer env) is future CI
   work; today public-mode behavior is integration-tested in vitest.

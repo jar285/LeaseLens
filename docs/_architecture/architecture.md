@@ -66,8 +66,10 @@ pivot; lingering `src/` comments that mention it are historical "why" notes only
    header) swaps the active document via the in-app `ConfirmDialog` (`role="alertdialog"`, never
    `window.confirm`) and clears that lease's browser-cached PDF state — client-side only, server rows survive
    until the workspace TTL. **Delete my review** (beside Replace, non-sample workspaces only) permanently
-   purges the caller's server-side workspace cascade via `POST /api/workspaces/delete-current` and clears the
-   browser cache (see [`data-retention.md`](data-retention.md)). **Clear assistant chat** resets only the chat
+   purges the caller's server-side workspace cascade via `POST /api/workspaces/delete-current`, clears the
+   browser cache, and in public mode rotates the workspace cookie to a fresh empty workspace id so the next
+   upload passes the fail-closed auth gate without a navigation (sD.19b; see
+   [`data-retention.md`](data-retention.md)). **Clear assistant chat** resets only the chat
    thread, never the lease/clauses/red flags.
 7. **Severity** is communicated by text + icon/shape **and** colour, never colour alone (`SeverityBadge`).
    WCAG-AA contrast; `prefers-reduced-motion` honoured at every animation site.

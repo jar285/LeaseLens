@@ -1,17 +1,26 @@
 // Sprint D.19 (#19) — POST /api/workspaces/delete-current.
 //
 // "Delete my review now": deletes the CALLER'S OWN cookie workspace (no body,
-// no target id — zero impersonation surface) and clears the workspace cookie
-// so middleware mints a fresh identity on the next navigation. Samples are
-// never deletable (403) — the shared demo data is not a visitor's to destroy.
+// no target id — zero impersonation surface). Samples are never deletable
+// (403) — the shared demo data is not a visitor's to destroy.
+//
+// Sprint D.19b — in public mode the 200 response ROTATES the workspace cookie
+// to a fresh non-sample id instead of clearing it: the post-delete Mode B→A
+// flip is pure client state (no navigation), so middleware never re-mints and
+// a bare clear 401'd the visitor's very next upload.
 
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { newAnonIdentity } from '@/lib/auth/anon-identity';
+import { requireSessionOrAnon } from '@/lib/auth/resolve-session';
 import { encrypt } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
+  SAMPLE_CLEAN_WORKSPACE,
+  SAMPLE_WORKSPACE,
+} from '@/lib/workspaces/constants';
+import {
+  decodeWorkspace,
   encodeWorkspace,
   WORKSPACE_COOKIE_NAME,
 } from '@/lib/workspaces/cookie';
@@ -149,7 +158,7 @@ describe('POST /api/workspaces/delete-current (#19)', () => {
     ).toBeDefined();
   });
 
-  it("deletes the caller's own workspace + all children and clears the cookie (public mode)", async () => {
+  it("deletes the caller's own workspace + all children (public mode)", async () => {
     process.env._TEST_PUBLIC_ANON_MODE = 'true';
     seedReview(WS_MINE, anon.userId);
 
@@ -172,10 +181,57 @@ describe('POST /api/workspaces/delete-current (#19)', () => {
         `${table} row should be deleted`,
       ).toBeUndefined();
     }
+  });
 
-    // The workspace cookie is cleared so middleware re-mints on next nav.
-    const setCookie = res.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain(`${WORKSPACE_COOKIE_NAME}=`);
-    expect(setCookie).toMatch(/Max-Age=0|Expires=/i);
+  // Sprint D.19b — bare cookie deletion stranded the visitor: the Mode B→A
+  // flip after delete is pure client state (no navigation), /api/leases is
+  // not a middleware minting route, so the very next upload failed closed
+  // with 401 until the visitor happened to reload. The 200 response must
+  // instead ROTATE the cookie to a fresh, empty, non-sample workspace id —
+  // the same thing middleware would have minted on a navigation.
+  it('sD.19b — public mode: rotates the workspace cookie so a follow-up upload passes the auth gate (no 401)', async () => {
+    process.env._TEST_PUBLIC_ANON_MODE = 'true';
+    seedReview(WS_MINE, anon.userId);
+
+    const res = await POST(
+      await makeRequest({ workspaceId: WS_MINE, session: anon }),
+    );
+    expect(res.status).toBe(200);
+
+    const rotated = res.cookies.get(WORKSPACE_COOKIE_NAME);
+    expect(
+      rotated?.value,
+      'a replacement workspace cookie must be issued',
+    ).toBeTruthy();
+    expect(rotated?.maxAge ?? 0).toBeGreaterThan(0);
+
+    const payload = await decodeWorkspace(rotated?.value ?? '');
+    expect(
+      payload,
+      'replacement cookie must be a valid signed token',
+    ).not.toBeNull();
+    expect(payload?.workspace_id).not.toBe(WS_MINE);
+    expect(payload?.workspace_id).not.toBe(SAMPLE_WORKSPACE.id);
+    expect(payload?.workspace_id).not.toBe(SAMPLE_CLEAN_WORKSPACE.id);
+
+    // The exact gate POST /api/leases runs (write path — the workspace row
+    // is materialized by the upload route, so requireActiveWorkspace: false).
+    const followUp = new NextRequest('http://localhost:3000/api/leases', {
+      method: 'POST',
+    });
+    followUp.cookies.set(
+      'leaselens_session',
+      await encrypt({
+        userId: anon.userId,
+        role: 'Tenant',
+        displayName: 'Anon',
+        anonymous: true,
+      }),
+    );
+    followUp.cookies.set(WORKSPACE_COOKIE_NAME, rotated?.value ?? '');
+    const gate = await requireSessionOrAnon(followUp, db, {
+      requireActiveWorkspace: false,
+    });
+    expect(gate.ok, 'second upload must not 401 after delete').toBe(true);
   });
 });

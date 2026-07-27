@@ -36,10 +36,15 @@ guarantees:
 
 The visitor can also skip both and end the review immediately: **"Delete my
 review"** (`POST /api/workspaces/delete-current`, Sprint D.19) purges the
-caller's own cookie workspace on demand, synchronously in the request. The
-two **sample workspaces are immortal and cannot be deleted** — excluded from
-the TTL sweep (`is_sample = 1`), refused by `purgeWorkspaceNow`, and refused
-with 403 by the endpoint.
+caller's own cookie workspace on demand, synchronously in the request. In
+public-anonymous mode the 200 response **rotates** the workspace cookie to a
+fresh, empty, non-sample workspace id (Sprint D.19b — a bare cookie clear
+stranded the visitor's next upload with 401, because the post-delete return
+to the landing view is pure client state and never triggers the navigation
+middleware needs to re-mint); demo/default clears it and falls back to the
+sample. The two **sample workspaces are immortal and cannot be deleted** —
+excluded from the TTL sweep (`is_sample = 1`), refused by
+`purgeWorkspaceNow`, and refused with 403 by the endpoint.
 
 ## Data inventory
 
@@ -65,7 +70,7 @@ missing from it (`cleanup.test.ts`, Sprint A.7a).
 | `spend_log` | Per-day global token totals only (`date, tokens_in, tokens_out`) — no ids, no content | Indefinite (operational aggregate) | — | `db/spend.ts` | `schema.ts:43-47` (shape) |
 | `provider_call` | Budget-ledger rows: token estimates/actuals + session id — no content | Indefinite (operational ledger); stale reservations swept | — | `db/budget-ledger.ts` | `budget-ledger.test.ts` |
 | Browser IndexedDB (`leaselens-pdf-cache` / `pdf-binaries`) | The PDF bytes, on the visitor's own device | Until Replace / delete-now / mount-time prune | `delete(leaseId)` on Replace; `evictExcept([])` on delete-now | `lease/pdf-binary-repository.ts`, `ParserResultsShell.tsx` | `ParserResultsShell.test.tsx` |
-| Cookies | Session (signed: user id, role, anonymous flag; 24h) and workspace (signed: workspace id; TTL-matched) — ids only, no content | 24h max-age | Workspace cookie cleared by delete-now; both expire | `middleware.ts`, `delete-current/route.ts` | `middleware.test.ts`, `delete-current/route.integration.test.ts` |
+| Cookies | Session (signed: user id, role, anonymous flag; 24h) and workspace (signed: workspace id; TTL-matched) — ids only, no content | 24h max-age | Workspace cookie rotated to a fresh empty workspace id by delete-now in public mode (cleared in demo — sD.19b); both expire | `middleware.ts`, `delete-current/route.ts` | `middleware.test.ts`, `delete-current/route.integration.test.ts` |
 | Server logs (Pino) | Correlation ids, lengths, enums, safe error **names** — content is redacted by an allowlist + an `err` serializer that drops raw messages (Sprint 44B) | Log-sink retention (deployment-defined) | — | `log/logger.ts` (`REDACT_PATHS`, `serializeError`) | 44B redaction tests |
 | Anthropic API | Lease/clause text **is transmitted** to Anthropic for clause extraction, grading, and chat answers (that is the product). This document states the data flow only; provider-side handling is governed by Anthropic's own terms — no claims are made here | Per-request transmission | — | `anthropic/metered-client.ts`, `tools/lease-tools.ts` | — (data flow, not retention) |
 | `documents` / `chunks` | **Not tenant data** — the NJ tenant-law corpus only. Lease content is never embedded into the RAG index (architecture invariant #4) | Permanent (public corpus) | — | Seeder + RAG boundary | `schema.test.ts`, corpus tests |
@@ -141,7 +146,7 @@ export must be revisited alongside that change.
 | Every `workspace_id` table is covered by the purge cascade (mechanical guard) | `src/lib/workspaces/cleanup.test.ts` — schema-introspection coverage test (A.7a) |
 | TTL purge cascades leases/clauses/emails/audit/tool_calls/conversations/messages; never samples | `cleanup.test.ts` cascade + never-purges-sample tests |
 | On-demand deletion by id; samples refused; FK-safe order | `cleanup.test.ts` `purgeWorkspaceNow` block (sD.19) |
-| Delete-now endpoint: 401 fail-closed / 403 sample / 200 + children gone + cookie cleared | `src/app/api/workspaces/delete-current/route.integration.test.ts` |
+| Delete-now endpoint: 401 fail-closed / 403 sample / 200 + children gone + cookie rotated so re-upload passes the auth gate (sD.19b) | `src/app/api/workspaces/delete-current/route.integration.test.ts` |
 | Client PDF cache evicted on Replace and on delete-now (`evictExcept([])`) | `src/components/lease/ParserResultsShell.test.tsx` |
 | Purge fires on read/resolve paths (expired children deleted, not hidden) | `src/lib/auth/resolve-session.test.ts` purge-on-resolve test (sD.20) |
 | Role escalation impossible outside demo (the cockpit chain's load-bearing link) | `src/lib/auth/actions.test.ts` (sA.3) |

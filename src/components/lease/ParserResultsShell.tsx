@@ -408,13 +408,17 @@ function ResultsHeader({
         {/* Sprint D.19 (#19) — true server deletion, non-sample workspaces
             only. Quiet neutral chrome like Replace (destructive weight lives
             in the confirm dialog, not the header); danger red stays reserved
-            for real errors per the severity-color rule. */}
+            for real errors per the severity-color rule.
+            Sprint D.19c — min-h-11 on BOTH siblings: the pair shipped at
+            ~26px, below the house 44px touch-target floor (canonical fix per
+            ScanTimeline S19.9 / ConfirmDialog); one-sided sizing would
+            misalign the masthead row. */}
         {onDelete ? (
           <button
             type="button"
             data-testid="results-delete-button"
             onClick={onDelete}
-            className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[12px] font-medium text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 text-[12px] font-medium text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
           >
             <Trash2 aria-hidden="true" className="h-3 w-3" />
             Delete my review
@@ -424,7 +428,7 @@ function ResultsHeader({
           type="button"
           data-testid="results-replace-button"
           onClick={onReplace}
-          className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[12px] font-medium text-fg-default transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 text-[12px] font-medium text-fg-default transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
         >
           <RotateCcw aria-hidden="true" className="h-3 w-3" />
           Replace

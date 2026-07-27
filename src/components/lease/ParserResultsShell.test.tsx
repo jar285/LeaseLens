@@ -422,6 +422,20 @@ describe('ParserResultsShell', () => {
       expect(screen.getByTestId('results-replace-button')).toBeInTheDocument();
     });
 
+    // Sprint D.19c — the header actions shipped at ~26px (px-2.5 py-1
+    // text-[12px]), below the house 44px touch-target floor. min-h-11 is the
+    // canonical fix (ScanTimeline S19.9, ConfirmDialog); both siblings get it
+    // so the masthead row stays height-aligned.
+    it('sD.19c — header Delete/Replace actions meet the 44px touch-target floor (min-h-11)', () => {
+      render(<ParserResultsShell {...baseProps} canDeleteWorkspace />);
+      expect(screen.getByTestId('results-delete-button').className).toMatch(
+        /\bmin-h-11\b/,
+      );
+      expect(screen.getByTestId('results-replace-button').className).toMatch(
+        /\bmin-h-11\b/,
+      );
+    });
+
     it('opens an honest confirm dialog; cancel makes NO server call', () => {
       const fetchSpy = stubDeleteFetch();
       render(<ParserResultsShell {...baseProps} canDeleteWorkspace />);

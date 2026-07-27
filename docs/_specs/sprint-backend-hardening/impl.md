@@ -54,6 +54,8 @@ at-limit notice naming what still works). Guardrails gate on
 | `08-delete-review-button.png` | sD.19: "Delete my review" beside Replace (non-sample workspaces only) |
 | `09-delete-confirm-dialog.png` | sD.19: honest destructive confirm ("permanently deletes … from our server") |
 | `10-post-delete-mode-a.png` | sD.19: post-delete — back to Mode A, cookie cleared, server rows verified gone |
+| `11-delete-then-reupload-200.png` | sD.19b: delete → second upload succeeds (network: `delete-current` 200, then `POST /api/leases` **200**, previously 401) |
+| `12-header-44px-touch-targets.png` | sD.19c: header Delete/Replace at the 44px floor (live boxes: 137×44 / 86×44) |
 
 ## Known follow-ups
 
@@ -72,6 +74,23 @@ at-limit notice naming what still works). Guardrails gate on
   — store inventory with per-row code+test tracing; AC2-export + AC4-further-
   redaction closed as reasoned non-goals; AC5's deletion tests were delivered
   by sA.7a/sD.19/sD.20 (see the doc's verification map).
+- ~~sD.19 review findings~~ done (`sD.19b` + `sD.19c`). **QA note:** the
+  sD.24 review pause surfaced two sD.19 defects. (1) sD.19b — after "Delete
+  my review" the very next upload 401'd in public mode: the route cleared the
+  workspace cookie assuming middleware would re-mint on the next navigation,
+  but the Mode B→A flip is pure client state and `/api/leases` is not a
+  middleware minting route, so `requireSessionOrAnon` failed closed. Fix: the
+  200 response now rotates the cookie to a fresh, empty, non-sample workspace
+  id (middleware parity; demo still clears and falls back to the sample).
+  TDD: new integration test decodes the rotated cookie and runs it through
+  the exact upload auth gate (watched red on the old route, green after);
+  live-verified in `npm run dev` under `LEASELENS_PUBLIC_ANON_MODE=true` —
+  upload 200 → delete 200 → **second upload 200** with no navigation
+  (screenshot 11). (2) sD.19c — the header Delete/Replace pair shipped at
+  ~26px, under the house 44px touch-target floor; both siblings now carry the
+  canonical `min-h-11` (component test watched red→green; live boxes measure
+  44px tall — screenshot 12). Full suite, lint, typecheck, and build re-run
+  green after both fixes.
 - Remaining: #23 (DB spike) stays deferred — the sprint's only open issue.
 - A public-anon Playwright *project* (second webServer env) is future CI
   work; today public-mode behavior is integration-tested in vitest.

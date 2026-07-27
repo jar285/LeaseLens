@@ -420,6 +420,8 @@ resolves. Issues stay open until the branch merges.
 | `sD.20` | FK invariant net: `leases.workspace_id`/`uploaded_by` + `tool_calls.workspace_id` (bare — purge stays the mechanism; `actor_user_id` deliberately un-FK'd for the `mcp-server` actor); race-tolerant table-rebuild migration; purge-expired-before-resolve on read paths | Closes **#20** |
 | `sD.19` | "Delete my review now": `purgeWorkspaceNow` (shared cascade with the TTL purge), `POST /api/workspaces/delete-current` (no body — own cookie workspace only, samples refused), header button + honest ConfirmDialog (non-sample only), privacy/FAQ copy stating the 24h TTL + delete right. Workspace-as-job satisfies the `lease_jobs` criteria ("or equivalent"); a dedicated job table stays the documented future evolution | Closes **#19** |
 | `sD.24` | Data-retention & PII policy (`docs/_architecture/data-retention.md`): full store inventory with per-row code+test tracing, access-control chain, audit-retention decision, export + further-redaction as reasoned non-goals, honest limitations (SQL delete ≠ forensic erasure; anon `users` rows persist) | Closes **#24** |
+| `sD.19b` | Delete-review re-upload fix: `delete-current`'s 200 response rotates the workspace cookie to a fresh non-sample id in public mode (bare clear + no-navigation Mode B→A flip stranded the next upload with a fail-closed 401); demo keeps clear + sample fallback. Live-verified: delete → second upload 200 | Hardens **#19** |
+| `sD.19c` | Header "Delete my review" + Replace lifted to the 44px touch-target floor (`min-h-11`, canonical S19.9 pattern); both siblings sized together so the masthead row stays aligned | Hardens **#19** |
 | Deferred | Production DB discipline (managed Postgres / Turso decision spike) | **#23** |
 
 ---

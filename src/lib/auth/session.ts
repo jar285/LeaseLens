@@ -27,6 +27,9 @@ interface WireSessionPayload {
   userId: string;
   role: DbRole;
   displayName: string;
+  // Sprint B.14 (#14) — carried on the wire only when true (omitted for
+  // seeded/demo sessions), so legacy cookies + demo cookies are byte-identical.
+  anonymous?: boolean;
 }
 
 export async function encrypt(payload: SessionPayload): Promise<string> {
@@ -34,6 +37,7 @@ export async function encrypt(payload: SessionPayload): Promise<string> {
     userId: payload.userId,
     role: toDbRole(payload.role),
     displayName: payload.displayName,
+    ...(payload.anonymous ? { anonymous: true } : {}),
   };
   return await new SignJWT(wire as unknown as Record<string, unknown>)
     .setProtectedHeader({ alg: 'HS256' })
@@ -51,6 +55,7 @@ export async function decrypt(token: string): Promise<SessionClaims | null> {
       userId: string;
       role: string;
       displayName: string;
+      anonymous?: boolean;
       iat?: number;
       exp?: number;
     };
@@ -64,6 +69,9 @@ export async function decrypt(token: string): Promise<SessionClaims | null> {
       userId: raw.userId,
       role,
       displayName: raw.displayName,
+      // Sprint B.14 (#14) — normalize to a strict boolean; absent on legacy /
+      // demo cookies → false.
+      anonymous: raw.anonymous === true,
       iat: raw.iat,
       exp: raw.exp,
     };

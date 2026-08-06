@@ -22,6 +22,17 @@ export const LEASELENS_PRIVACY = {
       heading: 'Cached on your device, cleared on Replace',
       body: 'Your PDF is cached in your browser (IndexedDB) so the viewer can re-open it without re-uploading. Using Replace in the workspace header revokes the active file and evicts those cached bytes.',
     },
+    // Sprint D.19 (#19) — honest temporary storage: the retention promise the
+    // product actually enforces. Sprint D.24 review — phrased to match the
+    // mechanism exactly: expiry (inaccessible at 24h) is guaranteed at the
+    // boundary; row deletion happens via routine cleanup on subsequent
+    // requests, not a clock-scheduled job. Only "Delete my review" promises
+    // IMMEDIATE deletion, because only it deletes synchronously.
+    {
+      id: 'retention',
+      heading: 'Expires automatically, or delete it now',
+      body: 'Your review is temporary by design: the lease, its clauses, red flags, and chat expire 24 hours after you start your review. From that point they are no longer accessible and are removed from our server by routine cleanup. Want it gone immediately? "Delete my review" in the workspace header permanently deletes everything on the server right away and clears this browser’s cached copy.',
+    }
     {
       id: 'not-legal-advice',
       heading: 'Informational, not legal advice',

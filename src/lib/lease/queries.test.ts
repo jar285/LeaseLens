@@ -31,6 +31,13 @@ function seedWorkspaces(db: Database.Database): void {
   db.prepare(
     `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, 'Other', 'other', 0, ?)`,
   ).run(OTHER_WS, now);
+  // Sprint D.20 (#20) — leases.uploaded_by now carries an FK; the uploader
+  // must be a real users row.
+  db.prepare(
+    `INSERT INTO users (id, email, role, display_name, created_at)
+     VALUES ('u-tenant', 'u@example.com', 'Creator', 'U', 1)
+     ON CONFLICT(id) DO NOTHING`,
+  ).run();
 }
 
 function seedConversation(

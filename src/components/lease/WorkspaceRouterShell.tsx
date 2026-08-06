@@ -46,6 +46,13 @@ export interface WorkspaceRouterShellProps {
    * default is on.
    */
   autoScanEnabled?: boolean;
+  /**
+   * Sprint D.19 (#19) — threaded from src/app/page.tsx as
+   * `workspace.is_sample === 0`. Enables the "Delete my review" action in
+   * Mode B (true server-side deletion); the shared sample workspaces are
+   * never deletable, so the demo surface is unchanged.
+   */
+  canDeleteWorkspace?: boolean;
 }
 
 export function WorkspaceRouterShell(
@@ -135,6 +142,7 @@ export function WorkspaceRouterShell(
             initialActiveLease={liveActiveLease}
             onReplace={handleReplace}
             triggerAutoScan={triggerAutoScan}
+            canDeleteWorkspace={props.canDeleteWorkspace}
           />
         </motion.div>
       ) : (

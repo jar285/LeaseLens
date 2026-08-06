@@ -2,93 +2,91 @@
  * Sprint 13 §3c — POST /api/leases
  *
  * Multipart upload route for tenant-supplied NJ lease PDFs. Pipeline:
- *   1. Resolve user from session cookie (default Creator/Tenant fallback).
- *   2. Resolve workspace from cookie (default sample workspace).
- *   3. Demo-mode rate limit (existing helper, 10 req/hour).
- *   4. validateLeaseUpload (size + content-type).
- *   5. parsePdf (text extraction).
- *   6. Detect text-layer-empty PDFs (every page < MIN_PAGE_TEXT_CHARS).
- *   7. segmentClauses + classifyClause.
- *   8. db.transaction: INSERT into leases + INSERTs into clauses.
- *   9. If conversationId supplied AND owned by caller, setActiveLease.
- *  10. Return { lease_id, page_count, clause_count }.
+ *   1. Resolve user + workspace (fail-closed in public-anon mode; #15).
+ *   2. Guardrail rate limit (existing helper, 10 req/hour).
+ *   3. validateLeaseUpload (size + content-type).
+ *   4. parsePdf (text extraction).
+ *   5. Detect text-layer-empty PDFs (every page < MIN_PAGE_TEXT_CHARS).
+ *   6. segmentClauses + classifyClause.
+ *   7. db.transaction: INSERT into leases + INSERTs into clauses.
+ *   8. If conversationId supplied AND owned by caller, setActiveLease.
+ *   9. Return { lease_id, page_count, clause_count }.
  *
  * Status-code conventions per spec §4 acceptance criteria:
  *   400 — missing file / general validation
+ *   401 — public-anon mode with no/invalid session or workspace (fail closed)
  *   413 — file size exceeds LEASELENS_LEASE_MAX_BYTES
  *   415 — wrong content-type
  *   422 — PDF parse failure or no text layer
  *   429 — rate limit exceeded
+ *
+ * Sprint B.15 (#15) — identity + workspace resolve through the shared
+ * fail-closed `requireSessionOrAnon`. In public-anon mode a missing/invalid
+ * session or workspace → 401; it NEVER falls back to the seeded demo Tenant or
+ * the immortal sample workspace. Write path → `requireActiveWorkspace: false`
+ * so the visitor's per-visitor workspace can be materialized below.
  */
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { DEMO_USERS } from '@/lib/auth/constants';
-import { decrypt } from '@/lib/auth/session';
-import type { Role } from '@/lib/auth/types';
+import { ensureAnonUserExists } from '@/lib/auth/anon-identity';
+import { guardrailsEnforced, isPublicAnonMode } from '@/lib/auth/mode';
+import { requireSessionOrAnon } from '@/lib/auth/resolve-session';
 import { db } from '@/lib/db';
+import { defaultTiers, enforceQuota } from '@/lib/db/quota';
 import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
 import { env } from '@/lib/env';
+import { clientSubnet } from '@/lib/http/client-ip';
+import { errorResponse } from '@/lib/http/error-response';
 import { MIN_PAGE_TEXT_CHARS, parsePdf } from '@/lib/lease/parse-pdf';
 import { insertClause, insertLease, setActiveLease } from '@/lib/lease/queries';
 import { segmentClauses } from '@/lib/lease/segment-clauses';
 import { validateLeaseUpload } from '@/lib/lease/validate-upload';
 import { logger } from '@/lib/log/logger';
+import { requestIdFrom } from '@/lib/log/request-id';
+import { weightFor } from '@/lib/quota/weights';
 import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
-import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
-import {
-  decodeWorkspace,
-  WORKSPACE_COOKIE_NAME,
-} from '@/lib/workspaces/cookie';
+import { ensureAnonWorkspaceExists } from '@/lib/workspaces/queries';
 
 export const runtime = 'nodejs';
 
-interface ResolvedSession {
-  userId: string;
-  role: Role;
-}
-
-async function resolveSession(req: NextRequest): Promise<ResolvedSession> {
-  const cookie = req.cookies.get('leaselens_session');
-  if (cookie) {
-    const claims = await decrypt(cookie.value);
-    if (claims) {
-      return { userId: claims.userId, role: claims.role };
-    }
-  }
-  const fallback = DEMO_USERS.find((u) => u.role === 'Tenant');
-  if (!fallback) {
-    throw new Error('No Creator demo user seeded; seed.ts must run first');
-  }
-  return { userId: fallback.id, role: 'Tenant' };
-}
-
-async function resolveWorkspaceId(req: NextRequest): Promise<string> {
-  const cookie = req.cookies.get(WORKSPACE_COOKIE_NAME);
-  if (cookie) {
-    const decoded = await decodeWorkspace(cookie.value);
-    if (decoded?.workspace_id) {
-      const exists = db
-        .prepare('SELECT id FROM workspaces WHERE id = ?')
-        .get(decoded.workspace_id);
-      if (exists) return decoded.workspace_id;
-    }
-  }
-  return SAMPLE_WORKSPACE.id;
-}
-
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const requestId = requestIdFrom(req.headers);
   try {
-    const session = await resolveSession(req);
-    const workspaceId = await resolveWorkspaceId(req);
+    const resolved = await requireSessionOrAnon(req, db, {
+      requestId,
+      requireActiveWorkspace: false,
+    });
+    if (!resolved.ok) return resolved.response;
+    const { userId, workspaceId } = resolved;
 
-    // Demo-mode rate limit (charter §11b).
-    if (env.LEASELENS_DEMO_MODE) {
-      const rl = checkAndIncrementRateLimit(session.userId);
-      if (!rl.allowed) {
-        return NextResponse.json(
-          { error: 'Rate limit exceeded. Try again in an hour.' },
-          { status: 429 },
+    // Sprint B.9 (#9) / C.17 (#17) — guardrails enforce whenever the app is
+    // exposed. Public-anon uses the composite-key quota (upload is a heavier
+    // weighted action); the demo profile keeps the legacy single-key limiter.
+    if (guardrailsEnforced()) {
+      if (isPublicAnonMode()) {
+        const result = enforceQuota(
+          db,
+          defaultTiers({
+            userId,
+            subnet: clientSubnet(req.headers),
+            route: '/api/leases',
+          }),
+          weightFor('upload'),
         );
+        if (!result.allowed) {
+          return errorResponse('RATE_LIMITED', {
+            requestId,
+            retryAfterSeconds: result.retryAfterSeconds,
+          });
+        }
+      } else {
+        const rl = checkAndIncrementRateLimit(userId);
+        if (!rl.allowed) {
+          return errorResponse('RATE_LIMITED', {
+            requestId,
+            message: 'Rate limit exceeded. Try again in an hour.',
+          });
+        }
       }
     }
 
@@ -106,24 +104,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const errMsg = validation.error.toLowerCase();
       // Order matters: a missing file produces a "PDF file is required"
       // string that would otherwise match the content-type branch below.
-      let status = 400;
+      // Sprint D.12a (#12) — normalized envelope; validation.error is
+      // developer-authored copy from validateLeaseUpload (safe to surface).
+      let code: 'VALIDATION' | 'PAYLOAD_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE' =
+        'VALIDATION';
       if (
         errMsg.includes('exceeds') ||
         errMsg.includes('too large') ||
         errMsg.includes('byte')
       ) {
-        status = 413;
+        code = 'PAYLOAD_TOO_LARGE';
       } else if (
         errMsg.includes('content-type') ||
         errMsg.includes('unsupported')
       ) {
-        status = 415;
+        code = 'UNSUPPORTED_MEDIA_TYPE';
       }
-      return NextResponse.json({ error: validation.error }, { status });
+      return errorResponse(code, { requestId, message: validation.error });
     }
 
     // Lazy TTL purge (Spec §4.5) before inserting.
     purgeExpiredWorkspaces(db);
+
+    // Sprint B.15 (#15) — public-anon: materialize the visitor's OWN users row
+    // (FK) + non-sample expiring workspace, gated on isPublicAnonMode() (NOT
+    // guardrailsEnforced(), which is also true in demo mode — running these on a
+    // demo user id would recreate the sample as non-sample and the next purge
+    // would delete it). This MUST run AFTER purgeExpiredWorkspaces: a returning
+    // visitor whose per-visitor workspace has aged past the TTL would otherwise
+    // be re-materialized and then purged out from under insertLease.
+    if (isPublicAnonMode()) {
+      ensureAnonUserExists(db, userId);
+      ensureAnonWorkspaceExists(db, workspaceId);
+    }
 
     const buffer = new Uint8Array(await validation.file.arrayBuffer());
 
@@ -131,34 +144,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       parsed = await parsePdf(buffer);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'parse failed';
-      return NextResponse.json(
-        { error: `PDF parse error: ${message}` },
-        { status: 422 },
+      // Sprint D.12a (#12) — canned message, never the raw pdfjs err.message
+      // (a library message is not our copy and could embed anything). Detail
+      // stays in the server log via the top-level catch pattern.
+      logger.warn(
+        { err, requestId },
+        'lease.pdf_parse_failed: returning 422 to client',
       );
+      return errorResponse('TOOL_FAILED', {
+        requestId,
+        message: 'PDF parse error: the file could not be read as a PDF.',
+      });
     }
 
     if (parsed.pageCount > env.LEASELENS_LEASE_MAX_PAGES) {
-      return NextResponse.json(
-        {
-          error: `PDF has ${parsed.pageCount} pages; cap is ${env.LEASELENS_LEASE_MAX_PAGES}.`,
-        },
-        { status: 413 },
-      );
+      return errorResponse('PAYLOAD_TOO_LARGE', {
+        requestId,
+        message: `PDF has ${parsed.pageCount} pages; cap is ${env.LEASELENS_LEASE_MAX_PAGES}.`,
+      });
     }
 
     const allBelowMin = parsed.pages.every(
       (p) => p.text.trim().length < MIN_PAGE_TEXT_CHARS,
     );
     if (allBelowMin) {
-      return NextResponse.json(
-        {
-          error:
-            'PDF text layer is empty or unreadable. The lease may be a scanned image; paste the text directly instead.',
-          code: 'pdf_no_text_layer',
-        },
-        { status: 422 },
-      );
+      // Sprint D.12a (#12) — the envelope `code` is now the typed enum; the
+      // old ad-hoc `pdf_no_text_layer` identity (unconsumed by any client)
+      // rides along as `reason` for greppability/API compat.
+      return errorResponse('TOOL_FAILED', {
+        requestId,
+        message:
+          'PDF text layer is empty or unreadable. The lease may be a scanned image; paste the text directly instead.',
+        extra: { reason: 'pdf_no_text_layer' },
+      });
     }
 
     const segmented = segmentClauses(parsed.pages);
@@ -170,7 +188,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         filename: validation.file.name || 'lease.pdf',
         textExtract: parsed.pages.map((p) => p.text).join('\n\n'),
         pageCount: parsed.pageCount,
-        uploadedBy: session.userId,
+        uploadedBy: userId,
       });
 
       for (const seg of segmented) {
@@ -197,7 +215,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           | undefined;
         if (
           conv &&
-          conv.user_id === session.userId &&
+          conv.user_id === userId &&
           conv.workspace_id === workspaceId
         ) {
           setActiveLease(db, conversationId, leaseId);
@@ -219,6 +237,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   } catch (err) {
     logger.error({ err }, 'lease.upload_failed');
-    return NextResponse.json({ error: 'Lease upload failed' }, { status: 500 });
+    return errorResponse('INTERNAL', {
+      requestId,
+      message: 'Lease upload failed',
+    });
   }
 }

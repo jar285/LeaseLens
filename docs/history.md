@@ -56,6 +56,7 @@ Some sprint numbers require context:
 | Public Product + Content | 41–45 | Footer, trust badges, content pages, signature motion, observability, CI, stored findings |
 | PDF Evidence Layer | 46–48 | Text-layer highlighting, evidence-frame overlay, floating labels, gutter markers |
 | Public Version Polish | 49 | Public `v1.0` stamp and subtle brand depth improvements |
+| Backend Hardening — Public-Anon Safety | A–B* | Fail-closed public-anonymous deploy profile: server-gated roles, request/timeout guards, metered nested spend, mode separation, per-visitor identity + lease isolation (*Phases C–D pending; branch `backend/enhancement`, not yet merged) |
 
 ---
 
@@ -254,6 +255,24 @@ polish pass fixed the page-label contrast, lifted the masthead glow, and gave ci
 
 ---
 
+### 10. Backend Hardening — Public-Anonymous Safety (in progress)
+
+The `backend/enhancement` branch hardens LeaseLens for public, anonymous (CloudConvert-style) use
+without disturbing the portfolio demo, behind an opt-in `LEASELENS_PUBLIC_ANON_MODE` profile that
+fails closed at boot and at every trust boundary (see the README → **Deployment profiles** table).
+**Phase A** stopped active leaks: `switchRole` is gated server-side, requests carry body/message
+size caps + provider/tool timeouts, nested Anthropic calls (grading, email drafting) are metered so
+tool spend is counted, and workspace expiry now purges `tool_calls`. **Phase B** is the identity
+keystone: `LEASELENS_DEMO_MODE` shrank to UI-only while the cost/rate guardrails moved to
+`guardrailsEnforced()` (fixing the inversion where a production deploy ran with no guardrails), each
+anonymous visitor became a real, isolated, expiring `users` row + its own workspace instead of
+collapsing onto the shared seeded Tenant, and the lease routes now fail closed through a shared
+`requireSessionOrAnon`. **Phases C** (real quota + hard budget ledger) and **D** (expiring anon
+retention, FK constraints, PII policy, normalized error/event envelopes) are still pending; this
+work is not yet merged to `main`, and the tracked GitHub issues stay open until it is.
+
+---
+
 ## Detailed Sprint Log
 
 ### Foundation and ContentOps Cockpit
@@ -375,6 +394,35 @@ polish pass fixed the page-label contrast, lifted the masthead glow, and gave ci
 | 53 | Self-host fonts: vendor Geist / Geist Mono / Source Serif 4 latin variable `.woff2` via `next/font/local`, removing the build-time Google CDN fetch so `next build` is deterministic offline (P0 tech-debt) | Complete |
 | 54 | React-PDF render-phase warning: root-caused as a unit-test mock artifact (real react-pdf callbacks are async); aligned the mocks to fire post-render + added a regression guard. Production unchanged (P1 tech-debt) | Complete |
 | 56 | Docs truth-up: recreated `docs/_architecture/architecture.md` (technical map + Current Invariants) after the `docs/_meta/` deletion; corrected the stale `CLAUDE.md` dead-shell gotcha + present-tense `LeaseLensWorkspaceShell` comments (P1 tech-debt) | Complete |
+
+---
+
+### Backend Hardening — Public-Anonymous Safety (branch `backend/enhancement`, in progress)
+
+Slices carry their committed sprint tag; the sprint-tag numbering shifted mid-sprint (early slices
+by plan number, `sB.14`/`sB.15` by GitHub-issue number), so each row also names the GitHub issue it
+resolves. Issues stay open until the branch merges.
+
+| Slice (commit) | Scope | GitHub issue |
+|---|---|---|
+| `sA.3` (fc42532) | Gate `switchRole` server-side — role switch is a demo-only affordance, rejected in production | Closes **#16** |
+| `sA.7a` (1b2f7cc) | Add `tool_calls` to workspace-expiry cleanup + a coverage guard enumerating every `workspace_id` table | Advances **#20** (FK constraints `#7b` pending) |
+| `sA.8` (e0edb7d) | Request guards: body/message size caps (413), per-call Anthropic timeout + per-tool timeout (408) | Closes **#21** |
+| `sA.5a` (d5292a7) | Meter nested Anthropic calls (grading, email draft) through one gateway so all tool spend is counted | Advances **#18** (hard budget ledger `#5b` pending) |
+| `sB.9` (5407c2b) | Separate `LEASELENS_PUBLIC_ANON_MODE` from `DEMO_MODE`; fail-closed env at boot; guardrails gated on `guardrailsEnforced()` | Closes **#22** |
+| `sB.14` (ef2bb60) | Per-visitor anonymous sessions: real isolated `users` row + own expiring workspace, minted at the Edge | Closes **#14** |
+| `sB.15` (3c469a6) | Lease routes fail closed via shared `requireSessionOrAnon`; per-visitor lease isolation (404 cross-workspace, 403 cross-owner) | Closes **#15** |
+| `sB.5b` (052c675) | Hard budget ledger: `provider_call` reserve/commit/release in one transaction, fail-closed before the Anthropic call (closes the check-then-overspend TOCTOU) | Closes **#18** |
+| `sC.17` (56abb5d) | Composite-key quota: `quota_counter` + `enforceQuota` (session / IP-subnet / route / global-daily, weighted, all-or-nothing), typed 429 + `Retry-After`; demo keeps the legacy limiter | Closes **#17** |
+| `sD.12a` (5ec5ea5) | All non-streaming errors normalized onto the `{ error, code, requestId }` envelope (RFC 9457-aligned); rollback-500 / workspaces-400 PII echo closed | Advances **#25** |
+| `sD.12b` (c7c8e0f) | Typed `{budget}` / widened `{quota}` NDJSON events (demo ceiling copy retired), `X-Request-Id` on stream responses, calm at-limit client dispatch | Closes **#25** |
+| `sD.17ui` | `QuotaMeter` drawer indicator: quiet → draining low meter ("N questions left this hour", `role=progressbar`, announce-once crossing) → calm at-limit notice; retires the raw-amber demo banner | UI for **#17**/**#25** |
+| `sD.20` | FK invariant net: `leases.workspace_id`/`uploaded_by` + `tool_calls.workspace_id` (bare — purge stays the mechanism; `actor_user_id` deliberately un-FK'd for the `mcp-server` actor); race-tolerant table-rebuild migration; purge-expired-before-resolve on read paths | Closes **#20** |
+| `sD.19` | "Delete my review now": `purgeWorkspaceNow` (shared cascade with the TTL purge), `POST /api/workspaces/delete-current` (no body — own cookie workspace only, samples refused), header button + honest ConfirmDialog (non-sample only), privacy/FAQ copy stating the 24h TTL + delete right. Workspace-as-job satisfies the `lease_jobs` criteria ("or equivalent"); a dedicated job table stays the documented future evolution | Closes **#19** |
+| `sD.24` | Data-retention & PII policy (`docs/_architecture/data-retention.md`): full store inventory with per-row code+test tracing, access-control chain, audit-retention decision, export + further-redaction as reasoned non-goals, honest limitations (SQL delete ≠ forensic erasure; anon `users` rows persist) | Closes **#24** |
+| `sD.19b` | Delete-review re-upload fix: `delete-current`'s 200 response rotates the workspace cookie to a fresh non-sample id in public mode (bare clear + no-navigation Mode B→A flip stranded the next upload with a fail-closed 401); demo keeps clear + sample fallback. Live-verified: delete → second upload 200 | Hardens **#19** |
+| `sD.19c` | Header "Delete my review" + Replace lifted to the 44px touch-target floor (`min-h-11`, canonical S19.9 pattern); both siblings sized together so the masthead row stays aligned | Hardens **#19** |
+| Deferred | Production DB discipline (managed Postgres / Turso decision spike) | **#23** |
 
 ---
 

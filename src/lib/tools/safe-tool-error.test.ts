@@ -3,7 +3,11 @@
 // PII in its message. toSafeToolError reduces any error to a safe { name, code }.
 
 import { describe, expect, it } from 'vitest';
-import { ToolAccessDeniedError, UnknownToolError } from './errors';
+import {
+  ToolAccessDeniedError,
+  ToolTimeoutError,
+  UnknownToolError,
+} from './errors';
 import { toSafeToolError } from './safe-tool-error';
 
 describe('toSafeToolError', () => {
@@ -32,6 +36,11 @@ describe('toSafeToolError', () => {
     );
     expect(toSafeToolError(new UnknownToolError('t')).code).toBe(
       'unknown_tool',
+    );
+    // Sprint A.8 (#8) — per-tool timeout maps to its own triage code; the
+    // message (tool name + budget) carries no PII.
+    expect(toSafeToolError(new ToolTimeoutError('grade', 30000)).code).toBe(
+      'tool_timeout',
     );
   });
 });

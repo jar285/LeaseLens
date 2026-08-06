@@ -10,6 +10,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -393,5 +394,96 @@ describe('ParserResultsShell', () => {
     render(<ParserResultsShell {...baseProps} />);
     expect(screen.getByTestId('assistant-fab')).toBeInTheDocument();
     expect(screen.queryByTestId('assistant-fab-stub')).not.toBeInTheDocument();
+  });
+
+  // Sprint D.19 (#19) — "Delete my review": the TRUE server-side deletion,
+  // distinct from Replace (which is client-only and workspace-preserving).
+  // Rendered only for non-sample workspaces (canDeleteWorkspace, threaded
+  // from the server page) so the demo surface is unchanged.
+  describe('Sprint D.19 — Delete my review', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    function stubDeleteFetch() {
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ deleted: true }),
+      } as unknown as Response);
+      vi.stubGlobal('fetch', fetchSpy);
+      return fetchSpy;
+    }
+
+    it('renders no delete button without canDeleteWorkspace (demo default)', () => {
+      render(<ParserResultsShell {...baseProps} />);
+      expect(screen.queryByTestId('results-delete-button')).toBeNull();
+      // Replace is still there.
+      expect(screen.getByTestId('results-replace-button')).toBeInTheDocument();
+    });
+
+    // Sprint D.19c — the header actions shipped at ~26px (px-2.5 py-1
+    // text-[12px]), below the house 44px touch-target floor. min-h-11 is the
+    // canonical fix (ScanTimeline S19.9, ConfirmDialog); both siblings get it
+    // so the masthead row stays height-aligned.
+    it('sD.19c — header Delete/Replace actions meet the 44px touch-target floor (min-h-11)', () => {
+      render(<ParserResultsShell {...baseProps} canDeleteWorkspace />);
+      expect(screen.getByTestId('results-delete-button').className).toMatch(
+        /\bmin-h-11\b/,
+      );
+      expect(screen.getByTestId('results-replace-button').className).toMatch(
+        /\bmin-h-11\b/,
+      );
+    });
+
+    it('opens an honest confirm dialog; cancel makes NO server call', () => {
+      const fetchSpy = stubDeleteFetch();
+      render(<ParserResultsShell {...baseProps} canDeleteWorkspace />);
+      fireEvent.click(screen.getByTestId('results-delete-button'));
+      // Honest copy: names the server + irreversibility.
+      expect(screen.getByText('Delete your review?')).toBeInTheDocument();
+      expect(
+        screen.getByText(/permanently deletes .* from our server/i),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('confirm POSTs delete-current, evicts ALL cached PDFs, revokes the Blob URL, and bubbles the reset', async () => {
+      const fetchSpy = stubDeleteFetch();
+      const repo = makeRepo();
+      setPdfBinaryRepository(repo);
+      const revokeSpy = vi
+        .spyOn(URL, 'revokeObjectURL')
+        .mockImplementation(() => {});
+      const onReplace = vi.fn();
+
+      render(
+        <ParserResultsShell
+          {...baseProps}
+          canDeleteWorkspace
+          onReplace={onReplace}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('results-delete-button'));
+      // Scope to the OPEN dialog — the header button shares the same
+      // accessible name as the dialog's confirm.
+      const openDialog = screen
+        .getAllByTestId('confirm-dialog')
+        .find((d) => d.hasAttribute('open'));
+      if (!openDialog) throw new Error('delete confirm dialog not open');
+      fireEvent.click(
+        within(openDialog).getByRole('button', { name: /delete my review/i }),
+      );
+
+      await waitFor(() => expect(onReplace).toHaveBeenCalledTimes(1));
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('/api/workspaces/delete-current');
+      expect(init?.method).toBe('POST');
+      // The whole workspace died — drop EVERY cached PDF, not just this lease.
+      expect(repo.evictExcept).toHaveBeenCalledWith([]);
+      expect(revokeSpy).toHaveBeenCalledWith('blob:mock-pdf');
+    });
   });
 });

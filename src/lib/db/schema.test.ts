@@ -150,6 +150,43 @@ describe('Database Schema and Configuration', () => {
     expect(clauseFk?.to).toBe('id');
   });
 
+  // Sprint D.20 (#20) — FK invariant net on the job-owned tables: orphan
+  // lease/tool rows (PII outside the retention sweep) can't be CREATED. All
+  // bare (no ON DELETE) — deletion stays the explicit children-first purge
+  // (WORKSPACE_SCOPED_TABLES); an out-of-order delete is refused by these.
+  it('Sprint D.20 — leases.workspace_id and leases.uploaded_by carry FKs', () => {
+    const fks = db.prepare('PRAGMA foreign_key_list(leases)').all() as {
+      table: string;
+      from: string;
+      to: string;
+      on_delete: string;
+    }[];
+    const wsFk = fks.find(
+      (f) => f.from === 'workspace_id' && f.table === 'workspaces',
+    );
+    expect(wsFk).toBeDefined();
+    expect(wsFk?.to).toBe('id');
+    expect(wsFk?.on_delete).toBe('NO ACTION'); // bare — purge is the mechanism
+    const uploaderFk = fks.find(
+      (f) => f.from === 'uploaded_by' && f.table === 'users',
+    );
+    expect(uploaderFk).toBeDefined();
+    expect(uploaderFk?.to).toBe('id');
+  });
+
+  it('Sprint D.20 — tool_calls.workspace_id carries an FK; actor_user_id deliberately does NOT', () => {
+    const fks = db.prepare('PRAGMA foreign_key_list(tool_calls)').all() as {
+      table: string;
+      from: string;
+    }[];
+    expect(
+      fks.find((f) => f.from === 'workspace_id' && f.table === 'workspaces'),
+    ).toBeDefined();
+    // Non-goal pin: the MCP server writes the synthetic actor 'mcp-server'
+    // (no users row) — an actor FK would reject real production traffic.
+    expect(fks.find((f) => f.from === 'actor_user_id')).toBeUndefined();
+  });
+
   it('should reject invalid role values in users table via CHECK constraint', () => {
     // Clean up rows from prior test runs — this test uses the singleton DB
     // so state can accumulate. Hermetic alternative would be in-memory but

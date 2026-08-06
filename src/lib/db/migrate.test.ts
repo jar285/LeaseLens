@@ -636,4 +636,206 @@ describe('migrate', () => {
     ).graded_at;
     expect(after).toBe(before);
   });
+
+  // Sprint D.20 (#20) — FK-adding rebuilds for leases + tool_calls on a
+  // legacy-shaped DB. SQLite can't ADD CONSTRAINT, so migrate() rebuilds the
+  // two tables (documents-rebuild precedent) guarded by fkExists. The legacy
+  // tool_calls here also PRE-DATES error_code, proving the rebuild runs AFTER
+  // the ADD COLUMN migrations (the copy needs the modern column set).
+  describe('Sprint D.20 — FK rebuild for leases + tool_calls', () => {
+    function makeLegacyDb(): InstanceType<typeof Database> {
+      const db = new Database(':memory:');
+      db.pragma('foreign_keys = ON');
+      // migrate() walks documents/chunks/audit_log/content_calendar/approvals/
+      // conversations too — the legacy DB must carry the full pre-migration
+      // table set (mirrors the Round 4 rebuild test harness above).
+      db.exec(`
+        CREATE TABLE users (
+          id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, role TEXT NOT NULL,
+          display_name TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE TABLE workspaces (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
+          is_sample INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
+          expires_at INTEGER
+        );
+        CREATE TABLE documents (
+          id TEXT PRIMARY KEY, slug TEXT NOT NULL, title TEXT NOT NULL,
+          content TEXT NOT NULL, content_hash TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE TABLE chunks (
+          id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES documents(id),
+          chunk_index INTEGER NOT NULL, chunk_level TEXT NOT NULL,
+          heading TEXT, content TEXT NOT NULL, embedding BLOB,
+          embedding_model TEXT, created_at INTEGER NOT NULL
+        );
+        CREATE TABLE audit_log (
+          id TEXT PRIMARY KEY, tool_name TEXT NOT NULL, tool_use_id TEXT,
+          actor_user_id TEXT NOT NULL, actor_role TEXT NOT NULL,
+          conversation_id TEXT, input_json TEXT NOT NULL, output_json TEXT NOT NULL,
+          compensating_action_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'executed',
+          created_at INTEGER NOT NULL, rolled_back_at INTEGER
+        );
+        CREATE TABLE content_calendar (
+          id TEXT PRIMARY KEY, document_slug TEXT NOT NULL,
+          scheduled_for INTEGER NOT NULL, channel TEXT NOT NULL,
+          scheduled_by TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE TABLE approvals (
+          id TEXT PRIMARY KEY, document_slug TEXT NOT NULL,
+          approved_by TEXT NOT NULL, notes TEXT, created_at INTEGER NOT NULL
+        );
+        CREATE TABLE conversations (
+          id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
+          title TEXT DEFAULT 'New Conversation',
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE leases (
+          id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, filename TEXT NOT NULL,
+          text_extract TEXT NOT NULL, page_count INTEGER NOT NULL,
+          uploaded_by TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_leases_workspace ON leases(workspace_id);
+        CREATE TABLE clauses (
+          id TEXT PRIMARY KEY, lease_id TEXT NOT NULL REFERENCES leases(id),
+          workspace_id TEXT NOT NULL, clause_index INTEGER NOT NULL,
+          clause_type TEXT NOT NULL, text TEXT NOT NULL,
+          page_number INTEGER NOT NULL,
+          severity TEXT CHECK(severity IN ('high','medium','low','ok')),
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE tool_calls (
+          id TEXT PRIMARY KEY, tool_name TEXT NOT NULL, tool_use_id TEXT,
+          actor_user_id TEXT NOT NULL,
+          actor_role TEXT NOT NULL CHECK(actor_role IN ('Creator','Editor','Admin')),
+          conversation_id TEXT, workspace_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('success','error')) DEFAULT 'success',
+          error_message TEXT, latency_ms INTEGER, created_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_tool_calls_workspace ON tool_calls(workspace_id, created_at DESC);
+        CREATE INDEX idx_tool_calls_tool ON tool_calls(tool_name, created_at DESC);
+        INSERT INTO users VALUES ('u1', 'u1@x.local', 'Creator', 'U', 1);
+        INSERT INTO workspaces VALUES ('ws1', 'W', 'D', 0, 1, 999999999999);
+        INSERT INTO leases VALUES ('l1', 'ws1', 'a.pdf', 'text', 3, 'u1', 42);
+        INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
+          VALUES ('c1', 'l1', 'ws1', 0, 'late_fee', 't', 1, 42);
+        INSERT INTO tool_calls (id, tool_name, actor_user_id, actor_role, workspace_id, created_at)
+          VALUES ('t1', 'search_corpus', 'mcp-server', 'Admin', 'ws1', 42);
+      `);
+      return db;
+    }
+
+    function fkList(
+      db: InstanceType<typeof Database>,
+      table: string,
+    ): { table: string; from: string; to: string }[] {
+      return db.prepare(`PRAGMA foreign_key_list(${table})`).all() as {
+        table: string;
+        from: string;
+        to: string;
+      }[];
+    }
+
+    it('adds the three FKs, preserves rows (incl. mcp-server actor), restores the pragma', () => {
+      const db = makeLegacyDb();
+      migrate(db);
+
+      const leaseFks = fkList(db, 'leases');
+      expect(
+        leaseFks.find(
+          (f) => f.from === 'workspace_id' && f.table === 'workspaces',
+        ),
+      ).toBeDefined();
+      expect(
+        leaseFks.find((f) => f.from === 'uploaded_by' && f.table === 'users'),
+      ).toBeDefined();
+      const tcFks = fkList(db, 'tool_calls');
+      expect(
+        tcFks.find(
+          (f) => f.from === 'workspace_id' && f.table === 'workspaces',
+        ),
+      ).toBeDefined();
+      expect(tcFks.find((f) => f.from === 'actor_user_id')).toBeUndefined();
+
+      // Rows survived the copy — including the synthetic MCP actor.
+      const lease = db
+        .prepare(
+          'SELECT filename, uploaded_by, created_at FROM leases WHERE id = ?',
+        )
+        .get('l1') as {
+        filename: string;
+        uploaded_by: string;
+        created_at: number;
+      };
+      expect(lease).toMatchObject({
+        filename: 'a.pdf',
+        uploaded_by: 'u1',
+        created_at: 42,
+      });
+      const tc = db
+        .prepare('SELECT actor_user_id FROM tool_calls WHERE id = ?')
+        .get('t1') as { actor_user_id: string };
+      expect(tc.actor_user_id).toBe('mcp-server');
+      // The clauses → leases chain still resolves after the leases rebuild.
+      const clause = db
+        .prepare('SELECT lease_id FROM clauses WHERE id = ?')
+        .get('c1') as { lease_id: string };
+      expect(clause.lease_id).toBe('l1');
+
+      // Pragma restored (the rebuild toggles it OFF around the work).
+      expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
+      // Indexes recreated on the rebuilt tables.
+      const indexNames = (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'",
+          )
+          .all() as { name: string }[]
+      ).map((i) => i.name);
+      expect(indexNames).toContain('idx_leases_workspace');
+      expect(indexNames).toContain('idx_tool_calls_workspace');
+      expect(indexNames).toContain('idx_tool_calls_tool');
+      // The pre-error_code legacy shape gained the column BEFORE the rebuild.
+      const tcCols = (
+        db.prepare('PRAGMA table_info(tool_calls)').all() as { name: string }[]
+      ).map((c) => c.name);
+      expect(tcCols).toContain('error_code');
+    });
+
+    it('is idempotent — the rebuild fires once, re-running migrate is a no-op', () => {
+      const db = makeLegacyDb();
+      migrate(db);
+      expect(() => migrate(db)).not.toThrow();
+      expect(
+        (db.prepare('SELECT COUNT(*) c FROM leases').get() as { c: number }).c,
+      ).toBe(1);
+      expect(
+        (db.prepare('SELECT COUNT(*) c FROM tool_calls').get() as { c: number })
+          .c,
+      ).toBe(1);
+    });
+
+    it('enforces the new FKs after migration: orphan writes are refused', () => {
+      const db = makeLegacyDb();
+      migrate(db);
+      expect(() =>
+        db
+          .prepare('INSERT INTO leases VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run('l2', 'no-such-ws', 'b.pdf', 't', 1, 'u1', 43),
+      ).toThrow(/FOREIGN KEY/i);
+      expect(() =>
+        db
+          .prepare(
+            'INSERT INTO tool_calls (id, tool_name, actor_user_id, actor_role, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          )
+          .run('t2', 'x', 'mcp-server', 'Admin', 'no-such-ws', 43),
+      ).toThrow(/FOREIGN KEY/i);
+      // A workspace delete with children is refused (bare FK) — the
+      // children-first purge order in WORKSPACE_SCOPED_TABLES is load-bearing.
+      expect(() =>
+        db.prepare('DELETE FROM workspaces WHERE id = ?').run('ws1'),
+      ).toThrow(/FOREIGN KEY/i);
+    });
+  });
 });

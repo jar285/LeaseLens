@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { db } from '@/lib/db';
+import { QUOTA_LIMITS } from '@/lib/db/quota';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
   encodeWorkspace,
@@ -13,10 +14,17 @@ import { POST } from './route';
 vi.mock('@/lib/env', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/env')>();
   return {
+    ...actual,
     env: {
       ...actual.env,
       get LEASELENS_DEMO_MODE() {
         return process.env._TEST_DEMO_MODE === 'true';
+      },
+      // Sprint B.9 (#9) — toggle public-anon mode so the guardrail gate
+      // (guardrailsEnforced(), read by both the route and auth/mode.ts) can be
+      // exercised with demo OFF, proving guardrails enforce in production.
+      get LEASELENS_PUBLIC_ANON_MODE() {
+        return process.env._TEST_PUBLIC_ANON_MODE === 'true';
       },
     },
   };
@@ -395,6 +403,69 @@ describe('Chat API conversation scoping (Sprint 33.0)', () => {
   });
 });
 
+// Sprint A.8 (#8) — request guards: reject an oversized body before parsing
+// (413), and an over-long message after parsing (413, distinct from the empty
+// "Message is required" 400). Both reject BEFORE any Anthropic call, so no
+// provider mock interaction is needed (Michael Nygard: fail fast at the
+// boundary; Addy Osmani: budgets).
+describe('Chat API Request Guards (Sprint A.8 / #8)', () => {
+  beforeEach(() => {
+    db.prepare('DELETE FROM messages').run();
+    db.prepare('DELETE FROM conversations').run();
+    db.prepare('DELETE FROM users').run();
+    db.prepare('DELETE FROM rate_limit').run();
+    db.prepare('DELETE FROM spend_log').run();
+
+    db.prepare(
+      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, ?, ?, 1, ?, NULL)`,
+    ).run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      0,
+    );
+
+    process.env.LEASELENS_SESSION_SECRET =
+      'a-very-long-test-secret-that-is-at-least-32-chars';
+    process.env._TEST_DEMO_MODE = 'false';
+  });
+
+  afterEach(() => {
+    delete process.env._TEST_DEMO_MODE;
+  });
+
+  // The Content-Length body guard's predicate (exceedsContentLengthLimit) is
+  // unit-tested in request-limits.test.ts — Content-Length is a UA-controlled
+  // header that NextRequest/undici won't let a test set, so it can't be
+  // exercised faithfully through a constructed Request here. The message-length
+  // guard below IS reachable through the route and is covered.
+
+  it('returns 413 PAYLOAD_TOO_LARGE for an over-long message (within body cap)', async () => {
+    // 8001 chars > LEASELENS_MESSAGE_MAX_CHARS (8000), but the body (~8KB) is
+    // well under the 1MB cap — so it passes the body guard and trips the
+    // message-length guard.
+    const longMessage = 'a'.repeat(8001);
+    const req = await makeSessionRequest(longMessage);
+    const res = await POST(req);
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { code: string; error: string };
+    expect(body.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(body.error).toBe('Message is too long.');
+  });
+
+  it('still returns 400 VALIDATION for an empty message (distinct from oversize)', async () => {
+    const req = await makeSessionRequest('');
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe('VALIDATION');
+  });
+});
+
 describe('Chat API Demo Guardrails', () => {
   beforeEach(() => {
     db.prepare('DELETE FROM messages').run();
@@ -442,7 +513,10 @@ describe('Chat API Demo Guardrails', () => {
     expect(body.error).toContain('Rate limit exceeded');
   });
 
-  it('streams the spend-ceiling message when daily ceiling is exceeded', async () => {
+  // Sprint D.12b (#12) — the ceiling now streams a TYPED budget event (scope
+  // 'daily') instead of the demo-copy {chunk} text, and the stream Response
+  // carries the correlation id header.
+  it('streams a typed budget event when the daily ceiling is exceeded', async () => {
     // Insert a spend_log row that exceeds the $2 default ceiling
     // 2_000_000 input + 500_000 output → $3.60
     db.prepare(
@@ -450,11 +524,78 @@ describe('Chat API Demo Guardrails', () => {
     ).run(2_000_000, 500_000);
 
     const req = await makeSessionRequest('Will hit ceiling');
+    // Middleware stamps x-request-id on every real request; simulate it so
+    // the echo-on-stream-Response behavior is observable here.
+    req.headers.set('x-request-id', 'REQ-CEILING-TEST');
     const res = await POST(req);
     expect(res.status).toBe(200);
+    expect(res.headers.get('x-request-id')).toBe('REQ-CEILING-TEST');
 
     const body = await drainStream(res);
-    expect(body).toContain('Daily demo quota reached');
+    const events = body
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    const budget = events.find((e) => 'budget' in e) as
+      | { budget: { scope: string; requestId?: string } }
+      | undefined;
+    expect(budget).toBeDefined();
+    expect(budget?.budget.scope).toBe('daily');
+    // The old demo copy is fully retired.
+    expect(body).not.toContain('Daily demo quota reached');
+  });
+});
+
+// Sprint B.9 (#9) — the inversion fix: guardrails must enforce in public-anon
+// production (demo OFF), not only in demo mode. Mirrors the demo rate-limit
+// test but with _TEST_DEMO_MODE=false + _TEST_PUBLIC_ANON_MODE=true.
+describe('Chat API Public-Anon Guardrails (Sprint B.9 / #9)', () => {
+  beforeEach(() => {
+    db.prepare('DELETE FROM messages').run();
+    db.prepare('DELETE FROM conversations').run();
+    db.prepare('DELETE FROM users').run();
+    db.prepare('DELETE FROM rate_limit').run();
+    db.prepare('DELETE FROM quota_counter').run();
+    db.prepare('DELETE FROM spend_log').run();
+
+    db.prepare(
+      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    db.prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+       VALUES (?, ?, ?, 1, ?, NULL)`,
+    ).run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      0,
+    );
+
+    process.env.LEASELENS_SESSION_SECRET =
+      'a-very-long-test-secret-that-is-at-least-32-chars';
+    process.env._TEST_DEMO_MODE = 'false';
+    process.env._TEST_PUBLIC_ANON_MODE = 'true';
+  });
+
+  afterEach(() => {
+    delete process.env._TEST_DEMO_MODE;
+    delete process.env._TEST_PUBLIC_ANON_MODE;
+    db.prepare('DELETE FROM quota_counter').run();
+  });
+
+  // Sprint C.17 (#17) — public-anon now enforces the composite-key quota
+  // (quota_counter), not the legacy single-key rate_limit. Seed the per-session
+  // tier at its limit so the next turn is refused.
+  it('enforces the quota in public-anon mode with demo OFF (inversion fixed)', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(
+      'INSERT INTO quota_counter (quota_key, window_start, count) VALUES (?, ?, ?)',
+    ).run(`session:${TEST_USER_ID}`, now, QUOTA_LIMITS.session.limit);
+
+    const req = await makeSessionRequest('One too many');
+    const res = await POST(req);
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).not.toBeNull();
   });
 });
 
@@ -491,9 +632,16 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
     // Note: NO workspace cookie.
     const res = await POST(req);
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error: string; redirect: string };
+    // Sprint D.12a (#12) — normalized envelope: typed code + requestId join
+    // the preserved message + redirect hint.
+    const body = (await res.json()) as {
+      error: string;
+      redirect: string;
+      code: string;
+    };
     expect(body.error).toBe('No workspace selected');
     expect(body.redirect).toBe('/');
+    expect(body.code).toBe('UNAUTHENTICATED');
   });
 
   it('returns 401 + clears cookie when workspace decodes but no longer exists', async () => {
@@ -514,8 +662,9 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
     req.cookies.set(WORKSPACE_COOKIE_NAME, ghostWorkspaceToken);
     const res = await POST(req);
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error: string };
+    const body = (await res.json()) as { error: string; code: string };
     expect(body.error).toBe('Workspace expired');
+    expect(body.code).toBe('UNAUTHENTICATED');
     // Set-Cookie clears the workspace cookie.
     const setCookie = res.headers.get('set-cookie') ?? '';
     expect(setCookie).toContain('leaselens_workspace=');

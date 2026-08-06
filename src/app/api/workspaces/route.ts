@@ -8,7 +8,9 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { errorResponse } from '@/lib/http/error-response';
 import { logger } from '@/lib/log/logger';
+import { requestIdFrom } from '@/lib/log/request-id';
 import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import { WORKSPACE_TTL_SECONDS } from '@/lib/workspaces/constants';
 import {
@@ -26,6 +28,8 @@ import {
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  // Sprint D.12a (#12) — correlation id for the normalized error envelope.
+  const requestId = requestIdFrom(req.headers);
   try {
     const form = await req.formData();
     const name = String(form.get('name') ?? '');
@@ -77,12 +81,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return res;
   } catch (err) {
     if (err instanceof UploadValidationError) {
-      return NextResponse.json(
-        { error: err.message, field: err.field },
-        { status: 400 },
-      );
+      // Sprint D.12a (#12) — UploadValidationError.message is developer-
+      // authored validation copy (safe by construction, unlike an arbitrary
+      // caught error); `field` rides along via extra for form highlighting.
+      return errorResponse('VALIDATION', {
+        requestId,
+        message: err.message,
+        extra: { field: err.field },
+      });
     }
-    logger.error({ err }, 'workspace.upload_failed');
-    return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
+    logger.error({ err, requestId }, 'workspace.upload_failed');
+    return errorResponse('INTERNAL', { requestId, message: 'Upload failed' });
   }
 }

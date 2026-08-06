@@ -40,6 +40,14 @@ function seedWorkspace(db: Database.Database): void {
     SAMPLE_WORKSPACE.description,
     now,
   );
+  // Sprint D.20 (#20) — leases.uploaded_by now carries an FK; the uploader
+  // ids used across this suite must be real users rows.
+  const insertUser = db.prepare(
+    `INSERT OR IGNORE INTO users (id, email, role, display_name, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+  insertUser.run(TENANT_ID, 'tenant@test.local', 'Creator', 'Tenant', now);
+  insertUser.run(REVIEWER_ID, 'reviewer@test.local', 'Editor', 'Reviewer', now);
 }
 
 function seedTenantLawCorpusChunk(db: Database.Database): string {
@@ -902,11 +910,9 @@ describe('draft_negotiation_email tool', () => {
 
   beforeEach(() => {
     db = createTestDb();
+    // Sprint D.20 — seedWorkspace now also seeds TENANT_ID/REVIEWER_ID users
+    // (leases.uploaded_by FK), so the previous local INSERT here is gone.
     seedWorkspace(db);
-    db.prepare(
-      `INSERT INTO users (id, email, role, display_name, created_at)
-       VALUES (?, ?, 'Creator', 'T', 1)`,
-    ).run(TENANT_ID, `${TENANT_ID}@example.com`);
   });
 
   it('drafts an email via prepare+execute and returns a MutationOutcome', async () => {

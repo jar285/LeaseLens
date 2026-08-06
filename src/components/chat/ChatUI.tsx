@@ -14,6 +14,7 @@ import { ChatComposer } from './ChatComposer';
 import type { ChatMessageProps, ToolInvocation } from './ChatMessage';
 import { useChatStream } from './ChatStreamContext';
 import { ChatTranscript } from './ChatTranscript';
+import { isQuotaLow, QuotaMeter } from './QuotaMeter';
 
 // Sprint 28.8 — announcement copy for the aria-live region. Screen
 // readers fire on textContent change, so we set this string into the
@@ -176,7 +177,25 @@ export function ChatUI({
   const [messages, setMessages] = useState<ChatMessageProps[]>(initialMessages);
   const [status, setStatus] = useState<'idle' | 'streaming' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
-  const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
+  // Sprint D.17ui (#17, #25) — widened per-turn quota snapshot (remaining +
+  // window limit) feeding the QuotaMeter's progressive low state.
+  const [quota, setQuota] = useState<{
+    remaining: number;
+    limit?: number;
+  } | null>(null);
+  // Announce the low-threshold crossing ONCE (not every decrement — that
+  // would spam SR users). The ref tracks the previous low-ness; the shared
+  // isQuotaLow predicate keeps this in lockstep with the meter's rendering.
+  const prevQuotaLowRef = useRef(false);
+  // Sprint D.12b (#12) — at-limit pause state, fed by the typed {budget}
+  // stream event (daily ceiling) or an HTTP 429 (per-visitor rate window).
+  // Renders a CALM status notice — never the red generic-error banner (a
+  // reached limit is expected behavior, not a failure). Cleared on the next
+  // successful turn.
+  const [budgetPause, setBudgetPause] = useState<{
+    scope: 'daily' | 'rate';
+    retryAfterSeconds?: number;
+  } | null>(null);
 
   // Sprint 26c.11 — adopt the auto-scan's conversationId when ChatUI's
   // own prop is null. AutoScanRunner runs silently before the user
@@ -381,7 +400,12 @@ export function ChatUI({
     setActiveConversationId(null);
     setStatus('idle');
     setErrorMsg('');
-    setQuotaRemaining(null);
+    // Sprint D.17ui (#17, #25) — reset the full quota surface with the
+    // thread: snapshot, at-limit pause, and the announce-once crossing latch
+    // (a fresh thread should re-announce if the visitor is still low).
+    setQuota(null);
+    setBudgetPause(null);
+    prevQuotaLowRef.current = false;
     // Sprint 28.8 — drop the FAB's pendingPrompt + selection so the
     // next user question isn't biased toward the prior clause
     // context. The drawer stays open (clearPendingContext doesn't
@@ -448,6 +472,9 @@ export function ChatUI({
     setMessages((prev) => [...prev, userMessage, initialAssistantMessage]);
     setStatus('streaming');
     setErrorMsg('');
+    // Sprint D.12b (#12) — a fresh attempt clears the at-limit notice; the
+    // server re-emits budget/429 if the window is still exhausted.
+    setBudgetPause(null);
 
     // Track pending tool invocations for this response
     const pendingTools = new Map<string, ToolInvocation>();
@@ -468,6 +495,23 @@ export function ChatUI({
         }),
         signal: controller.signal,
       });
+
+      // Sprint D.12b (#12) — a 429 is the visitor's own quota window filling,
+      // not a system failure: drop the pending bubble, show the calm rate
+      // notice, and stay idle (frame-04 fix — no red generic banner).
+      if (response.status === 429) {
+        const retryAfterRaw = response.headers?.get?.('Retry-After');
+        const retryAfterSeconds = retryAfterRaw
+          ? Number(retryAfterRaw)
+          : undefined;
+        setBudgetPause({
+          scope: 'rate',
+          ...(Number.isFinite(retryAfterSeconds) ? { retryAfterSeconds } : {}),
+        });
+        setMessages((prev) => prev.filter((m) => m.id !== assistantMessageId));
+        setStatus('idle');
+        return;
+      }
 
       if (!response.ok || !response.body) {
         throw new Error('Failed to generate response');
@@ -496,7 +540,25 @@ export function ChatUI({
           if ('conversationId' in data) {
             setActiveConversationId(data.conversationId);
           } else if ('quota' in data) {
-            setQuotaRemaining(data.quota.remaining);
+            setQuota(data.quota);
+            // Announce-once on crossing INTO low; going lower stays silent.
+            const low = isQuotaLow(data.quota);
+            if (low && !prevQuotaLowRef.current) {
+              const noun =
+                data.quota.remaining === 1 ? 'question' : 'questions';
+              setAnnouncement(
+                `${data.quota.remaining} ${noun} left this hour.`,
+              );
+            }
+            prevQuotaLowRef.current = low;
+          } else if ('budget' in data) {
+            // Sprint D.12b (#12) — typed at-limit event (daily ceiling): show
+            // the calm notice and drop the pending empty bubble; the turn is
+            // over by design, not by failure.
+            setBudgetPause(data.budget);
+            setMessages((prev) =>
+              prev.filter((m) => m.id !== assistantMessageId),
+            );
           } else if ('error' in data) {
             throw new Error(data.error);
           } else if ('chunk' in data) {
@@ -877,12 +939,11 @@ export function ChatUI({
         </div>
 
         <div className="flex flex-col">
-          {quotaRemaining !== null && quotaRemaining <= 2 && (
-            <div className="mx-6 mb-1 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-              Demo quota: {quotaRemaining} message
-              {quotaRemaining !== 1 ? 's' : ''} remaining this hour.
-            </div>
-          )}
+          {/* Sprint D.17ui (#17, #25) — the designed usage indicator replaces
+              both the D.12b plain at-limit notice and the legacy raw-amber
+              "Demo quota" banner. One presenter, three states (nothing / low
+              meter / calm paused notice); ChatUI stays the state owner. */}
+          <QuotaMeter quota={quota} pause={budgetPause} />
 
           {status === 'error' && (
             <div className="mx-6 mb-2 mt-2 flex shrink-0 items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3.5 text-red-700">

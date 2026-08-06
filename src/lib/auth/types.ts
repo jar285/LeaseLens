@@ -12,6 +12,11 @@ export interface SessionPayload {
   userId: string;
   role: Role;
   displayName: string;
+  // Sprint B.14 (#14) — true for a per-visitor anonymous session (public-anon
+  // mode). Distinguishes a real anonymous visitor (a fresh, isolated,
+  // expiring identity) from the seeded demo Tenant. Optional so legacy cookies
+  // (issued before #14) decode unchanged with `anonymous` falsy.
+  anonymous?: boolean;
 }
 
 export interface SessionClaims extends SessionPayload {

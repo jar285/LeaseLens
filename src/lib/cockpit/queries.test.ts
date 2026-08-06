@@ -48,6 +48,22 @@ function insertAuditRow(
 }
 
 /**
+ * Sprint D.20 (#20) — tool_calls.workspace_id + leases.workspace_id/
+ * uploaded_by now carry FKs, so parents must exist before children.
+ * Idempotent; called by the insert helpers so every call site is covered.
+ */
+function seedParents(db: Database.Database, workspaceId: string): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at)
+     VALUES (?, 'W', 'test workspace', 1, 1)`,
+  ).run(workspaceId);
+  db.prepare(
+    `INSERT OR IGNORE INTO users (id, email, role, display_name, created_at)
+     VALUES ('u', 'u@test.local', 'Creator', 'U', 1)`,
+  ).run();
+}
+
+/**
  * Sprint 24.5 — insert a row into the new `tool_calls` table. Used by
  * tests for `listPerToolStats` and `listRecentToolCalls` which read
  * from this table instead of `audit_log`.
@@ -66,6 +82,7 @@ function insertToolCall(
   },
 ): string {
   const id = randomUUID();
+  seedParents(db, opts.workspaceId ?? SAMPLE_WORKSPACE.id);
   db.prepare(
     `INSERT INTO tool_calls (
        id, tool_name, tool_use_id, actor_user_id, actor_role,
@@ -441,6 +458,7 @@ describe('cockpit queries', () => {
     ): string {
       const leaseId = randomUUID();
       const ws = opts.workspaceId ?? SAMPLE_WORKSPACE.id;
+      seedParents(database, ws); // Sprint D.20 — FK parents
       database
         .prepare(
           `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
@@ -537,6 +555,7 @@ describe('cockpit queries', () => {
     ): string {
       const leaseId = randomUUID();
       const clauseId = randomUUID();
+      seedParents(database, workspaceId); // Sprint D.20 — FK parents
       database
         .prepare(
           `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)

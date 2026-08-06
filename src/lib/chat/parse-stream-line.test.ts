@@ -26,6 +26,42 @@ describe('parseStreamLine', () => {
     expect(result).toEqual({ quota: { remaining: 2 } });
   });
 
+  // Sprint D.12b (#12) — quota widened to carry the window limit so the
+  // client can render a usage meter (remaining / limit).
+  it('parses a widened quota line with remaining + limit', () => {
+    const result = parseStreamLine(
+      JSON.stringify({ quota: { remaining: 24, limit: 60 } }),
+    );
+    expect(result).toEqual({ quota: { remaining: 24, limit: 60 } });
+  });
+
+  // Sprint D.12b (#12) — typed budget event. Replaces the demo-copy
+  // spend-ceiling {chunk}; scope says WHICH limit paused the assistant
+  // ('daily' shared budget vs 'rate' per-visitor window).
+  it('parses a budget event with scope daily', () => {
+    const result = parseStreamLine(
+      JSON.stringify({ budget: { scope: 'daily', requestId: 'REQ-9' } }),
+    );
+    expect(result).toEqual({ budget: { scope: 'daily', requestId: 'REQ-9' } });
+  });
+
+  it('parses a budget event with scope rate + retryAfterSeconds', () => {
+    const result = parseStreamLine(
+      JSON.stringify({ budget: { scope: 'rate', retryAfterSeconds: 1800 } }),
+    );
+    expect(result).toEqual({
+      budget: { scope: 'rate', retryAfterSeconds: 1800 },
+    });
+  });
+
+  it('returns null for a budget event with an unknown or missing scope', () => {
+    expect(
+      parseStreamLine(JSON.stringify({ budget: { scope: 'weekly' } })),
+    ).toBeNull();
+    expect(parseStreamLine(JSON.stringify({ budget: {} }))).toBeNull();
+    expect(parseStreamLine(JSON.stringify({ budget: 'bad' }))).toBeNull();
+  });
+
   it('returns null for malformed JSON', () => {
     expect(parseStreamLine('not-json')).toBeNull();
     expect(parseStreamLine('{broken')).toBeNull();

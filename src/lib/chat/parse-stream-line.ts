@@ -1,10 +1,17 @@
+import type { BudgetEvent, QuotaEvent } from '@/lib/tools/domain';
 import { narrowToolEnvelope } from './parse-tool-content';
 
 export type StreamLineMessage =
   | { conversationId: string }
   | { chunk: string }
   | { error: string }
-  | { quota: { remaining: number } }
+  // Sprint D.12b (#12) — quota widened to carry the window limit (meter
+  // fraction); shared type with the route emitter via tools/domain.ts so the
+  // wire contract can't silently drift between the two sides.
+  | QuotaEvent
+  // Sprint D.12b (#12) — typed at-limit event ('daily' spend ceiling or the
+  // visitor's own 'rate' window), replacing the demo-copy {chunk} text.
+  | BudgetEvent
   | { tool_use: { id: string; name: string; input: Record<string, unknown> } }
   | {
       tool_result: {
@@ -60,8 +67,32 @@ export function parseStreamLine(line: string): StreamLineMessage | null {
       (parsed as { quota?: unknown }).quota !== null
     ) {
       return {
-        quota: (parsed as { quota: { remaining: number } }).quota,
+        quota: (parsed as { quota: { remaining: number; limit?: number } })
+          .quota,
       };
+    }
+
+    // Sprint D.12b (#12) — typed budget (at-limit) event. Scope is validated
+    // strictly: an unknown scope is NOT a budget event (fail closed on the
+    // contract rather than render a bogus paused state).
+    if (typeof parsed === 'object' && parsed !== null && 'budget' in parsed) {
+      const budget = (parsed as { budget?: unknown }).budget;
+      if (
+        typeof budget === 'object' &&
+        budget !== null &&
+        'scope' in budget &&
+        ((budget as { scope?: unknown }).scope === 'daily' ||
+          (budget as { scope?: unknown }).scope === 'rate')
+      ) {
+        return {
+          budget: budget as {
+            scope: 'daily' | 'rate';
+            retryAfterSeconds?: number;
+            requestId?: string;
+          },
+        };
+      }
+      return null;
     }
 
     // Tool envelopes (tool_use / tool_result) — shared with the SSR

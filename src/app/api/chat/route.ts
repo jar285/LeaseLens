@@ -4,11 +4,16 @@ import type {
   Tool,
   ToolUseBlock,
 } from '@anthropic-ai/sdk/resources/messages';
-import { type NextRequest, NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { getAnthropicClient } from '@/lib/anthropic/client';
+import {
+  estimateInputTokens,
+  normalizeUsage,
+} from '@/lib/anthropic/metered-client';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { ensureDemoUsersExist } from '@/lib/auth/ensure-demo-users';
+import { guardrailsEnforced, isPublicAnonMode } from '@/lib/auth/mode';
 import { decrypt } from '@/lib/auth/session';
 import type { Role } from '@/lib/auth/types';
 import { buildContextWindow } from '@/lib/chat/context-window';
@@ -17,18 +22,27 @@ import {
   buildSystemPrompt,
 } from '@/lib/chat/system-prompt';
 import { db } from '@/lib/db';
+import { commit, release, reserve } from '@/lib/db/budget-ledger';
+import { defaultTiers, enforceQuota, QUOTA_LIMITS } from '@/lib/db/quota';
 import { checkAndIncrementRateLimit } from '@/lib/db/rate-limit';
-import { isSpendCeilingExceeded, recordSpend } from '@/lib/db/spend';
+import { isSpendCeilingExceeded } from '@/lib/db/spend';
 import { env } from '@/lib/env';
+import { clientSubnet } from '@/lib/http/client-ip';
 import { errorResponse } from '@/lib/http/error-response';
+import {
+  exceedsContentLengthLimit,
+  exceedsMessageLength,
+} from '@/lib/http/request-limits';
 import { getLease } from '@/lib/lease/queries';
 import { resolveLeaseId } from '@/lib/lease/resolve-lease-id';
 import { logger } from '@/lib/log/logger';
-import { requestIdFrom } from '@/lib/log/request-id';
+import { REQUEST_ID_HEADER, requestIdFrom } from '@/lib/log/request-id';
+import { weightFor } from '@/lib/quota/weights';
 import { retrieve } from '@/lib/rag/retrieve';
 import { createToolRegistry } from '@/lib/tools/create-registry';
 import type { AnthropicTool } from '@/lib/tools/domain';
 import { toSafeToolError } from '@/lib/tools/safe-tool-error';
+import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import {
   decodeWorkspace,
   WORKSPACE_COOKIE_NAME,
@@ -55,9 +69,6 @@ const chatRequestBodySchema = z.object({
   // forceScan (composable, no implicit coupling).
   startNewConversation: z.boolean().optional(),
 });
-
-const SPEND_CEILING_MESSAGE =
-  'Daily demo quota reached. Clone the repo for unlimited local use: github.com/jar285/leaselens';
 
 // Maximum tool-use iterations per turn. Bumped from 3 → 15 in Sprint 13
 // (charter v1.13) to support per-clause grading flows on a 13-clause lease
@@ -168,6 +179,24 @@ export async function POST(req: NextRequest) {
   const requestId = requestIdFrom(req.headers);
   const log = logger.child({ requestId });
   try {
+    // Sprint A.8 (#8) — body-size bulkhead. Reject an oversized request by its
+    // Content-Length BEFORE buffering/parsing the body, so a large payload
+    // can't be read into memory just to be rejected (Addy Osmani: budgets;
+    // Michael Nygard: fail fast at the boundary). Next 16's
+    // experimental.proxyClientMaxBodySize (10MB default) is the platform-level
+    // cap; this is the tighter app-level limit and the testable unit.
+    if (
+      exceedsContentLengthLimit(
+        req.headers.get('content-length'),
+        env.LEASELENS_BODY_MAX_BYTES,
+      )
+    ) {
+      return errorResponse('PAYLOAD_TOO_LARGE', {
+        requestId,
+        message: 'Request body is too large.',
+      });
+    }
+
     let rawBody: unknown;
     try {
       rawBody = await req.json();
@@ -187,6 +216,16 @@ export async function POST(req: NextRequest) {
     }
     const { message, conversationId, forceScan, startNewConversation } =
       parsedBody.data;
+
+    // Sprint A.8 (#8) — message-length bulkhead. The empty case is the Zod
+    // min(1) above (400 VALIDATION); an over-long message is a size limit
+    // (413), distinct so the client can tell "say something" from "too long".
+    if (exceedsMessageLength(message, env.LEASELENS_MESSAGE_MAX_CHARS)) {
+      return errorResponse('PAYLOAD_TOO_LARGE', {
+        requestId,
+        message: 'Message is too long.',
+      });
+    }
 
     // Resolve userId and role from session cookie; fall back to default Creator
     const sessionCookie = req.cookies.get('leaselens_session');
@@ -216,18 +255,26 @@ export async function POST(req: NextRequest) {
     const workspacePayload = workspaceCookie
       ? await decodeWorkspace(workspaceCookie.value)
       : null;
+    // Sprint D.12a (#12) — normalized envelope; the `redirect` recovery hint
+    // rides along via `extra` (the home page re-issues the cookie).
     if (!workspacePayload) {
-      return NextResponse.json(
-        { error: 'No workspace selected', redirect: '/' },
-        { status: 401 },
-      );
+      return errorResponse('UNAUTHENTICATED', {
+        requestId,
+        message: 'No workspace selected',
+        extra: { redirect: '/' },
+      });
     }
+    // Sprint D.20 (#20) — purge-before-resolve on the hot read path: an
+    // expired workspace's children (tenant PII) are deleted here, not merely
+    // hidden by getActiveWorkspace's expiry filter until the next upload.
+    purgeExpiredWorkspaces(db);
     const workspace = getActiveWorkspace(db, workspacePayload.workspace_id);
     if (!workspace) {
-      const res = NextResponse.json(
-        { error: 'Workspace expired', redirect: '/' },
-        { status: 401 },
-      );
+      const res = errorResponse('UNAUTHENTICATED', {
+        requestId,
+        message: 'Workspace expired',
+        extra: { redirect: '/' },
+      });
       res.cookies.delete(WORKSPACE_COOKIE_NAME);
       return res;
     }
@@ -258,28 +305,64 @@ export async function POST(req: NextRequest) {
           )
         : undefined;
 
-    // Demo-only guardrails
-    let quotaRemaining: number | null = null;
+    // Sprint B.9 (#9) / C.17 (#17) — guardrails enforce whenever the app is
+    // exposed (public-anon OR demo), via guardrailsEnforced(). Public-anon uses
+    // the composite-key quota (per-session / IP-subnet / route / global-daily,
+    // weighted); the demo profile keeps the legacy single-key rate limiter
+    // (behavior-preserving). `quota` (per-session remaining + limit) is streamed
+    // to the client every turn so the drawer can render a usage meter.
+    let quota: { remaining: number; limit: number } | null = null;
 
-    if (env.LEASELENS_DEMO_MODE) {
-      const rateLimit = checkAndIncrementRateLimit(userId);
-      if (!rateLimit.allowed) {
-        return errorResponse('RATE_LIMITED', {
-          requestId,
-          message: 'Rate limit exceeded. Try again in the next hour.',
-        });
-      }
-      if (rateLimit.remaining <= 2) {
-        quotaRemaining = rateLimit.remaining;
+    if (guardrailsEnforced()) {
+      if (isPublicAnonMode()) {
+        // Auto-scan turns (forceScan) draw down more of the window than a plain
+        // question. `draft` is a nested tool, weighted with the budget ledger,
+        // not here (see weights.ts).
+        const action = forceScan === true ? 'scan' : 'chat';
+        const result = enforceQuota(
+          db,
+          defaultTiers({
+            userId,
+            subnet: clientSubnet(req.headers),
+            route: '/api/chat',
+          }),
+          weightFor(action),
+        );
+        if (!result.allowed) {
+          return errorResponse('RATE_LIMITED', {
+            requestId,
+            retryAfterSeconds: result.retryAfterSeconds,
+          });
+        }
+        quota = {
+          remaining: result.remainingByKey[`session:${userId}`] ?? 0,
+          limit: QUOTA_LIMITS.session.limit,
+        };
+      } else {
+        const rateLimit = checkAndIncrementRateLimit(userId);
+        if (!rateLimit.allowed) {
+          return errorResponse('RATE_LIMITED', {
+            requestId,
+            message: 'Rate limit exceeded. Try again in the next hour.',
+          });
+        }
+        if (rateLimit.remaining <= 2) {
+          quota = { remaining: rateLimit.remaining, limit: 10 };
+        }
       }
 
       if (isSpendCeilingExceeded()) {
+        // Sprint D.12b (#12) — a TYPED budget event replaces the old
+        // demo-copy {chunk} text, so the client renders a designed, calm
+        // at-limit state instead of a fake chat message (Nygard / Google SRE:
+        // graceful degradation — only the AI dependency is paused; the parsed
+        // lease + red flags remain fully usable).
         const encoder = new TextEncoder();
         const ceilingStream = new ReadableStream({
           start(controller) {
             controller.enqueue(
               encoder.encode(
-                `${JSON.stringify({ chunk: SPEND_CEILING_MESSAGE })}\n`,
+                `${JSON.stringify({ budget: { scope: 'daily', requestId } })}\n`,
               ),
             );
             controller.close();
@@ -289,6 +372,10 @@ export async function POST(req: NextRequest) {
           headers: {
             'Content-Type': 'application/x-ndjson',
             'Cache-Control': 'no-cache',
+            'X-Content-Type-Options': 'nosniff',
+            // requestIdFrom is undefined when middleware didn't run (unit
+            // tests hit the handler directly) — omit rather than send "".
+            ...(requestId ? { [REQUEST_ID_HEADER]: requestId } : {}),
           },
         });
       }
@@ -423,13 +510,11 @@ export async function POST(req: NextRequest) {
 
     const responseStream = new ReadableStream({
       async start(controller) {
-        // Emit quota notice before conversationId when demo quota is low
-        if (quotaRemaining !== null) {
-          controller.enqueue(
-            encoder.encode(
-              `${JSON.stringify({ quota: { remaining: quotaRemaining } })}\n`,
-            ),
-          );
+        // Sprint C.17 (#17) — stream the per-session quota (remaining + limit)
+        // before conversationId so the drawer can render a usage meter. Public
+        // mode sends it every turn; the demo path only when low (legacy).
+        if (quota !== null) {
+          controller.enqueue(encoder.encode(`${JSON.stringify({ quota })}\n`));
         }
 
         controller.enqueue(
@@ -471,86 +556,115 @@ export async function POST(req: NextRequest) {
             const useStreaming = isLastPossibleIteration;
 
             if (useStreaming) {
-              // Streaming for final text response
-              const stream = getAnthropicClient().messages.stream({
-                model: env.LEASELENS_ANTHROPIC_MODEL,
-                system: systemForRequest,
-                // Phase 10.8.3 — context-window's content-block widening
-                // intentionally types content as `string | unknown[]` so
-                // that file stays SDK-agnostic. The cast here re-asserts
-                // the structured-block shape to the Anthropic types.
-                messages: contextMessages as MessageParam[],
-                max_tokens: MAX_OUTPUT_TOKENS,
-                tools: toolsForRequest as Tool[] | undefined,
+              // Sprint B.5b (#18) — reserve budget before the call, commit the
+              // actual (cache-inclusive) usage after, release in finally
+              // (leak-proof against a client abort mid-await).
+              const reservationId = reserve({
+                sessionId: userId,
+                estIn: estimateInputTokens(
+                  systemForRequest,
+                  contextMessages,
+                  toolsForRequest,
+                ),
+                maxOut: MAX_OUTPUT_TOKENS,
               });
-
-              let streamText = '';
-              stream.on('text', (text: string) => {
-                streamText += text;
-                controller.enqueue(
-                  encoder.encode(`${JSON.stringify({ chunk: text })}\n`),
-                );
-              });
-
-              const finalMessage = await stream.finalMessage();
-              tokensIn += finalMessage.usage.input_tokens;
-              tokensOut += finalMessage.usage.output_tokens;
-              finalResponse = appendWithSeparator(finalResponse, streamText);
-
-              // Sprint 18 — surface output truncation. Anthropic emits
-              // `stop_reason: "max_tokens"` when the model hit the cap
-              // mid-token. Without this notice the client only sees a
-              // chat message that abruptly ends; with it the user gets a
-              // clear "response was cut short" affordance under the
-              // bubble. The event is emitted before `controller.close()`
-              // so the frontend processes it on the same stream.
-              if (finalMessage.stop_reason === 'max_tokens') {
-                log.warn(
+              try {
+                // Streaming for final text response
+                const stream = getAnthropicClient().messages.stream(
                   {
-                    conversationId: resolvedConversationId,
-                    outputTokens: finalMessage.usage.output_tokens,
-                    cap: MAX_OUTPUT_TOKENS,
+                    model: env.LEASELENS_ANTHROPIC_MODEL,
+                    system: systemForRequest,
+                    // Phase 10.8.3 — context-window's content-block widening
+                    // intentionally types content as `string | unknown[]` so
+                    // that file stays SDK-agnostic. The cast here re-asserts
+                    // the structured-block shape to the Anthropic types.
+                    messages: contextMessages as MessageParam[],
+                    max_tokens: MAX_OUTPUT_TOKENS,
+                    tools: toolsForRequest as Tool[] | undefined,
                   },
-                  'chat.response_truncated',
+                  // Sprint A.8 (#8) — bound the provider call: a per-request
+                  // timeout so a hung Anthropic call can't pin the invocation,
+                  // and the request's AbortSignal so a client disconnect cancels
+                  // it (Michael Nygard: timeouts).
+                  {
+                    timeout: env.LEASELENS_ANTHROPIC_TIMEOUT_MS,
+                    signal: req.signal,
+                  },
                 );
-                controller.enqueue(
-                  encoder.encode(
-                    `${JSON.stringify({
-                      truncated: true,
-                      reason: 'max_tokens',
-                    })}\n`,
-                  ),
-                );
-              }
 
-              // Check for tool_use in streaming response (rare but possible)
-              const toolUseBlocks = finalMessage.content.filter(
-                (c): c is ToolUseBlock => c.type === 'tool_use',
-              );
+                let streamText = '';
+                stream.on('text', (text: string) => {
+                  streamText += text;
+                  controller.enqueue(
+                    encoder.encode(`${JSON.stringify({ chunk: text })}\n`),
+                  );
+                });
 
-              if (
-                toolUseBlocks.length > 0 &&
-                iterations < MAX_TOOL_ITERATIONS
-              ) {
-                // Execute tools and continue loop
-                for (const toolUse of toolUseBlocks) {
-                  toolUseCount += 1;
-                  await executeToolAndPersist(
-                    toolUse,
-                    resolvedConversationId,
-                    userId,
-                    role,
-                    workspace.id,
-                    toolRegistry,
-                    controller,
-                    encoder,
+                const finalMessage = await stream.finalMessage();
+                // Sprint B.5b (#18) — commit cache-inclusive actual usage.
+                const streamUsage = normalizeUsage(finalMessage.usage);
+                commit(reservationId, streamUsage.input, streamUsage.output);
+                tokensIn += finalMessage.usage.input_tokens;
+                tokensOut += finalMessage.usage.output_tokens;
+                finalResponse = appendWithSeparator(finalResponse, streamText);
+
+                // Sprint 18 — surface output truncation. Anthropic emits
+                // `stop_reason: "max_tokens"` when the model hit the cap
+                // mid-token. Without this notice the client only sees a
+                // chat message that abruptly ends; with it the user gets a
+                // clear "response was cut short" affordance under the
+                // bubble. The event is emitted before `controller.close()`
+                // so the frontend processes it on the same stream.
+                if (finalMessage.stop_reason === 'max_tokens') {
+                  log.warn(
+                    {
+                      conversationId: resolvedConversationId,
+                      outputTokens: finalMessage.usage.output_tokens,
+                      cap: MAX_OUTPUT_TOKENS,
+                    },
+                    'chat.response_truncated',
+                  );
+                  controller.enqueue(
+                    encoder.encode(
+                      `${JSON.stringify({
+                        truncated: true,
+                        reason: 'max_tokens',
+                      })}\n`,
+                    ),
                   );
                 }
-                continue;
-              }
 
-              // No tool_use - we're done
-              hasMoreIterations = false;
+                // Check for tool_use in streaming response (rare but possible)
+                const toolUseBlocks = finalMessage.content.filter(
+                  (c): c is ToolUseBlock => c.type === 'tool_use',
+                );
+
+                if (
+                  toolUseBlocks.length > 0 &&
+                  iterations < MAX_TOOL_ITERATIONS
+                ) {
+                  // Execute tools and continue loop
+                  for (const toolUse of toolUseBlocks) {
+                    toolUseCount += 1;
+                    await executeToolAndPersist(
+                      toolUse,
+                      resolvedConversationId,
+                      userId,
+                      role,
+                      workspace.id,
+                      toolRegistry,
+                      controller,
+                      encoder,
+                    );
+                  }
+                  continue;
+                }
+
+                // No tool_use - we're done
+                hasMoreIterations = false;
+              } finally {
+                release(reservationId);
+              }
             } else {
               // Non-streaming for tool-use iterations
               //
@@ -563,68 +677,93 @@ export async function POST(req: NextRequest) {
               // model decide whether to call more or finish.
               const forceToolOnFirstIteration =
                 forceScan === true && iterations === 1;
-              const response = await getAnthropicClient().messages.create({
-                model: env.LEASELENS_ANTHROPIC_MODEL,
-                system: systemForRequest,
-                // Phase 10.8.3 — context-window's content-block widening
-                // intentionally types content as `string | unknown[]` so
-                // that file stays SDK-agnostic. The cast here re-asserts
-                // the structured-block shape to the Anthropic types.
-                messages: contextMessages as MessageParam[],
-                max_tokens: MAX_OUTPUT_TOKENS,
-                tools: toolsForRequest as Tool[] | undefined,
-                ...(forceToolOnFirstIteration
-                  ? { tool_choice: { type: 'any' as const } }
-                  : {}),
+              // Sprint B.5b (#18) — reserve/commit/release around the call.
+              const reservationId = reserve({
+                sessionId: userId,
+                estIn: estimateInputTokens(
+                  systemForRequest,
+                  contextMessages,
+                  toolsForRequest,
+                ),
+                maxOut: MAX_OUTPUT_TOKENS,
               });
-
-              tokensIn += response.usage.input_tokens;
-              tokensOut += response.usage.output_tokens;
-
-              const toolUseBlocks = response.content.filter(
-                (c): c is ToolUseBlock => c.type === 'tool_use',
-              );
-              const textBlocks = response.content.filter(
-                (c): c is TextBlock => c.type === 'text',
-              );
-
-              // Accumulate text content
-              for (const textBlock of textBlocks) {
-                finalResponse = appendWithSeparator(
-                  finalResponse,
-                  textBlock.text,
+              try {
+                const response = await getAnthropicClient().messages.create(
+                  {
+                    model: env.LEASELENS_ANTHROPIC_MODEL,
+                    system: systemForRequest,
+                    // Phase 10.8.3 — context-window's content-block widening
+                    // intentionally types content as `string | unknown[]` so
+                    // that file stays SDK-agnostic. The cast here re-asserts
+                    // the structured-block shape to the Anthropic types.
+                    messages: contextMessages as MessageParam[],
+                    max_tokens: MAX_OUTPUT_TOKENS,
+                    tools: toolsForRequest as Tool[] | undefined,
+                    ...(forceToolOnFirstIteration
+                      ? { tool_choice: { type: 'any' as const } }
+                      : {}),
+                  },
+                  // Sprint A.8 (#8) — per-request timeout + client-disconnect
+                  // abort, same bulkhead as the streaming path above.
+                  {
+                    timeout: env.LEASELENS_ANTHROPIC_TIMEOUT_MS,
+                    signal: req.signal,
+                  },
                 );
-              }
 
-              if (toolUseBlocks.length > 0) {
-                // Execute tools and continue loop
-                for (const toolUse of toolUseBlocks) {
-                  toolUseCount += 1;
-                  await executeToolAndPersist(
-                    toolUse,
-                    resolvedConversationId,
-                    userId,
-                    role,
-                    workspace.id,
-                    toolRegistry,
-                    controller,
-                    encoder,
+                // Sprint B.5b (#18) — commit cache-inclusive actual usage.
+                const respUsage = normalizeUsage(response.usage);
+                commit(reservationId, respUsage.input, respUsage.output);
+                tokensIn += response.usage.input_tokens;
+                tokensOut += response.usage.output_tokens;
+
+                const toolUseBlocks = response.content.filter(
+                  (c): c is ToolUseBlock => c.type === 'tool_use',
+                );
+                const textBlocks = response.content.filter(
+                  (c): c is TextBlock => c.type === 'text',
+                );
+
+                // Accumulate text content
+                for (const textBlock of textBlocks) {
+                  finalResponse = appendWithSeparator(
+                    finalResponse,
+                    textBlock.text,
                   );
                 }
-                continue;
-              }
 
-              // No tool_use - stream the accumulated text and we're done
-              for (const textBlock of textBlocks) {
-                if (textBlock.text) {
-                  controller.enqueue(
-                    encoder.encode(
-                      `${JSON.stringify({ chunk: textBlock.text })}\n`,
-                    ),
-                  );
+                if (toolUseBlocks.length > 0) {
+                  // Execute tools and continue loop
+                  for (const toolUse of toolUseBlocks) {
+                    toolUseCount += 1;
+                    await executeToolAndPersist(
+                      toolUse,
+                      resolvedConversationId,
+                      userId,
+                      role,
+                      workspace.id,
+                      toolRegistry,
+                      controller,
+                      encoder,
+                    );
+                  }
+                  continue;
                 }
+
+                // No tool_use - stream the accumulated text and we're done
+                for (const textBlock of textBlocks) {
+                  if (textBlock.text) {
+                    controller.enqueue(
+                      encoder.encode(
+                        `${JSON.stringify({ chunk: textBlock.text })}\n`,
+                      ),
+                    );
+                  }
+                }
+                hasMoreIterations = false;
+              } finally {
+                release(reservationId);
               }
-              hasMoreIterations = false;
             }
           }
 
@@ -663,16 +802,11 @@ export async function POST(req: NextRequest) {
             );
           }
 
-          // Sprint 24 hotfix — always record spend so the cockpit's
-          // SpendPanel reflects reality. Previously gated by
-          // LEASELENS_DEMO_MODE because the writer was conflated with
-          // ceiling-enforcement; the two concerns are now separated:
-          // `recordSpend` always tracks for visibility, and
-          // `isSpendCeilingExceeded` still gates *enforcement* on
-          // DEMO_MODE upstream.
-          if (tokensIn > 0) {
-            recordSpend(tokensIn, tokensOut);
-          }
+          // Sprint B.5b (#18) — spend is now recorded per Anthropic call by the
+          // budget ledger's commit() (cache-inclusive, incl. nested tool calls),
+          // so the old single post-turn recordSpend was removed to avoid a
+          // double-count. The tokensIn/tokensOut above stay for the
+          // assistant-message row's token columns only (a separate concern).
         } catch (error) {
           // Sprint 44B.2 — log the detail server-side (the err serializer
           // scrubs any PII-bearing message/stack), stream only a safe, generic
@@ -694,6 +828,11 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/x-ndjson',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
+        // Sprint D.12b (#12) — correlation id on the stream Response so a
+        // client-reported failure can be joined to server logs even when the
+        // stream dies mid-flight; nosniff per the platform streaming guidance.
+        'X-Content-Type-Options': 'nosniff',
+        ...(requestId ? { [REQUEST_ID_HEADER]: requestId } : {}),
       },
     });
   } catch (error) {

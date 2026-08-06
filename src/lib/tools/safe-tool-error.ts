@@ -6,13 +6,22 @@
 // message. This is the structured-event allowlist applied to durable storage
 // (Ross Anderson / Adam Shostack).
 
-import { ToolAccessDeniedError, UnknownToolError } from './errors';
+import {
+  ToolAccessDeniedError,
+  ToolTimeoutError,
+  UnknownToolError,
+} from './errors';
 
 export interface SafeToolError {
   /** The JS error class name (e.g. 'SyntaxError') — safe, carries no PII. */
   name: string;
   /** Stable enumerated code for aggregation/triage. */
-  code: 'access_denied' | 'unknown_tool' | 'parse_error' | 'tool_error';
+  code:
+    | 'access_denied'
+    | 'unknown_tool'
+    | 'parse_error'
+    | 'tool_timeout'
+    | 'tool_error';
 }
 
 export function toSafeToolError(err: unknown): SafeToolError {
@@ -21,6 +30,10 @@ export function toSafeToolError(err: unknown): SafeToolError {
   }
   if (err instanceof UnknownToolError) {
     return { name: err.name, code: 'unknown_tool' };
+  }
+  // Sprint A.8 (#8) — per-tool timeout maps to its own code for triage.
+  if (err instanceof ToolTimeoutError) {
+    return { name: err.name, code: 'tool_timeout' };
   }
   if (err instanceof SyntaxError) {
     return { name: err.name, code: 'parse_error' };

@@ -12,7 +12,7 @@
 
 'use client';
 
-import { FileText, RotateCcw } from 'lucide-react';
+import { FileText, RotateCcw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { AssistantFab } from '@/components/chat/AssistantFab';
 import { AssistantFabProvider } from '@/components/chat/AssistantFabContext';
@@ -56,6 +56,13 @@ export interface ParserResultsShellProps {
    * of an existing conversation does not re-fire.
    */
   triggerAutoScan?: boolean;
+  /**
+   * Sprint D.19 (#19) — when true, render the "Delete my review" action
+   * (true server-side deletion via POST /api/workspaces/delete-current).
+   * Threaded from the server page as `workspace.is_sample === 0`: the shared
+   * sample workspaces are never deletable, so the demo surface is unchanged.
+   */
+  canDeleteWorkspace?: boolean;
 }
 
 export function ParserResultsShell(
@@ -90,6 +97,7 @@ function ResultsShellInner({
   workspaceName,
   onReplace,
   triggerAutoScan,
+  canDeleteWorkspace,
 }: ParserResultsShellProps): React.JSX.Element {
   const { appendToolEvent, activeLease, resetParser } = useLeaseParser();
   const leftPaneState = useLeftPaneState();
@@ -97,6 +105,10 @@ function ResultsShellInner({
   // native window.confirm. Local boolean only: the dialog is a dumb presenter
   // and the destructive sequence stays in this orchestrator (Uncle Bob / DIP).
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Sprint D.19 (#19) — separate confirm state for "Delete my review" (the
+  // true server-side deletion). Two distinct destructive verbs, two dialogs:
+  // Replace = swap the document (workspace survives), Delete = destroy my data.
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // Sprint 25 — cache eviction on mount mirrors the legacy shell so the
   // global IDB store stays bounded. The current lease is retained;
@@ -155,6 +167,37 @@ function ResultsShellInner({
     onReplace?.();
   }
 
+  // Sprint D.19 (#19) — "Delete my review": the server purges the caller's
+  // whole workspace (lease, clauses, red flags, chat, tool logs) and clears
+  // the workspace cookie; the client then drops EVERY cached PDF (the
+  // workspace died, not one lease) and reuses the Replace bubble path to
+  // return to Mode A. If the server call fails, nothing client-side is
+  // wiped — claiming deletion that didn't happen would be dishonest; the
+  // user can simply retry.
+  async function confirmDelete(): Promise<void> {
+    setDeleteConfirmOpen(false);
+    try {
+      const res = await fetch('/api/workspaces/delete-current', {
+        method: 'POST',
+      });
+      if (!res.ok) return;
+    } catch {
+      return;
+    }
+    if (activeLease?.pdfUrl) {
+      try {
+        URL.revokeObjectURL(activeLease.pdfUrl);
+      } catch {
+        // best-effort, no-op in happy-dom
+      }
+    }
+    void getPdfBinaryRepository()
+      .evictExcept([])
+      .catch(() => {});
+    resetParser();
+    onReplace?.();
+  }
+
   return (
     <>
       <div
@@ -174,6 +217,9 @@ function ResultsShellInner({
         <ResultsHeader
           leftPaneState={leftPaneState}
           onReplace={requestReplace}
+          onDelete={
+            canDeleteWorkspace ? () => setDeleteConfirmOpen(true) : undefined
+          }
         />
         {/* Sprint 28.13 — the responsive grid pattern from 28.10
             stays (PDF + cards side-by-side on lg+, stacked below)
@@ -250,6 +296,22 @@ function ResultsShellInner({
         onConfirm={confirmReplace}
         onCancel={cancelReplace}
       />
+      {/* Sprint D.19 (#19) — honest server-deletion confirm. Copy names WHERE
+          the data dies (our server + this browser's cache) and the
+          irreversibility. Distinct from Replace's copy: Replace swaps the
+          document, this destroys the review. Mounted only when the workspace
+          is deletable so single-dialog assumptions elsewhere stay intact. */}
+      {canDeleteWorkspace ? (
+        <ConfirmDialog
+          open={deleteConfirmOpen}
+          title="Delete your review?"
+          description="This permanently deletes your lease, clauses, red flags, and chat from our server, and clears this browser's cached copy. This cannot be undone."
+          confirmLabel="Delete my review"
+          destructive
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setDeleteConfirmOpen(false)}
+        />
+      ) : null}
     </>
   );
 }
@@ -298,9 +360,12 @@ function ResultsMastheadGlow(): React.JSX.Element {
 function ResultsHeader({
   leftPaneState,
   onReplace,
+  onDelete,
 }: {
   leftPaneState: LeftPaneState;
   onReplace: () => void;
+  /** Sprint D.19 (#19) — present only for non-sample (deletable) workspaces. */
+  onDelete?: () => void;
 }): React.JSX.Element {
   const meta = describeLease(leftPaneState);
   return (
@@ -339,15 +404,36 @@ function ResultsHeader({
           </span>
         ) : null}
       </div>
-      <button
-        type="button"
-        data-testid="results-replace-button"
-        onClick={onReplace}
-        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 py-1 text-[12px] font-medium text-fg-default transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
-      >
-        <RotateCcw aria-hidden="true" className="h-3 w-3" />
-        Replace
-      </button>
+      <div className="flex shrink-0 items-center gap-2">
+        {/* Sprint D.19 (#19) — true server deletion, non-sample workspaces
+            only. Quiet neutral chrome like Replace (destructive weight lives
+            in the confirm dialog, not the header); danger red stays reserved
+            for real errors per the severity-color rule.
+            Sprint D.19c — min-h-11 on BOTH siblings: the pair shipped at
+            ~26px, below the house 44px touch-target floor (canonical fix per
+            ScanTimeline S19.9 / ConfirmDialog); one-sided sizing would
+            misalign the masthead row. */}
+        {onDelete ? (
+          <button
+            type="button"
+            data-testid="results-delete-button"
+            onClick={onDelete}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 text-[12px] font-medium text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+          >
+            <Trash2 aria-hidden="true" className="h-3 w-3" />
+            Delete my review
+          </button>
+        ) : null}
+        <button
+          type="button"
+          data-testid="results-replace-button"
+          onClick={onReplace}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-neutral-200 bg-surface-card px-2.5 text-[12px] font-medium text-fg-default transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+        >
+          <RotateCcw aria-hidden="true" className="h-3 w-3" />
+          Replace
+        </button>
+      </div>
     </header>
   );
 }

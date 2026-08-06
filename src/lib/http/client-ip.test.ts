@@ -24,8 +24,11 @@ describe('clientSubnet (#17)', () => {
     );
   });
 
-  it('masks IPv6 to a /64 bucket', () => {
+  it('masks IPv6 to a /64 bucket (including compressed forms)', () => {
     expect(clientSubnet(xff('2001:db8:85a3:8d3:1319:8a2e:370:7348'))).toBe(
+      '2001:db8:85a3:8d3::/64',
+    );
+    expect(clientSubnet(xff('2001:db8:85a3:8d3::1'))).toBe(
       '2001:db8:85a3:8d3::/64',
     );
   });

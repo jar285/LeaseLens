@@ -31,8 +31,8 @@ export const LEASELENS_PRIVACY = {
     {
       id: 'retention',
       heading: 'Expires automatically, or delete it now',
-      body: 'Your review is temporary by design: the lease, its clauses, red flags, and chat expire 24 hours after upload. From that point they are no longer accessible and are removed from our server by routine cleanup. Want it gone immediately? "Delete my review" in the workspace header permanently deletes everything on the server right away and clears this browser’s cached copy.',
-    },
+      body: 'Your review is temporary by design: the lease, its clauses, red flags, and chat expire 24 hours after you start your review. From that point they are no longer accessible and are removed from our server by routine cleanup. Want it gone immediately? "Delete my review" in the workspace header permanently deletes everything on the server right away and clears this browser’s cached copy.',
+    }
     {
       id: 'not-legal-advice',
       heading: 'Informational, not legal advice',

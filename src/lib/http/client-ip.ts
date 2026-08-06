@@ -22,10 +22,22 @@ export function maskIp(raw: string): string {
     return 'unknown';
   }
   if (ip.includes(':')) {
-    const groups = ip.split(':');
-    if (groups.length >= 3) {
-      return `${groups.slice(0, 4).join(':')}::/64`;
-    }
+    const hasCompression = ip.includes('::');
+    const [head, tail] = ip.split('::');
+    const headGroups = head ? head.split(':').filter(Boolean) : [];
+    const tailGroups = tail ? tail.split(':').filter(Boolean) : [];
+
+    // Valid IPv6 has 8 groups unless `::` compression is used.
+    if (!hasCompression && headGroups.length !== 8) return 'unknown';
+    if (headGroups.length + tailGroups.length > 8) return 'unknown';
+
+    const missing = hasCompression
+      ? 8 - (headGroups.length + tailGroups.length)
+      : 0;
+    const full = [...headGroups, ...Array(missing).fill('0'), ...tailGroups];
+    if (full.length !== 8) return 'unknown';
+
+    return `${full.slice(0, 4).join(':')}::/64`;
   }
   return 'unknown';
 }

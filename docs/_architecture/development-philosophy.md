@@ -47,6 +47,25 @@ This workflow prevents common AI-assisted development problems such as:
 * The setup becoming too complicated.
 * The solution becoming hard to maintain.
 
+## Verification Gates
+
+The workflow above is enforced by `docs/_architecture/agent-reliability.md`, which
+turns every "should" here into a gate, a checklist, or a produced artifact:
+
+* **Tests first, with teeth** — acceptance tests are human-owned and committed before
+  the implementation commit (Red → Green → Refactor, verified by commit order).
+* **Independent critic** — every diff is reviewed by an agent that never saw the build
+  instructions; the builder never grades its own work.
+* **Evidence grounding** — factual claims cite file:line; verification is re-run, not
+  recalled; validation claims carry `[VERIFIED-REAL]` / `[SYNTHETIC]` / `[INFERRED]` labels.
+* **Pre-merge checklist** — a short killer-items checklist at the merge pause point,
+  grown from the project's actual failure history.
+* **Spec conformance** — forward sweep (every requirement → file:line) and backward
+  sweep (every diff behavior → sanctioning requirement) at sprint close.
+
+The three named agent failure modes — sycophancy, confabulation, reward hacking /
+validation theater — are defined in `power-words.md` and enforced by these gates.
+
 ## Simple Explanation
 
 The way we work with AI is by giving it a system.

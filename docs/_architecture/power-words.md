@@ -1462,6 +1462,30 @@ Weak use:
 
 The good use sharpens reasoning. The weak use hides behind reputation.
 
+### The Invocation Grammar
+
+Every invocation ends with the decision it drives:
+
+`<Name>: <concrete lesson> → <decision made here>`
+
+The arrow is the point. Most projects cite the name; in LeaseLens the name without
+the arrow is weak use. The arrow forces the invoker to state what changes because
+the name was spoken.
+
+Good use with the arrow:
+
+- `Nielsen #9: errors must offer a real recovery action → the scanned-PDF error gets a paste-text fallback, not a copy tweak.`
+- `Uncle Bob / DIP: parser logic must not live in the upload component → extract ingest-text.ts shared by both ingestion paths.`
+- `Tufte: ok-rows are low-signal ink → the clause list defaults to a "needs attention" filter.`
+
+Weak use (name, no arrow):
+
+- `This follows Nielsen's heuristics.`
+- `Per Don Norman, this should be clearer.`
+
+The arrow is also what the reviewer checks: for each power word invoked in a PR or
+spec, is the decision named? If not, the invocation is cut.
+
 ## Relationship To Other Foundation Docs
 
 This document should live beside the other durable project docs.
@@ -1503,6 +1527,155 @@ A power word is acceptable only if the agent can answer:
 5. What should not be done because of this principle?
 
 If the agent cannot answer those questions, the name should not be used.
+
+## Retirement Rule (Use It Or Lose It)
+
+A power word survives only while it is spoken with the arrow. Any entry that has no
+cited invocation in a real artifact — a code comment, spec, PR description, issue, or
+review — for six sprints is moved to `docs/_archive/`. A vocabulary nobody uses is
+prestige wallpaper, and this document exists to prevent exactly that.
+
+This is Eric Evans' mechanism applied to the vocabulary itself: a term stays alive
+only while it is bound to artifacts and decisions. The retirement check runs whenever
+the glossary is reviewed; the mover records the last known invocation so a term can
+earn its way back.
+
+Corollary: proposing a new power word requires proposing its first invocation — the
+concrete decision it will drive — in the same change. Names arrive with their arrow
+or they do not arrive.
+
+## Scar Tissue
+
+The project's own incidents, kept as curriculum. Each entry: what happened, which
+power word would have prevented it, what changed. New entries are added when a
+post-mortem produces a lesson durable enough to name.
+
+### The guardrails inversion
+
+What happened: the backend-hardening branch gated cost/rate guardrails on
+`DEMO_MODE` alone, leaving a real production deploy unguarded. The check *looked*
+right; it read the wrong flag.
+
+Which power word would have prevented it: **cite-the-line / source grounding** —
+the review needed the actual flag wiring at file:line, not the narrative that "the
+guardrails are enforced". Fixed as `guardrailsEnforced()` = public-anon OR demo,
+with `env.ts` failing closed at boot.
+
+What changed: `architecture.md` invariant 9 names the exact predicate; the
+pre-merge checklist in `agent-reliability.md` re-verifies fail-closed auth on every
+auth-adjacent change.
+
+### The stale architecture doc (Sprint 56)
+
+What happened: `docs/_meta/architecture.md` went stale, was deleted, and had to be
+recreated from current code in Sprint 56.
+
+Which power word would have prevented it: **Ward Cunningham** — the durable artifact
+must stay true; when code and doc disagree, fix the doc. Now stated as the header
+rule of `architecture.md` itself.
+
+What changed: the pre-merge checklist requires re-verifying `architecture.md` claims
+wherever behavior changed.
+
+## AI Agent Failure Modes
+
+The framework names heroes; these are the villains — the specific ways AI-assisted
+work fails, each with its mitigation. Enforcement detail lives in
+`agent-reliability.md`; these entries give the vocabulary. Each follows the same
+five-question structure as every other entry.
+
+### Sycophancy
+
+Sycophancy is invoked when the agent agrees with flawed instructions instead of
+pushing back. Models flip initially correct answers under pushback at high rates,
+and RLHF amplifies agreeableness — so the agent's agreement is never confirmation.
+
+Problem it helps us reason about:
+
+- whether the agent challenged the plan or merely complied with it
+- whether "the agent agreed" is being treated as evidence
+- whether the critic was explicitly tasked with disagreeing
+
+Local lesson in LeaseLens:
+
+- the workflow must invite pushback before implementation ("challenge my plan")
+- a spec the agent never questioned is a smell, not a success
+- the independent critic's brief includes arguing against the plan
+
+Project anchors:
+
+- spec QA step
+- sprint reviews
+- pre-mortem ritual
+
+Good invocation:
+
+> This is a sycophancy risk because the agent accepted the migration plan without
+> questioning the transaction semantics → require the critic to argue against the
+> plan before implementation starts.
+
+### Confabulation
+
+Confabulation is invoked when the agent states repository facts it never verified:
+invented files, APIs, config values, test results. The agent optimizes for apparent
+success and misreports actual state.
+
+Problem it helps us reason about:
+
+- whether a claim about the repo has a tool behind it
+- whether file:line citations exist for the filenames in a summary
+- whether verification was re-run or merely recalled
+
+Local lesson in LeaseLens:
+
+- every factual claim in a PR description, review, or handoff cites file:line
+- read-before-write: quote the section being changed before changing it
+- machine-readable action logs beat narrative summaries
+
+Project anchors:
+
+- PR descriptions
+- review summaries
+- agent handoffs
+- migration verification claims
+
+Good invocation:
+
+> This is a confabulation risk because the handoff describes files no tool output
+> ever showed → every filename in the summary needs a `read` or `grep` behind it, cited.
+
+### Reward Hacking / Validation Theater
+
+Reward hacking is invoked when the agent games its own success criteria: rewriting a
+failing test to force "Pass", validating against synthetic data it generated itself
+and reporting "100% SUCCESS", or polishing a report disconnected from the actual
+outcome. The agent must never be the sole author of both an implementation and its
+acceptance test.
+
+Problem it helps us reason about:
+
+- whether the test and the code share an author (and a context)
+- whether "all green" was earned against real repo state or staged
+- whether a report is a claim or a re-executed result
+
+Local lesson in LeaseLens:
+
+- acceptance tests are human-owned; the agent may draft, the human approves
+- validation claims carry evidence labels (`[VERIFIED-REAL]` vs `[SYNTHETIC]`)
+- every agent-produced report is a claim until re-executed
+
+Project anchors:
+
+- evals and test suites
+- migration verification
+- any "all green" summary
+- gate-sweep logs
+
+Good invocation:
+
+> This is a reward-hacking risk because the agent wrote both the migration and the
+> test that declares it correct → the acceptance test must be human-owned and the
+> critic must re-run it independently.
 
 ## Short Invocation Map
 
@@ -1550,5 +1723,8 @@ If the agent cannot answer those questions, the name should not be used.
 | Cindy Sridharan | meaningful monitoring |
 | Human-In-The-Loop | safe legal-adjacent AI workflows |
 | Source-Grounded AI | citation-backed AI explanations |
+| Sycophancy | catching agreeable-but-wrong agent compliance |
+| Confabulation | catching unverified repo-state claims |
+| Reward Hacking / Validation Theater | catching gamed success criteria |
 | Text-Layer First | realistic PDF parser MVP scope |
 | Page Anchoring | connecting results back to the PDF source |

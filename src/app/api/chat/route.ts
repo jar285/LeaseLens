@@ -267,8 +267,12 @@ export async function POST(req: NextRequest) {
     // Sprint D.20 (#20) — purge-before-resolve on the hot read path: an
     // expired workspace's children (tenant PII) are deleted here, not merely
     // hidden by getActiveWorkspace's expiry filter until the next upload.
-    purgeExpiredWorkspaces(db);
-    const workspace = getActiveWorkspace(db, workspacePayload.workspace_id);
+    // Issue #29 — async driver: await every DB call.
+    await purgeExpiredWorkspaces(db);
+    const workspace = await getActiveWorkspace(
+      db,
+      workspacePayload.workspace_id,
+    );
     if (!workspace) {
       const res = errorResponse('UNAUTHENTICATED', {
         requestId,
@@ -280,11 +284,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Ensure known demo identities exist before writing (fresh-DB guard)
-    const userExists = db
+    // Issue #29 — async driver: the .get() returns a Promise.
+    const userExists = await db
       .prepare('SELECT 1 FROM users WHERE id = ?')
       .get(userId);
     if (!userExists) {
-      ensureDemoUsersExist(db);
+      await ensureDemoUsersExist(db);
     }
 
     // Initialize tool registry and get role-scoped tools
@@ -319,7 +324,8 @@ export async function POST(req: NextRequest) {
         // question. `draft` is a nested tool, weighted with the budget ledger,
         // not here (see weights.ts).
         const action = forceScan === true ? 'scan' : 'chat';
-        const result = enforceQuota(
+        // Issue #29 — enforceQuota is async (remote-capable driver).
+        const result = await enforceQuota(
           db,
           defaultTiers({
             userId,
@@ -339,7 +345,8 @@ export async function POST(req: NextRequest) {
           limit: QUOTA_LIMITS.session.limit,
         };
       } else {
-        const rateLimit = checkAndIncrementRateLimit(userId);
+        // Issue #29 — checkAndIncrementRateLimit is async.
+        const rateLimit = await checkAndIncrementRateLimit(userId);
         if (!rateLimit.allowed) {
           return errorResponse('RATE_LIMITED', {
             requestId,
@@ -351,7 +358,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      if (isSpendCeilingExceeded()) {
+      // Issue #29 — isSpendCeilingExceeded is async.
+      if (await isSpendCeilingExceeded()) {
         // Sprint D.12b (#12) — a TYPED budget event replaces the old
         // demo-copy {chunk} text, so the client renders a designed, calm
         // at-limit state instead of a fake chat message (Nygard / Google SRE:
@@ -392,9 +400,13 @@ export async function POST(req: NextRequest) {
     // existing lookup-or-create branch already treats null as "create."
     let activeConversationId =
       startNewConversation === true ? null : (conversationId ?? null);
-    db.transaction(() => {
+    // Issue #29 — the old sync `db.transaction(() => {...})()` double-call
+    // form is now `await db.transaction(async (tx) => {...})`; every
+    // statement inside runs on `tx` (never the module-level db) so it joins
+    // the transaction.
+    await db.transaction(async (tx) => {
       const existingConv = activeConversationId
-        ? db
+        ? await tx
             .prepare(
               'SELECT id FROM conversations WHERE id = ? AND user_id = ? AND workspace_id = ?',
             )
@@ -403,21 +415,25 @@ export async function POST(req: NextRequest) {
 
       if (!activeConversationId || !existingConv) {
         activeConversationId = crypto.randomUUID();
-        db.prepare(
-          'INSERT INTO conversations (id, user_id, workspace_id, title, created_at) VALUES (?, ?, ?, ?, ?)',
-        ).run(
-          activeConversationId,
-          userId,
-          workspace.id,
-          'New Conversation',
-          now,
-        );
+        await tx
+          .prepare(
+            'INSERT INTO conversations (id, user_id, workspace_id, title, created_at) VALUES (?, ?, ?, ?, ?)',
+          )
+          .run(
+            activeConversationId,
+            userId,
+            workspace.id,
+            'New Conversation',
+            now,
+          );
       }
 
-      db.prepare(
-        'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
-      ).run(crypto.randomUUID(), activeConversationId, 'user', message, now);
-    })();
+      await tx
+        .prepare(
+          'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(crypto.randomUUID(), activeConversationId, 'user', message, now);
+    });
 
     if (!activeConversationId) {
       return errorResponse('INTERNAL', {
@@ -449,7 +465,9 @@ export async function POST(req: NextRequest) {
     // is the no-lease branch and we proceed with activeLease=null.
     let activeLease: ActiveLeaseSummary | null = null;
     try {
-      const leaseId = resolveLeaseId(
+      // Issue #29 — resolveLeaseId / getLease are async (remote-capable
+      // driver); the clause-count lookups below await the new .get().
+      const leaseId = await resolveLeaseId(
         db,
         {},
         {
@@ -459,21 +477,21 @@ export async function POST(req: NextRequest) {
           enableRecentLeaseFallback: true,
         },
       );
-      const lease = getLease(db, leaseId, workspace.id);
+      const lease = await getLease(db, leaseId, workspace.id);
       if (lease) {
-        const clauseCountRow = db
+        const clauseCountRow = await db
           .prepare(
             'SELECT COUNT(*) AS n FROM clauses WHERE lease_id = ? AND workspace_id = ?',
           )
-          .get(lease.id, workspace.id) as { n: number } | undefined;
+          .get<{ n: number }>(lease.id, workspace.id);
         // Sprint 45 — graded count drives the prompt's graded-vs-ungraded
         // awareness branch (graded → answer via get_lease_findings, don't
         // re-scan).
-        const gradedCountRow = db
+        const gradedCountRow = await db
           .prepare(
             'SELECT COUNT(*) AS n FROM clauses WHERE lease_id = ? AND workspace_id = ? AND graded_at IS NOT NULL',
           )
-          .get(lease.id, workspace.id) as { n: number } | undefined;
+          .get<{ n: number }>(lease.id, workspace.id);
         activeLease = {
           id: lease.id,
           filename: lease.filename,
@@ -538,15 +556,16 @@ export async function POST(req: NextRequest) {
             iterations++;
 
             // Rebuild context window from current history
+            // Issue #29 — async driver: await the .all().
             const messagesForContext = buildMessagesForAnthropic(
-              db
+              await db
                 .prepare(
                   'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
                 )
-                .all(resolvedConversationId) as {
-                role: 'user' | 'assistant' | 'tool';
-                content: string;
-              }[],
+                .all<{
+                  role: 'user' | 'assistant' | 'tool';
+                  content: string;
+                }>(resolvedConversationId),
             );
 
             const { contextMessages } = buildContextWindow(messagesForContext);
@@ -559,7 +578,8 @@ export async function POST(req: NextRequest) {
               // Sprint B.5b (#18) — reserve budget before the call, commit the
               // actual (cache-inclusive) usage after, release in finally
               // (leak-proof against a client abort mid-await).
-              const reservationId = reserve({
+              // Issue #29 — the budget ledger is async.
+              const reservationId = await reserve({
                 sessionId: userId,
                 estIn: estimateInputTokens(
                   systemForRequest,
@@ -603,7 +623,11 @@ export async function POST(req: NextRequest) {
                 const finalMessage = await stream.finalMessage();
                 // Sprint B.5b (#18) — commit cache-inclusive actual usage.
                 const streamUsage = normalizeUsage(finalMessage.usage);
-                commit(reservationId, streamUsage.input, streamUsage.output);
+                await commit(
+                  reservationId,
+                  streamUsage.input,
+                  streamUsage.output,
+                );
                 tokensIn += finalMessage.usage.input_tokens;
                 tokensOut += finalMessage.usage.output_tokens;
                 finalResponse = appendWithSeparator(finalResponse, streamText);
@@ -663,7 +687,7 @@ export async function POST(req: NextRequest) {
                 // No tool_use - we're done
                 hasMoreIterations = false;
               } finally {
-                release(reservationId);
+                await release(reservationId);
               }
             } else {
               // Non-streaming for tool-use iterations
@@ -678,7 +702,8 @@ export async function POST(req: NextRequest) {
               const forceToolOnFirstIteration =
                 forceScan === true && iterations === 1;
               // Sprint B.5b (#18) — reserve/commit/release around the call.
-              const reservationId = reserve({
+              // Issue #29 — the budget ledger is async.
+              const reservationId = await reserve({
                 sessionId: userId,
                 estIn: estimateInputTokens(
                   systemForRequest,
@@ -713,7 +738,7 @@ export async function POST(req: NextRequest) {
 
                 // Sprint B.5b (#18) — commit cache-inclusive actual usage.
                 const respUsage = normalizeUsage(response.usage);
-                commit(reservationId, respUsage.input, respUsage.output);
+                await commit(reservationId, respUsage.input, respUsage.output);
                 tokensIn += response.usage.input_tokens;
                 tokensOut += response.usage.output_tokens;
 
@@ -762,7 +787,7 @@ export async function POST(req: NextRequest) {
                 }
                 hasMoreIterations = false;
               } finally {
-                release(reservationId);
+                await release(reservationId);
               }
             }
           }
@@ -788,18 +813,21 @@ export async function POST(req: NextRequest) {
           );
 
           // Persist final assistant message
+          // Issue #29 — async driver: await the .run().
           if (finalResponse) {
-            db.prepare(
-              'INSERT INTO messages (id, conversation_id, role, content, tokens_in, tokens_out, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            ).run(
-              crypto.randomUUID(),
-              resolvedConversationId,
-              'assistant',
-              finalResponse,
-              tokensIn,
-              tokensOut,
-              Math.floor(Date.now() / 1000),
-            );
+            await db
+              .prepare(
+                'INSERT INTO messages (id, conversation_id, role, content, tokens_in, tokens_out, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+              )
+              .run(
+                crypto.randomUUID(),
+                resolvedConversationId,
+                'assistant',
+                finalResponse,
+                tokensIn,
+                tokensOut,
+                Math.floor(Date.now() / 1000),
+              );
           }
 
           // Sprint B.5b (#18) — spend is now recorded per Anthropic call by the
@@ -939,6 +967,7 @@ export async function executeToolAndPersist(
   );
 
   // Persist tool messages
+  // Issue #29 — async driver: await the .run() calls.
   const toolUseContent = JSON.stringify({
     tool_use: {
       id: toolId,
@@ -953,23 +982,27 @@ export async function executeToolAndPersist(
     },
   });
 
-  db.prepare(
-    'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
-  ).run(
-    crypto.randomUUID(),
-    conversationId,
-    'assistant',
-    toolUseContent,
-    Math.floor(Date.now() / 1000),
-  );
+  await db
+    .prepare(
+      'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(
+      crypto.randomUUID(),
+      conversationId,
+      'assistant',
+      toolUseContent,
+      Math.floor(Date.now() / 1000),
+    );
 
-  db.prepare(
-    'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
-  ).run(
-    crypto.randomUUID(),
-    conversationId,
-    'tool',
-    toolResultContent,
-    Math.floor(Date.now() / 1000),
-  );
+  await db
+    .prepare(
+      'INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(
+      crypto.randomUUID(),
+      conversationId,
+      'tool',
+      toolResultContent,
+      Math.floor(Date.now() / 1000),
+    );
 }

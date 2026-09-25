@@ -3,6 +3,7 @@
 // Simplified: no ToolCommand interface (execute on descriptor directly), no execution modes
 
 import type { Role } from '@/lib/auth/types';
+import type { DbTransaction } from '@/lib/db/client';
 
 export type ToolCategory = 'corpus' | 'system' | 'visualization' | 'lease';
 
@@ -19,7 +20,7 @@ export interface ToolDescriptor {
   category: ToolCategory;
   /**
    * Optional async preparation step for mutating tools that need work
-   * (e.g., an Anthropic call) BEFORE the sync better-sqlite3 transaction.
+   * (e.g., an Anthropic call) BEFORE the async DB transaction.
    * Sprint 13 (charter v1.13): introduced for `draft_negotiation_email`,
    * which calls Anthropic to compose subject/body and then must INSERT
    * into `negotiation_emails` atomically with the audit-row write.
@@ -38,27 +39,27 @@ export interface ToolDescriptor {
   ) => Promise<unknown>;
   /**
    * Execute the tool with validated input.
-   * Read-only tools: async, returns the raw result.
-   * Mutating tools: sync, returns MutationOutcome.
-   * Mutating tools MUST throw on validation failures (Sprint 8 spec 4.3).
-   * The third `prepared` argument is the resolved value of `prepare()`
-   * when one is declared; otherwise undefined.
+   * Always async (Issue #29): read-only tools return the raw result;
+   * mutating tools return a MutationOutcome. Mutating tools MUST throw
+   * on validation failures (Sprint 8 spec 4.3). The third `prepared`
+   * argument is the resolved value of `prepare()` when one is declared;
+   * otherwise undefined.
    */
   execute: (
     input: Record<string, unknown>,
     context: ToolExecutionContext,
     prepared?: unknown,
-  ) => Promise<unknown> | MutationOutcome;
+  ) => Promise<unknown>;
   /**
    * When set, this tool is mutating. The registry runs `execute` inside
-   * a sync better-sqlite3 transaction with an audit-row insert. The
-   * function below is the rollback path — receives the serialized
-   * compensating-action payload that the original execute returned.
+   * an async DB transaction with an audit-row insert. The function below
+   * is the rollback path — receives the serialized compensating-action
+   * payload that the original execute returned.
    */
   compensatingAction?: (
     payload: Record<string, unknown>,
     context: ToolExecutionContext,
-  ) => void;
+  ) => Promise<void>;
 }
 
 export interface ToolExecutionContext {
@@ -78,6 +79,15 @@ export interface ToolExecutionContext {
    * Persisted as audit_log.tool_use_id when set.
    */
   toolUseId?: string;
+  /**
+   * Issue #29 — the open transaction handle, set ONLY by the registry
+   * for the mutating-tool path. A mutating `execute` must issue its
+   * writes through `ctx.tx` (falling back to the closure `db` only when
+   * invoked directly, e.g. in unit tests): statements issued on the
+   * outer `db` while the transaction is open throw TRANSACTION_ACTIVE
+   * on single-connection clients. Read-only tools ignore this.
+   */
+  tx?: DbTransaction;
 }
 
 /** What a mutating tool's execute returns synchronously. */

@@ -10,17 +10,17 @@
 // also calls it before checking userExists, so a wiped dev DB no longer
 // silently demotes the role-switcher back to Creator.
 
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 import { DEMO_USERS } from './constants';
 import { toDbRole } from './role-codec';
 
-export function ensureDemoUsersExist(db: Database.Database): void {
+export async function ensureDemoUsersExist(db: Db): Promise<void> {
   const insertUser = db.prepare(
     'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
   );
   const now = Math.floor(Date.now() / 1000);
   for (const user of DEMO_USERS) {
-    insertUser.run(
+    await insertUser.run(
       user.id,
       user.email,
       toDbRole(user.role),

@@ -42,7 +42,7 @@ export async function GET(
   if (!resolved.ok) return resolved.response;
   const { userId, role, workspaceId } = resolved;
 
-  const lease = getLease(db, leaseId, workspaceId);
+  const lease = await getLease(db, leaseId, workspaceId);
   if (!lease) {
     return errorResponse('NOT_FOUND', {
       requestId,
@@ -59,7 +59,7 @@ export async function GET(
     });
   }
 
-  const clauses = listClauses(db, leaseId, workspaceId);
+  const clauses = await listClauses(db, leaseId, workspaceId);
 
   return NextResponse.json(
     {

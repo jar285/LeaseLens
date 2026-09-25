@@ -1,6 +1,12 @@
 // Adapted from docs/_references/ai_mcp_chat_ordo/src/core/search/HybridSearchEngine.ts
 // Simplified: single function (no class), inline RRF + dotSimilarity, no deduplication or highlighting.
-import type Database from 'better-sqlite3';
+//
+// Issue #29 — async: the chunk read awaits the async `Db` driver, and the
+// workspace filter binds positionally (the statement interface binds
+// positional `?` args). The libSQL driver returns BLOB columns as
+// ArrayBuffer (better-sqlite3 returned Buffer), so `bufferToFloat32`
+// accepts both shapes while keeping the old Node-side semantics.
+import type { Db } from '@/lib/db/client';
 import { buildBM25Index, scoreBM25, tokenize } from './bm25';
 import { embedBatch } from './embed';
 
@@ -27,7 +33,8 @@ interface ChunkRecord {
   id: string;
   heading: string | null;
   content: string;
-  embedding: Buffer;
+  /** BLOB column: ArrayBuffer from @libsql/client (Buffer with better-sqlite3). */
+  embedding: ArrayBuffer | Uint8Array;
   document_slug: string;
 }
 
@@ -36,12 +43,15 @@ const CHUNK_QUERY = `
   FROM chunks c
   JOIN documents d ON d.id = c.document_id
   WHERE c.chunk_level IN ('section', 'passage')
-    AND c.workspace_id = @workspace_id
+    AND c.workspace_id = ?
 `;
 
-function bufferToFloat32(buf: Buffer): Float32Array {
-  const copy = Buffer.alloc(buf.length);
-  buf.copy(copy);
+function bufferToFloat32(buf: ArrayBuffer | Uint8Array): Float32Array {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  // Copy onto a 4-byte-aligned buffer before viewing as float32, exactly
+  // like the old implementation did after Buffer.copy.
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
   return new Float32Array(copy.buffer, copy.byteOffset, copy.byteLength / 4);
 }
 
@@ -66,7 +76,7 @@ function reciprocalRankFusion(
 
 export async function retrieve(
   query: string,
-  db: Database.Database,
+  db: Db,
   opts: RetrieveOptions,
 ): Promise<RetrievedChunk[]> {
   const vectorTopN = opts.vectorTopN ?? 20;
@@ -74,9 +84,7 @@ export async function retrieve(
   const rrfK = opts.rrfK ?? 60;
   const maxResults = opts.maxResults ?? 5;
 
-  const rows = db
-    .prepare(CHUNK_QUERY)
-    .all({ workspace_id: opts.workspaceId }) as ChunkRecord[];
+  const rows = await db.prepare(CHUNK_QUERY).all<ChunkRecord>(opts.workspaceId);
   if (rows.length === 0) return [];
 
   const [rawQuery] = await embedBatch([query]);

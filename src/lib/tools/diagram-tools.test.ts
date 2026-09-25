@@ -2,13 +2,13 @@
 // No DB, no LLM call. The factory accepts a Database parameter for
 // signature parity with createSearchCorpusTool but does not use it.
 
-import type Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { createRenderWorkflowDiagramTool } from './diagram-tools';
 import type { ToolExecutionContext } from './domain';
 
-const stubDb = null as unknown as Database.Database;
+const stubDb = null as unknown as Db;
 
 const ctx: ToolExecutionContext = {
   role: 'Tenant',

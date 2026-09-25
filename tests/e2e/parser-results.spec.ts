@@ -19,7 +19,7 @@ import { uploadSampleLease } from './helpers/upload-sample-lease';
 const TENANT_ID = DEMO_USERS.find((u) => u.role === 'Tenant')!.id;
 
 test.beforeEach(async ({ context }) => {
-  clearUserConversations(TENANT_ID);
+  await clearUserConversations(TENANT_ID);
   await setSessionCookies(context, 'Tenant');
 });
 
@@ -127,12 +127,12 @@ test('uploading after Replace restores the results shell', async ({ page }) => {
 test('Mode B is window-scrolled — document height grows past viewport and the header stays sticky', async ({
   page,
 }) => {
-  const leaseId = seedLease({
+  const leaseId = await seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,
     uploadedBy: TENANT_ID,
     filename: 'window-scroll-lease.pdf',
   });
-  seedGradedConversation({
+  await seedGradedConversation({
     userId: TENANT_ID,
     workspaceId: SAMPLE_WORKSPACE.id,
     leaseId,

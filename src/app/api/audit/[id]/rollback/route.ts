@@ -42,8 +42,9 @@ export async function POST(
     return errorResponse('UNAUTHENTICATED', { requestId });
   }
 
-  // 2. Load audit row.
-  const row = getAuditRow(db, id);
+  // 2. Load audit row. Issue #29 — getAuditRow is async (remote-capable
+  // driver) and returns undefined (not null) when the row is missing.
+  const row = await getAuditRow(db, id);
   if (!row) {
     return errorResponse('NOT_FOUND', { requestId });
   }
@@ -69,11 +70,17 @@ export async function POST(
   }
   const compensatingAction = descriptor.compensatingAction;
 
-  // 6. Run inside a sync transaction. If compensatingAction throws, the
+  // 6. Run inside an async transaction. If compensatingAction throws, the
   //    UPDATE doesn't run and the audit row stays 'executed'.
+  //    Issue #29 — the old sync `db.transaction(() => {...})()` double-call
+  //    form is now `await db.transaction(async (tx) => {...})`. The tx
+  //    handle is threaded through ToolExecutionContext.tx so the
+  //    compensating action's writes join this transaction (statements on
+  //    the outer db would throw TRANSACTION_ACTIVE on single-connection
+  //    clients); markRolledBack takes a DbHandle for the same reason.
   try {
-    db.transaction(() => {
-      compensatingAction(JSON.parse(row.compensating_action_json), {
+    await db.transaction(async (tx) => {
+      await compensatingAction(JSON.parse(row.compensating_action_json), {
         role: row.actor_role,
         userId: row.actor_user_id,
         conversationId: row.conversation_id ?? '',
@@ -81,9 +88,10 @@ export async function POST(
         // compensating action operates against the same workspace it
         // mutated. workspace_id is stored on the audit row at write time.
         workspaceId: row.workspace_id,
+        tx,
       });
-      markRolledBack(db, id);
-    })();
+      await markRolledBack(tx, id);
+    });
   } catch (err) {
     // Sprint D.12a (#12) — PII fix: a compensating-action error can embed
     // draft-email/clause content in err.message (e.g. a JSON.parse

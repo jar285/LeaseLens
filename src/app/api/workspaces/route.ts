@@ -50,7 +50,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const validated = validateUpload({ name, description, files });
 
     // Lazy TTL purge BEFORE insert (Spec §4.5).
-    purgeExpiredWorkspaces(db);
+    // Issue #29 — async driver: await.
+    await purgeExpiredWorkspaces(db);
 
     const { workspaceId } = await ingestUpload(db, validated);
 

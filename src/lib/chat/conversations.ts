@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 
 /**
  * Returns the most recent conversation for a (user, workspace) pair, or
@@ -7,18 +7,20 @@ import type Database from 'better-sqlite3';
  * bleed when a user switched workspaces.
  *
  * Spec §20.
+ *
+ * Issue #29 — async: awaits the SELECT against the async `Db` handle.
  */
-export function getLatestConversationForWorkspace(
-  db: Database.Database,
+export async function getLatestConversationForWorkspace(
+  db: Db,
   opts: { userId: string; workspaceId: string },
-): { id: string } | null {
-  const row = db
+): Promise<{ id: string } | null> {
+  const row = await db
     .prepare(
       `SELECT id FROM conversations
        WHERE user_id = ? AND workspace_id = ?
        ORDER BY created_at DESC
        LIMIT 1`,
     )
-    .get(opts.userId, opts.workspaceId) as { id: string } | undefined;
+    .get<{ id: string }>(opts.userId, opts.workspaceId);
   return row ?? null;
 }

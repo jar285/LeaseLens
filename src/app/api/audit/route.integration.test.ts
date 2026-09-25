@@ -38,11 +38,12 @@ async function makeAuditRequest(user?: {
   return req;
 }
 
-function seedAuditRow(
+async function seedAuditRow(
   actorUserId: string,
   actorRole: Role,
   toolName: string,
-): string {
+): Promise<string> {
+  // Issue #29 — writeAuditRow is async (remote-capable driver).
   return writeAuditRow(db, {
     tool_name: toolName,
     context: {
@@ -58,21 +59,28 @@ function seedAuditRow(
 }
 
 describe('GET /api/audit', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM audit_log').run();
+  // Issue #29 — async driver: beforeEach awaits every DB call.
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM audit_log').run();
     // Ensure DEMO_USERS exist (idempotent)
     const insertUser = db.prepare(
       'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
     );
     const now = Math.floor(Date.now() / 1000);
     for (const u of DEMO_USERS) {
-      insertUser.run(u.id, u.email, toDbRole(u.role), u.display_name, now);
+      await insertUser.run(
+        u.id,
+        u.email,
+        toDbRole(u.role),
+        u.display_name,
+        now,
+      );
     }
   });
 
   it('Admin session: sees rows from all actors', async () => {
-    const adminAuditId = seedAuditRow(ADMIN.id, 'Admin', 'approve_draft');
-    const editorAuditId = seedAuditRow(
+    const adminAuditId = await seedAuditRow(ADMIN.id, 'Admin', 'approve_draft');
+    const editorAuditId = await seedAuditRow(
       EDITOR.id,
       'Reviewer',
       'schedule_content_item',
@@ -87,8 +95,8 @@ describe('GET /api/audit', () => {
   });
 
   it('Editor session: sees only own rows', async () => {
-    seedAuditRow(ADMIN.id, 'Admin', 'approve_draft');
-    const editorAuditId = seedAuditRow(
+    await seedAuditRow(ADMIN.id, 'Admin', 'approve_draft');
+    const editorAuditId = await seedAuditRow(
       EDITOR.id,
       'Reviewer',
       'schedule_content_item',
@@ -102,8 +110,8 @@ describe('GET /api/audit', () => {
   });
 
   it('No-cookie request: defaults to Creator demo user → zero rows', async () => {
-    seedAuditRow(ADMIN.id, 'Admin', 'approve_draft');
-    seedAuditRow(EDITOR.id, 'Reviewer', 'schedule_content_item');
+    await seedAuditRow(ADMIN.id, 'Admin', 'approve_draft');
+    await seedAuditRow(EDITOR.id, 'Reviewer', 'schedule_content_item');
 
     const req = await makeAuditRequest(); // no cookie
     const res = await GET(req);

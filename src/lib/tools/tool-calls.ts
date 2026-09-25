@@ -20,12 +20,18 @@
  * never the raw message (a JSON.parse failure on a draft-email body / clause
  * text would embed tenant PII). `error_code` is the enumerated failure code.
  * See `safe-tool-error.ts`.
+ *
+ * Issue #29 — async: the insert awaits the async `Db` driver. Accepts the
+ * `Db` singleton or an open `DbTransaction` (both expose `prepare`).
  */
 
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
 import { toDbRole } from '@/lib/auth/role-codec';
 import type { Role } from '@/lib/auth/types';
+import type { Db } from '@/lib/db/client';
+
+/** Accepts the `Db` singleton or an open `DbTransaction` — both expose `prepare`. */
+type DbHandle = Pick<Db, 'prepare'>;
 
 export interface ToolCallInput {
   tool_name: string;
@@ -42,34 +48,36 @@ export interface ToolCallInput {
   latency_ms: number;
 }
 
-export function writeToolCall(
-  db: Database.Database,
+export async function writeToolCall(
+  db: DbHandle,
   input: ToolCallInput,
-): string {
+): Promise<string> {
   const id = randomUUID();
-  db.prepare(
-    `INSERT INTO tool_calls (
+  await db
+    .prepare(
+      `INSERT INTO tool_calls (
        id, tool_name, tool_use_id, actor_user_id, actor_role,
        conversation_id, workspace_id, status, error_message, error_code,
        latency_ms, created_at
      ) VALUES (
-       @id, @tool_name, @tool_use_id, @actor_user_id, @actor_role,
-       @conversation_id, @workspace_id, @status, @error_message, @error_code,
-       @latency_ms, @created_at
+       ?, ?, ?, ?, ?,
+       ?, ?, ?, ?, ?,
+       ?, ?
      )`,
-  ).run({
-    id,
-    tool_name: input.tool_name,
-    tool_use_id: input.tool_use_id,
-    actor_user_id: input.actor_user_id,
-    actor_role: toDbRole(input.actor_role),
-    conversation_id: input.conversation_id,
-    workspace_id: input.workspace_id,
-    status: input.status,
-    error_message: input.error_message,
-    error_code: input.error_code,
-    latency_ms: input.latency_ms,
-    created_at: Math.floor(Date.now() / 1000),
-  });
+    )
+    .run(
+      id,
+      input.tool_name,
+      input.tool_use_id,
+      input.actor_user_id,
+      toDbRole(input.actor_role),
+      input.conversation_id,
+      input.workspace_id,
+      input.status,
+      input.error_message,
+      input.error_code,
+      input.latency_ms,
+      Math.floor(Date.now() / 1000),
+    );
   return id;
 }

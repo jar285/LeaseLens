@@ -87,14 +87,14 @@ async function makeUploadRequest(opts: {
 }
 
 describe('POST /api/leases', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     // Hermetic-ish: clear previous run's leases so row counts are
     // deterministic. The integration tests share the dev DB by design
     // (Phase 1.5 carryover), so we scope cleanup to lease tables only.
-    db.prepare('DELETE FROM negotiation_emails').run();
-    db.prepare('DELETE FROM clauses').run();
-    db.prepare('DELETE FROM leases').run();
-    db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM negotiation_emails').run();
+    await db.prepare('DELETE FROM clauses').run();
+    await db.prepare('DELETE FROM leases').run();
+    await db.prepare('DELETE FROM rate_limit').run();
 
     // Re-seed demo users so the route's session lookup resolves.
     const insertUser = db.prepare(
@@ -102,25 +102,33 @@ describe('POST /api/leases', () => {
     );
     const now = Math.floor(Date.now() / 1000);
     for (const u of DEMO_USERS) {
-      insertUser.run(u.id, u.email, toDbRole(u.role), u.display_name, now);
+      await insertUser.run(
+        u.id,
+        u.email,
+        toDbRole(u.role),
+        u.display_name,
+        now,
+      );
     }
     // Sample workspace must exist for the workspace_id FK / cookie path.
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      now,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        now,
+      );
   });
 
-  afterEach(() => {
-    db.prepare('DELETE FROM negotiation_emails').run();
-    db.prepare('DELETE FROM clauses').run();
-    db.prepare('DELETE FROM leases').run();
-    db.prepare('DELETE FROM rate_limit').run();
+  afterEach(async () => {
+    await db.prepare('DELETE FROM negotiation_emails').run();
+    await db.prepare('DELETE FROM clauses').run();
+    await db.prepare('DELETE FROM leases').run();
+    await db.prepare('DELETE FROM rate_limit').run();
   });
 
   it('returns 200 with lease_id, page_count, clause_count on a valid PDF upload', async () => {
@@ -143,11 +151,11 @@ describe('POST /api/leases', () => {
     expect(body.page_count).toBeGreaterThanOrEqual(1);
     expect(body.clause_count).toBeGreaterThanOrEqual(0);
 
-    const lease = db
+    const lease = await db
       .prepare('SELECT id, uploaded_by, workspace_id FROM leases WHERE id = ?')
-      .get(body.lease_id) as
-      | { id: string; uploaded_by: string; workspace_id: string }
-      | undefined;
+      .get<{ id: string; uploaded_by: string; workspace_id: string }>(
+        body.lease_id,
+      );
     expect(lease).toBeDefined();
     expect(lease?.uploaded_by).toBe(demoUser('Tenant').id);
     expect(lease?.workspace_id).toBe(SAMPLE_WORKSPACE.id);
@@ -219,20 +227,22 @@ describe('POST /api/leases', () => {
     const res = await POST(req);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { lease_id: string };
-    const lease = db
+    const lease = await db
       .prepare('SELECT uploaded_by FROM leases WHERE id = ?')
-      .get(body.lease_id) as { uploaded_by: string };
-    expect(lease.uploaded_by).toBe(demoUser('Reviewer').id);
+      .get<{ uploaded_by: string }>(body.lease_id);
+    expect(lease?.uploaded_by).toBe(demoUser('Reviewer').id);
   });
 
   it('updates conversations.active_lease_id when a conversationId is supplied', async () => {
     // Seed a conversation owned by the Creator demo user.
     const convId = 'conv-upload-test';
     const user = demoUser('Tenant');
-    db.prepare(
-      `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
+    await db
+      .prepare(
+        `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
        VALUES (?, ?, ?, 'test', ?)`,
-    ).run(convId, user.id, SAMPLE_WORKSPACE.id, Math.floor(Date.now() / 1000));
+      )
+      .run(convId, user.id, SAMPLE_WORKSPACE.id, Math.floor(Date.now() / 1000));
 
     const req = await makeUploadRequest({
       file: SAMPLE_PDF_BUFFER.buffer.slice(
@@ -247,13 +257,13 @@ describe('POST /api/leases', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { lease_id: string };
 
-    const conv = db
+    const conv = await db
       .prepare('SELECT active_lease_id FROM conversations WHERE id = ?')
-      .get(convId) as { active_lease_id: string };
-    expect(conv.active_lease_id).toBe(body.lease_id);
+      .get<{ active_lease_id: string }>(convId);
+    expect(conv?.active_lease_id).toBe(body.lease_id);
 
     // Cleanup
-    db.prepare('DELETE FROM conversations WHERE id = ?').run(convId);
+    await db.prepare('DELETE FROM conversations WHERE id = ?').run(convId);
   });
 });
 
@@ -308,21 +318,21 @@ describe('POST /api/leases — public-anon mode (#15)', () => {
   const WS_NEW = 'ws-post-anon-new-15';
   const WS_EXP = 'ws-post-anon-exp-15';
 
-  beforeEach(() => {
+  beforeEach(async () => {
     priorMode = process.env._TEST_PUBLIC_ANON_MODE;
     process.env._TEST_PUBLIC_ANON_MODE = 'true';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (priorMode === undefined) delete process.env._TEST_PUBLIC_ANON_MODE;
     else process.env._TEST_PUBLIC_ANON_MODE = priorMode;
     for (const id of [WS_NEW, WS_EXP]) {
-      db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(id);
-      db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+      await db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(id);
+      await db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
     }
-    db.prepare('DELETE FROM users WHERE email LIKE ?').run(
-      'anon+%@anon.leaselens.local',
-    );
+    await db
+      .prepare('DELETE FROM users WHERE email LIKE ?')
+      .run('anon+%@anon.leaselens.local');
   });
 
   it('401s when there is no session cookie (never the seeded Tenant)', async () => {
@@ -361,19 +371,19 @@ describe('POST /api/leases — public-anon mode (#15)', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { lease_id: string };
 
-    const lease = db
+    const lease = await db
       .prepare('SELECT uploaded_by, workspace_id FROM leases WHERE id = ?')
-      .get(body.lease_id) as { uploaded_by: string; workspace_id: string };
-    expect(lease.uploaded_by).toBe(anon.userId);
-    expect(lease.workspace_id).toBe(WS_NEW);
+      .get<{ uploaded_by: string; workspace_id: string }>(body.lease_id);
+    expect(lease?.uploaded_by).toBe(anon.userId);
+    expect(lease?.workspace_id).toBe(WS_NEW);
 
     // The user row was materialized (FK) and the workspace is a live,
     // non-sample, expiring one — not the immortal sample.
-    const user = db
+    const user = await db
       .prepare('SELECT id FROM users WHERE id = ?')
       .get(anon.userId);
     expect(user).toBeDefined();
-    const ws = getActiveWorkspace(db, WS_NEW);
+    const ws = await getActiveWorkspace(db, WS_NEW);
     expect(ws).not.toBeNull();
     expect(ws?.is_sample).toBe(0);
     expect(ws?.expires_at).toBeTypeOf('number');
@@ -386,10 +396,12 @@ describe('POST /api/leases — public-anon mode (#15)', () => {
     // orphans/FK-fails. Regression for the ordering fix.
     const anon = newAnonIdentity();
     const past = Math.floor(Date.now() / 1000) - 100;
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, 'stale', 'stale', 0, ?, ?)`,
-    ).run(WS_EXP, past, past);
+      )
+      .run(WS_EXP, past, past);
 
     const req = await makeAnonUpload({
       userId: anon.userId,
@@ -401,12 +413,12 @@ describe('POST /api/leases — public-anon mode (#15)', () => {
 
     // Workspace re-materialized with a fresh future expiry, and the lease
     // binds to it (not orphaned into a purged id).
-    const ws = getActiveWorkspace(db, WS_EXP);
+    const ws = await getActiveWorkspace(db, WS_EXP);
     expect(ws).not.toBeNull();
     expect(ws?.expires_at ?? 0).toBeGreaterThan(Math.floor(Date.now() / 1000));
-    const lease = db
+    const lease = await db
       .prepare('SELECT workspace_id FROM leases WHERE id = ?')
-      .get(body.lease_id) as { workspace_id: string };
-    expect(lease.workspace_id).toBe(WS_EXP);
+      .get<{ workspace_id: string }>(body.lease_id);
+    expect(lease?.workspace_id).toBe(WS_EXP);
   });
 });

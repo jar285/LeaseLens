@@ -59,7 +59,7 @@ missing from it (`cleanup.test.ts`, Sprint A.7a).
 
 | Store | Contains | Retention | Deletion path | Enforced by | Pinned by |
 |---|---|---|---|---|---|
-| `leases` | Full lease text extract, filename (PII: names, addresses, amounts) | Dies with workspace | TTL sweep + delete-now | `cleanup.ts`, FK net (`schema.ts`, sD.20) | `cleanup.test.ts`, `delete-current/route.integration.test.ts` |
+| `leases` | Full lease text extract, filename (PII: names, addresses, amounts) | Dies with workspace | TTL sweep + delete-now | `cleanup.ts`, FK net (`migrations/0001_initial_schema.ts`, sD.20) | `cleanup.test.ts`, `delete-current/route.integration.test.ts` |
 | `clauses` | Clause text + gradings (red flags: severity, reasoning, citations) | Dies with workspace | Same | Same | Same |
 | `negotiation_emails` | Generated email drafts (tenant/landlord names possible) | Dies with workspace | Same | Same | `cleanup.test.ts` (purgeWorkspaceNow cascade) |
 | `conversations` + `messages` | Chat history incl. tool I/O embedded in message rows | Dies with workspace | Same | `cleanup.ts` (dedicated statements) | `cleanup.test.ts`, `delete-current/route.integration.test.ts` |
@@ -67,7 +67,7 @@ missing from it (`cleanup.test.ts`, Sprint A.7a).
 | `audit_log` | **Full tool input/output JSON** — retained deliberately; see "Audit rows" below | Dies with workspace | Same | `cleanup.ts` | `cleanup.test.ts` cascade |
 | `users` (anonymous rows) | Random UUID, synthesized `anon+<uuid>@anon.leaselens.local`, generic display name — **no real personal data by construction** | **No deletion path today** (honest gap; rows are pseudonymous and content-free) | — | `auth/anon-identity.ts` | `anon-identity` tests pin the synthesized shape |
 | `quota_counter`, `rate_limit` | Opaque counter keys (`session:<uuid>`, `ip:<masked /24 or /64 subnet>`) + counts — no content | Rows overwritten when their window restarts; stale keys may persist | — | `db/quota.ts`, `db/rate-limit.ts`, `http/client-ip.ts` (subnet masking, never full IP) | `quota.test.ts`, `client-ip.test.ts` |
-| `spend_log` | Per-day global token totals only (`date, tokens_in, tokens_out`) — no ids, no content | Indefinite (operational aggregate) | — | `db/spend.ts` | `schema.ts:43-47` (shape) |
+| `spend_log` | Per-day global token totals only (`date, tokens_in, tokens_out`) — no ids, no content | Indefinite (operational aggregate) | — | `db/spend.ts` | `migrations/0001_initial_schema.ts` (shape) |
 | `provider_call` | Budget-ledger rows: token estimates/actuals + session id — no content | Indefinite (operational ledger); stale reservations swept | — | `db/budget-ledger.ts` | `budget-ledger.test.ts` |
 | Browser IndexedDB (`leaselens-pdf-cache` / `pdf-binaries`) | The PDF bytes, on the visitor's own device | Until Replace / delete-now / mount-time prune | `delete(leaseId)` on Replace; `evictExcept([])` on delete-now | `lease/pdf-binary-repository.ts`, `ParserResultsShell.tsx` | `ParserResultsShell.test.tsx` |
 | Cookies | Session (signed: user id, role, anonymous flag; 24h) and workspace (signed: workspace id; TTL-matched) — ids only, no content | 24h max-age | Workspace cookie rotated to a fresh empty workspace id by delete-now in public mode (cleared in demo — sD.19b); both expire | `middleware.ts`, `delete-current/route.ts` | `middleware.test.ts`, `delete-current/route.integration.test.ts` |
@@ -92,9 +92,11 @@ missing from it (`cleanup.test.ts`, Sprint A.7a).
   chain's links are individually test-pinned. Cockpit server actions carry
   their own role check independent of the page redirect.
 - **Direct database access:** whoever operates the deployment can read the
-  SQLite file. That is outside application enforcement and is stated here
-  rather than guaranteed away. Mitigations are the 24h TTL itself and #23
-  (production DB discipline — deferred).
+  production data — with the hosted database (#29) that means whoever holds
+  the Turso auth token or Turso-dashboard access, rather than whoever can
+  read a local SQLite file. That is outside application enforcement and is
+  stated here rather than guaranteed away. Mitigations are the 24h TTL itself
+  and the fail-closed hosted-DB requirement for public deploys.
 
 ## Audit rows (issue #24 AC4 — decided, not built)
 
@@ -133,8 +135,10 @@ export must be revisited alongside that change.
 - **SQL `DELETE` is not forensic erasure.** SQLite may retain deleted-row
   images in freed pages and the WAL until checkpoint/`VACUUM`. The
   application deletes rows; it does not scrub disk sectors.
-- **Backups/snapshots** of the database file, and log-sink retention, are
-  deployment-operator territory — outside application enforcement.
+- **Backups/snapshots** of the database, and log-sink retention, are
+  deployment-operator territory — outside application enforcement. For the
+  hosted database this means Turso's snapshots/point-in-time recovery; see
+  `docs/hosted-database.md` for the backup story.
 - **Anonymous `users` rows persist** (see inventory). They contain no real
   personal data by construction, but a deletion/aging path is a reasonable
   future hardening.

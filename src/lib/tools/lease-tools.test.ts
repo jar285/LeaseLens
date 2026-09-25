@@ -7,8 +7,8 @@
 // deterministic. The chunk_id + statute_citation groundedness checks
 // (spec §2.6) are exercised against a seeded corpus chunk.
 
-import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { insertClause, insertLease } from '@/lib/lease/queries';
 import { createTestDb } from '@/lib/test/db';
 import { seedChunk, seedDocument } from '@/lib/test/seed';
@@ -30,30 +30,44 @@ vi.mock('@/lib/rag/embed', async () => {
 const TENANT_ID = 'u-tenant';
 const REVIEWER_ID = 'u-reviewer';
 
-function seedWorkspace(db: Database.Database): void {
+async function seedWorkspace(db: Db): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  db.prepare(
-    `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
-  ).run(
-    SAMPLE_WORKSPACE.id,
-    SAMPLE_WORKSPACE.name,
-    SAMPLE_WORKSPACE.description,
-    now,
-  );
+  await db
+    .prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
+    )
+    .run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      now,
+    );
   // Sprint D.20 (#20) — leases.uploaded_by now carries an FK; the uploader
   // ids used across this suite must be real users rows.
   const insertUser = db.prepare(
     `INSERT OR IGNORE INTO users (id, email, role, display_name, created_at)
      VALUES (?, ?, ?, ?, ?)`,
   );
-  insertUser.run(TENANT_ID, 'tenant@test.local', 'Creator', 'Tenant', now);
-  insertUser.run(REVIEWER_ID, 'reviewer@test.local', 'Editor', 'Reviewer', now);
+  await insertUser.run(
+    TENANT_ID,
+    'tenant@test.local',
+    'Creator',
+    'Tenant',
+    now,
+  );
+  await insertUser.run(
+    REVIEWER_ID,
+    'reviewer@test.local',
+    'Editor',
+    'Reviewer',
+    now,
+  );
 }
 
-function seedTenantLawCorpusChunk(db: Database.Database): string {
-  const docId = seedDocument(db, 'security-deposit-cap');
+async function seedTenantLawCorpusChunk(db: Db): Promise<string> {
+  const docId = await seedDocument(db, 'security-deposit-cap');
   const chunkId = 'security-deposit-cap#section:1';
-  seedChunk(db, docId, {
+  await seedChunk(db, docId, {
     id: chunkId,
     content:
       'Under New Jersey law, a residential landlord may not collect a security deposit greater than one and one-half (1.5) times the monthly rent. NJ Stat 46:8-21.2 sets the cap.',
@@ -63,18 +77,18 @@ function seedTenantLawCorpusChunk(db: Database.Database): string {
   return chunkId;
 }
 
-function seedSampleLease(
-  db: Database.Database,
+async function seedSampleLease(
+  db: Db,
   uploadedBy = TENANT_ID,
-): { leaseId: string; clauseId: string } {
-  const leaseId = insertLease(db, {
+): Promise<{ leaseId: string; clauseId: string }> {
+  const leaseId = await insertLease(db, {
     workspaceId: SAMPLE_WORKSPACE.id,
     filename: 'sample.pdf',
     textExtract: 'full lease text',
     pageCount: 2,
     uploadedBy,
   });
-  insertClause(db, {
+  await insertClause(db, {
     leaseId,
     workspaceId: SAMPLE_WORKSPACE.id,
     clauseIndex: 0,
@@ -82,12 +96,13 @@ function seedSampleLease(
     text: 'Tenant shall provide a security deposit equal to two months rent at lease execution.',
     pageNumber: 1,
   });
-  const clauseId = (
-    db.prepare('SELECT id FROM clauses WHERE lease_id = ?').get(leaseId) as {
-      id: string;
-    }
-  ).id;
-  return { leaseId, clauseId };
+  const clauseRow = await db
+    .prepare('SELECT id FROM clauses WHERE lease_id = ?')
+    .get<{ id: string }>(leaseId);
+  if (!clauseRow) {
+    throw new Error('seedSampleLease: clause row missing after insert');
+  }
+  return { leaseId, clauseId: clauseRow.id };
 }
 
 function ctx(
@@ -113,15 +128,15 @@ function buildAnthropicMock(text: string): AnthropicLike {
 }
 
 describe('extract_clauses tool', () => {
-  let db: Database.Database;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createTestDb();
-    seedWorkspace(db);
+  beforeEach(async () => {
+    db = await createTestDb();
+    await seedWorkspace(db);
   });
 
   it('returns clauses for the active lease', async () => {
-    const { leaseId } = seedSampleLease(db);
+    const { leaseId } = await seedSampleLease(db);
     const tool = createExtractClausesTool(db);
 
     const result = (await tool.execute(
@@ -139,14 +154,14 @@ describe('extract_clauses tool', () => {
 
   it('truncates clause text to 1200 chars in the result envelope (spec §3b)', async () => {
     const longText = 'x'.repeat(2000);
-    const leaseId = insertLease(db, {
+    const leaseId = await insertLease(db, {
       workspaceId: SAMPLE_WORKSPACE.id,
       filename: 's.pdf',
       textExtract: 'x',
       pageCount: 1,
       uploadedBy: TENANT_ID,
     });
-    insertClause(db, {
+    await insertClause(db, {
       leaseId,
       workspaceId: SAMPLE_WORKSPACE.id,
       clauseIndex: 0,
@@ -165,7 +180,7 @@ describe('extract_clauses tool', () => {
   });
 
   it('throws when Tenant tries to access a lease they did not upload (spec §2.12)', async () => {
-    const { leaseId } = seedSampleLease(db, REVIEWER_ID);
+    const { leaseId } = await seedSampleLease(db, REVIEWER_ID);
     const tool = createExtractClausesTool(db);
 
     await expect(
@@ -174,7 +189,7 @@ describe('extract_clauses tool', () => {
   });
 
   it('Reviewer can extract clauses from any lease in the workspace', async () => {
-    const { leaseId } = seedSampleLease(db, TENANT_ID);
+    const { leaseId } = await seedSampleLease(db, TENANT_ID);
     const tool = createExtractClausesTool(db);
 
     const result = (await tool.execute(
@@ -187,21 +202,21 @@ describe('extract_clauses tool', () => {
 });
 
 describe('get_lease_findings tool (Sprint 45)', () => {
-  let db: Database.Database;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createTestDb();
-    seedWorkspace(db);
+  beforeEach(async () => {
+    db = await createTestDb();
+    await seedWorkspace(db);
   });
 
   // Write a clause + its grading directly (no model call), so the read-tool
   // tests don't depend on the grader.
-  function seedGradedClause(
+  async function seedGradedClause(
     leaseId: string,
     clauseIndex: number,
     severity: 'high' | 'medium' | 'low' | 'ok',
-  ): void {
-    insertClause(db, {
+  ): Promise<void> {
+    await insertClause(db, {
       leaseId,
       workspaceId: SAMPLE_WORKSPACE.id,
       clauseIndex,
@@ -209,24 +224,26 @@ describe('get_lease_findings tool (Sprint 45)', () => {
       text: `clause ${clauseIndex}`,
       pageNumber: 1,
     });
-    db.prepare(
-      `UPDATE clauses SET severity = ?, statute_citation = ?, chunk_id = ?,
+    await db
+      .prepare(
+        `UPDATE clauses SET severity = ?, statute_citation = ?, chunk_id = ?,
               reasoning = ?, recommended_action = ?, graded_at = ?
-        WHERE lease_id = ? AND clause_index = ?`,
-    ).run(
-      severity,
-      'NJSA 1:2-3',
-      'chunk#section:1',
-      `reasoning ${clauseIndex}`,
-      `action ${clauseIndex}`,
-      1,
-      leaseId,
-      clauseIndex,
-    );
+         WHERE lease_id = ? AND clause_index = ?`,
+      )
+      .run(
+        severity,
+        'NJSA 1:2-3',
+        'chunk#section:1',
+        `reasoning ${clauseIndex}`,
+        `action ${clauseIndex}`,
+        1,
+        leaseId,
+        clauseIndex,
+      );
   }
 
-  function seedLeaseRow(uploadedBy = TENANT_ID): string {
-    return insertLease(db, {
+  async function seedLeaseRow(uploadedBy = TENANT_ID): Promise<string> {
+    return await insertLease(db, {
       workspaceId: SAMPLE_WORKSPACE.id,
       filename: 's.pdf',
       textExtract: 'x',
@@ -236,8 +253,8 @@ describe('get_lease_findings tool (Sprint 45)', () => {
   }
 
   it('returns stored gradings with NO Anthropic/corpus call (read-only by construction)', async () => {
-    const leaseId = seedLeaseRow();
-    seedGradedClause(leaseId, 0, 'high');
+    const leaseId = await seedLeaseRow();
+    await seedGradedClause(leaseId, 0, 'high');
 
     // The factory takes ONLY db — it cannot call Anthropic; that is the
     // no-re-scan guarantee.
@@ -267,10 +284,10 @@ describe('get_lease_findings tool (Sprint 45)', () => {
   });
 
   it('omits ungraded clauses and orders findings high-severity first', async () => {
-    const leaseId = seedLeaseRow();
-    seedGradedClause(leaseId, 0, 'low');
-    seedGradedClause(leaseId, 1, 'high');
-    insertClause(db, {
+    const leaseId = await seedLeaseRow();
+    await seedGradedClause(leaseId, 0, 'low');
+    await seedGradedClause(leaseId, 1, 'high');
+    await insertClause(db, {
       leaseId,
       workspaceId: SAMPLE_WORKSPACE.id,
       clauseIndex: 2,
@@ -295,8 +312,8 @@ describe('get_lease_findings tool (Sprint 45)', () => {
   });
 
   it('does not return a lease the Tenant did not upload (ownership)', async () => {
-    const leaseId = seedLeaseRow(REVIEWER_ID);
-    seedGradedClause(leaseId, 0, 'high');
+    const leaseId = await seedLeaseRow(REVIEWER_ID);
+    await seedGradedClause(leaseId, 0, 'high');
 
     const tool = createGetLeaseFindingsTool(db);
     await expect(
@@ -306,16 +323,16 @@ describe('get_lease_findings tool (Sprint 45)', () => {
 });
 
 describe('grade_clause_severity tool', () => {
-  let db: Database.Database;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createTestDb();
-    seedWorkspace(db);
+  beforeEach(async () => {
+    db = await createTestDb();
+    await seedWorkspace(db);
   });
 
   it('returns a graded clause when the LLM cites a live chunk and a substring statute', async () => {
-    const chunkId = seedTenantLawCorpusChunk(db);
-    const { clauseId } = seedSampleLease(db);
+    const chunkId = await seedTenantLawCorpusChunk(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock(
       JSON.stringify({
         severity: 'high',
@@ -338,8 +355,8 @@ describe('grade_clause_severity tool', () => {
   });
 
   it('Sprint 45 — persists the FULL grading (not just severity) so follow-ups need not re-scan', async () => {
-    const chunkId = seedTenantLawCorpusChunk(db);
-    const { clauseId } = seedSampleLease(db);
+    const chunkId = await seedTenantLawCorpusChunk(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock(
       JSON.stringify({
         severity: 'high',
@@ -354,29 +371,29 @@ describe('grade_clause_severity tool', () => {
 
     await tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID));
 
-    const row = db
+    const row = await db
       .prepare(
         'SELECT severity, statute_citation, chunk_id, reasoning, recommended_action, graded_at FROM clauses WHERE id = ?',
       )
-      .get(clauseId) as {
-      severity: string | null;
-      statute_citation: string | null;
-      chunk_id: string | null;
-      reasoning: string | null;
-      recommended_action: string | null;
-      graded_at: number | null;
-    };
-    expect(row.severity).toBe('high');
-    expect(row.statute_citation).toBe('NJ Stat 46:8-21.2');
-    expect(row.chunk_id).toBe(chunkId);
-    expect(row.reasoning).toMatch(/1\.5-month/);
-    expect(row.recommended_action).toMatch(/negotiate/i);
-    expect(typeof row.graded_at).toBe('number');
+      .get<{
+        severity: string | null;
+        statute_citation: string | null;
+        chunk_id: string | null;
+        reasoning: string | null;
+        recommended_action: string | null;
+        graded_at: number | null;
+      }>(clauseId);
+    expect(row?.severity).toBe('high');
+    expect(row?.statute_citation).toBe('NJ Stat 46:8-21.2');
+    expect(row?.chunk_id).toBe(chunkId);
+    expect(row?.reasoning).toMatch(/1\.5-month/);
+    expect(row?.recommended_action).toMatch(/negotiate/i);
+    expect(typeof row?.graded_at).toBe('number');
   });
 
   it('Sprint 45 — a rejected grading leaves graded_at NULL (no poisoned findings)', async () => {
-    seedTenantLawCorpusChunk(db);
-    const { clauseId } = seedSampleLease(db);
+    await seedTenantLawCorpusChunk(db);
+    const { clauseId } = await seedSampleLease(db);
     // Cites a chunk_id not in the retrieved set → validateGrading throws BEFORE
     // the write, so the clause stays ungraded.
     const anthropic = buildAnthropicMock(
@@ -394,16 +411,16 @@ describe('grade_clause_severity tool', () => {
       tool.execute({ clause_id: clauseId }, ctx('Tenant', TENANT_ID)),
     ).rejects.toThrow();
 
-    const row = db
+    const row = await db
       .prepare('SELECT graded_at, severity FROM clauses WHERE id = ?')
-      .get(clauseId) as { graded_at: number | null; severity: string | null };
-    expect(row.graded_at).toBeNull();
-    expect(row.severity).toBeNull();
+      .get<{ graded_at: number | null; severity: string | null }>(clauseId);
+    expect(row?.graded_at).toBeNull();
+    expect(row?.severity).toBeNull();
   });
 
   it('Sprint 45 — re-grading an already-graded clause returns the stored grading WITHOUT calling Anthropic (force_regrade recomputes)', async () => {
-    const chunkId = seedTenantLawCorpusChunk(db);
-    const { clauseId } = seedSampleLease(db);
+    const chunkId = await seedTenantLawCorpusChunk(db);
+    const { clauseId } = await seedSampleLease(db);
     const create = vi.fn().mockResolvedValue({
       content: [
         {
@@ -441,8 +458,8 @@ describe('grade_clause_severity tool', () => {
   });
 
   it('throws when the LLM cites a chunk_id not in the retrieved set (spec §2.6)', async () => {
-    seedTenantLawCorpusChunk(db);
-    const { clauseId } = seedSampleLease(db);
+    await seedTenantLawCorpusChunk(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock(
       JSON.stringify({
         severity: 'high',
@@ -460,8 +477,8 @@ describe('grade_clause_severity tool', () => {
   });
 
   it('throws when the statute_citation does not appear in the cited chunk text (spec §2.6)', async () => {
-    const chunkId = seedTenantLawCorpusChunk(db);
-    const { clauseId } = seedSampleLease(db);
+    const chunkId = await seedTenantLawCorpusChunk(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock(
       JSON.stringify({
         severity: 'high',
@@ -482,8 +499,8 @@ describe('grade_clause_severity tool', () => {
   });
 
   it('throws when the LLM returns malformed JSON', async () => {
-    seedTenantLawCorpusChunk(db);
-    const { clauseId } = seedSampleLease(db);
+    await seedTenantLawCorpusChunk(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock('not json at all');
     const tool = createGradeClauseSeverityTool(db, anthropic);
 
@@ -506,16 +523,16 @@ describe('grade_clause_severity tool', () => {
       // body talks about late fees but doesn't repeat the chunk_id
       // string verbatim. Model passes the chunk_id literally as the
       // statute_citation — this previously errored.
-      const docId = seedDocument(db, 'late-fees-general');
+      const docId = await seedDocument(db, 'late-fees-general');
       const chunkId = 'late-fees-general#section:5';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         content:
           'Late fees over 5% of monthly rent are presumptively unconscionable under NJ tenant-law precedent. Marini v. Ireland establishes the warranty of habitability.',
         index: 5,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -539,16 +556,16 @@ describe('grade_clause_severity tool', () => {
     });
 
     it('accepts a concatenated multi-statute citation when ANY part appears in the chunk body, canonicalising to the matching part', async () => {
-      const docId = seedDocument(db, 'late-fees-general');
+      const docId = await seedDocument(db, 'late-fees-general');
       const chunkId = 'late-fees-general#section:5';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         content:
           'Under NJSA 56:8-1 et seq., unconscionable terms in residential leases are unenforceable. Late fees over 5% of monthly rent trigger this analysis.',
         index: 5,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -573,8 +590,8 @@ describe('grade_clause_severity tool', () => {
     });
 
     it('still rejects a genuinely fabricated citation that is not in body and not a chunk_id (regression guard)', async () => {
-      const chunkId = seedTenantLawCorpusChunk(db);
-      const { clauseId } = seedSampleLease(db);
+      const chunkId = await seedTenantLawCorpusChunk(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -601,16 +618,16 @@ describe('grade_clause_severity tool', () => {
   // still rejects — that boundary is load-bearing for source-grounding.
   describe('Sprint 34.2 — chunk-identity citation forms', () => {
     it('D.1 — accepts a label-prefixed chunk pointer (chunk_id embedded in the citation)', async () => {
-      const docId = seedDocument(db, 'early-termination-general');
+      const docId = await seedDocument(db, 'early-termination-general');
       const chunkId = 'early-termination-general#section:1';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         content:
           'In a typical New Jersey residential tenancy, early termination is governed by the lease and reasonableness limits apply to any fee.',
         index: 1,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -634,9 +651,9 @@ describe('grade_clause_severity tool', () => {
     });
 
     it('D.2 — accepts the de-slugged chunk title as the citation', async () => {
-      const docId = seedDocument(db, 'attorneys-fees-clauses');
+      const docId = await seedDocument(db, 'attorneys-fees-clauses');
       const chunkId = 'attorneys-fees-clauses#section:1';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         // Body does NOT contain the literal title phrase, and avoids the
         // word "fees" so the substring (A.2) path cannot match.
@@ -645,7 +662,7 @@ describe('grade_clause_severity tool', () => {
         index: 1,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'medium',
@@ -667,16 +684,16 @@ describe('grade_clause_severity tool', () => {
     });
 
     it('D.2 tightness — a PARTIAL title is not enough (still rejects)', async () => {
-      const docId = seedDocument(db, 'attorneys-fees-clauses');
+      const docId = await seedDocument(db, 'attorneys-fees-clauses');
       const chunkId = 'attorneys-fees-clauses#section:1';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         content:
           "Many NJ residential leases shift the landlord's legal costs onto the tenant regardless of who prevails; one-way cost-shifting is disfavored.",
         index: 1,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'low',
@@ -693,9 +710,9 @@ describe('grade_clause_severity tool', () => {
     });
 
     it('D.3 — accepts an em-dash label+statute concatenation when the statute part is in the body', async () => {
-      const docId = seedDocument(db, 'late-fees-general');
+      const docId = await seedDocument(db, 'late-fees-general');
       const chunkId = 'late-fees-general#section:5';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         // The statute "NJSA 56:8-1 et seq." IS verbatim in the body; the
         // model just joins it to a label with an em-dash (no semicolon).
@@ -704,7 +721,7 @@ describe('grade_clause_severity tool', () => {
         index: 5,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -727,9 +744,9 @@ describe('grade_clause_severity tool', () => {
     });
 
     it('P3 boundary — external authority absent from the cited chunk still rejects', async () => {
-      const docId = seedDocument(db, 'repair-and-deduct');
+      const docId = await seedDocument(db, 'repair-and-deduct');
       const chunkId = 'repair-and-deduct#section:1';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         // Body about the repair-and-deduct remedy; does NOT contain "Marini".
         content:
@@ -737,7 +754,7 @@ describe('grade_clause_severity tool', () => {
         index: 1,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -765,9 +782,9 @@ describe('grade_clause_severity tool', () => {
   // them. A citation in NO retrieved chunk still rejects.
   describe('Sprint 34.3 — markdown-aware + cross-chunk grounding', () => {
     it('E.1 — accepts a citation broken by markdown italics in the chunk body', async () => {
-      const docId = seedDocument(db, 'repair-and-deduct');
+      const docId = await seedDocument(db, 'repair-and-deduct');
       const chunkId = 'repair-and-deduct#section:1';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         // Italic markers wrap just the case NAME, so "Marini v. Ireland,"
         // is broken by the `*` before the comma — verbatim includes fails.
@@ -776,7 +793,7 @@ describe('grade_clause_severity tool', () => {
         index: 1,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -797,16 +814,16 @@ describe('grade_clause_severity tool', () => {
     });
 
     it('E.1 — a bold whole-citation still matches (no regression from stripping)', async () => {
-      const docId = seedDocument(db, 'habitability-warranty');
+      const docId = await seedDocument(db, 'habitability-warranty');
       const chunkId = 'habitability-warranty#section:1';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         content:
           'A clause that disclaims the warranty is unenforceable per **Marini v. Ireland, 56 N.J. 130 (1970)**.',
         index: 1,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -825,25 +842,25 @@ describe('grade_clause_severity tool', () => {
     });
 
     it('E.2 — accepts a citation verbatim in a DIFFERENT retrieved chunk and re-points chunk_id', async () => {
-      const repairDoc = seedDocument(db, 'repair-and-deduct');
+      const repairDoc = await seedDocument(db, 'repair-and-deduct');
       const citedChunkId = 'repair-and-deduct#section:1';
-      seedChunk(db, repairDoc, {
+      await seedChunk(db, repairDoc, {
         id: citedChunkId,
         content:
           'Repair-and-deduct lets a tenant deduct the reasonable cost of repairs from the next month rent.',
         index: 1,
         level: 'section',
       });
-      const habDoc = seedDocument(db, 'habitability-warranty');
+      const habDoc = await seedDocument(db, 'habitability-warranty');
       const otherChunkId = 'habitability-warranty#section:1';
-      seedChunk(db, habDoc, {
+      await seedChunk(db, habDoc, {
         id: otherChunkId,
         content:
           'The implied warranty of habitability was announced in Marini v. Ireland, 56 N.J. 130 (1970).',
         index: 1,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -866,9 +883,9 @@ describe('grade_clause_severity tool', () => {
     });
 
     it('P3c boundary — a citation in NO retrieved chunk still rejects (even after emphasis-stripping)', async () => {
-      const docId = seedDocument(db, 'repair-and-deduct');
+      const docId = await seedDocument(db, 'repair-and-deduct');
       const chunkId = 'repair-and-deduct#section:1';
-      seedChunk(db, docId, {
+      await seedChunk(db, docId, {
         id: chunkId,
         // No case named anywhere in the retrieved context.
         content:
@@ -876,7 +893,7 @@ describe('grade_clause_severity tool', () => {
         index: 1,
         level: 'section',
       });
-      const { clauseId } = seedSampleLease(db);
+      const { clauseId } = await seedSampleLease(db);
       const anthropic = buildAnthropicMock(
         JSON.stringify({
           severity: 'high',
@@ -894,8 +911,8 @@ describe('grade_clause_severity tool', () => {
   });
 
   it('throws when Tenant tries to grade a clause on a lease they did not upload', async () => {
-    seedTenantLawCorpusChunk(db);
-    const { clauseId } = seedSampleLease(db, REVIEWER_ID);
+    await seedTenantLawCorpusChunk(db);
+    const { clauseId } = await seedSampleLease(db, REVIEWER_ID);
     const anthropic = buildAnthropicMock('{}');
     const tool = createGradeClauseSeverityTool(db, anthropic);
 
@@ -906,17 +923,17 @@ describe('grade_clause_severity tool', () => {
 });
 
 describe('draft_negotiation_email tool', () => {
-  let db: Database.Database;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createTestDb();
+  beforeEach(async () => {
+    db = await createTestDb();
     // Sprint D.20 — seedWorkspace now also seeds TENANT_ID/REVIEWER_ID users
     // (leases.uploaded_by FK), so the previous local INSERT here is gone.
-    seedWorkspace(db);
+    await seedWorkspace(db);
   });
 
   it('drafts an email via prepare+execute and returns a MutationOutcome', async () => {
-    const { clauseId } = seedSampleLease(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock(
       JSON.stringify({
         subject: 'Request to revise the security deposit',
@@ -927,18 +944,18 @@ describe('draft_negotiation_email tool', () => {
     const tenantCtx = ctx('Tenant', TENANT_ID);
 
     // Sprint 13 §2.4: mutating tool with `prepare` — async LLM call
-    // runs first, sync execute does the INSERT. The registry wraps
+    // runs first, async execute does the INSERT. The registry wraps
     // execute in a transaction; here we call them directly to unit-test
     // the descriptor.
     const prepared = await tool.prepare?.(
       { clause_id: clauseId, tone: 'polite' },
       tenantCtx,
     );
-    const outcome = tool.execute(
+    const outcome = (await tool.execute(
       { clause_id: clauseId, tone: 'polite' },
       tenantCtx,
       prepared,
-    ) as {
+    )) as {
       result: { email_id: string; subject: string };
       compensatingActionPayload: Record<string, unknown>;
     };
@@ -947,14 +964,14 @@ describe('draft_negotiation_email tool', () => {
     expect(outcome.result.subject).toMatch(/security deposit/i);
     expect(outcome.compensatingActionPayload).toHaveProperty('email_id');
 
-    const row = db
+    const row = await db
       .prepare('SELECT id FROM negotiation_emails WHERE id = ?')
-      .get(outcome.result.email_id);
+      .get<{ id: string }>(outcome.result.email_id);
     expect(row).toBeDefined();
   });
 
   it('compensatingAction deletes the negotiation_emails row by email_id (rollback round-trip)', async () => {
-    const { clauseId } = seedSampleLease(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock(
       JSON.stringify({ subject: 'subj', body: 'body' }),
     );
@@ -962,27 +979,27 @@ describe('draft_negotiation_email tool', () => {
     const tenantCtx = ctx('Tenant', TENANT_ID);
 
     const prepared = await tool.prepare?.({ clause_id: clauseId }, tenantCtx);
-    const outcome = tool.execute(
+    const outcome = (await tool.execute(
       { clause_id: clauseId },
       tenantCtx,
       prepared,
-    ) as {
+    )) as {
       result: { email_id: string };
       compensatingActionPayload: Record<string, unknown>;
     };
 
     expect(tool.compensatingAction).toBeDefined();
     if (!tool.compensatingAction) return;
-    tool.compensatingAction(outcome.compensatingActionPayload, tenantCtx);
+    await tool.compensatingAction(outcome.compensatingActionPayload, tenantCtx);
 
-    const row = db
+    const row = await db
       .prepare('SELECT id FROM negotiation_emails WHERE id = ?')
-      .get(outcome.result.email_id);
+      .get<{ id: string }>(outcome.result.email_id);
     expect(row).toBeUndefined();
   });
 
   it('throws in prepare when Tenant tries to draft for a lease they did not upload', async () => {
-    const { clauseId } = seedSampleLease(db, REVIEWER_ID);
+    const { clauseId } = await seedSampleLease(db, REVIEWER_ID);
     const anthropic = buildAnthropicMock('{}');
     const tool = createDraftNegotiationEmailTool(db, anthropic);
 
@@ -994,7 +1011,7 @@ describe('draft_negotiation_email tool', () => {
   });
 
   it('defaults tone to "polite" when not provided', async () => {
-    const { clauseId } = seedSampleLease(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock(
       JSON.stringify({ subject: 'subj', body: 'body' }),
     );
@@ -1002,11 +1019,11 @@ describe('draft_negotiation_email tool', () => {
     const tenantCtx = ctx('Tenant', TENANT_ID);
 
     const prepared = await tool.prepare?.({ clause_id: clauseId }, tenantCtx);
-    const outcome = tool.execute(
+    const outcome = (await tool.execute(
       { clause_id: clauseId },
       tenantCtx,
       prepared,
-    ) as { result: { tone: string } };
+    )) as { result: { tone: string } };
 
     expect(outcome.result.tone).toBe('polite');
   });
@@ -1026,7 +1043,7 @@ describe('draft_negotiation_email tool', () => {
   // boilerplate. The schema accepts them; the tool forwards them into
   // the LLM prompt verbatim.
   it('forwards concern_summary + statute_citation into the LLM prompt when supplied', async () => {
-    const { clauseId } = seedSampleLease(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock(
       JSON.stringify({ subject: 'subj', body: 'body' }),
     );
@@ -1063,7 +1080,7 @@ describe('draft_negotiation_email tool', () => {
   });
 
   it('strips a chunk_id-shaped statute_citation (defensive against agent confusion)', async () => {
-    const { clauseId } = seedSampleLease(db);
+    const { clauseId } = await seedSampleLease(db);
     const anthropic = buildAnthropicMock(
       JSON.stringify({ subject: 'subj', body: 'body' }),
     );

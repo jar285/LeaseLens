@@ -20,7 +20,7 @@
 //      remains required there.
 //   4. Throw with a message naming the ways to provide it.
 
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 
 const RECENT_UPLOAD_WINDOW_SECONDS = 30 * 60;
 
@@ -59,13 +59,13 @@ interface ConversationRow {
 const NO_LEASE_MESSAGE =
   'No lease specified. Provide `lease_id` in the tool input, or upload a lease so the conversation has an active_lease_id.';
 
-function loadLease(
-  db: Database.Database,
+async function loadLease(
+  db: Db,
   leaseId: string,
-): LeaseRow | undefined {
-  return db
+): Promise<LeaseRow | undefined> {
+  return await db
     .prepare('SELECT id, workspace_id FROM leases WHERE id = ?')
-    .get(leaseId) as LeaseRow | undefined;
+    .get<LeaseRow>(leaseId);
 }
 
 function assertLeaseInWorkspace(
@@ -81,30 +81,30 @@ function assertLeaseInWorkspace(
   }
 }
 
-function findRecentUserLease(
-  db: Database.Database,
+async function findRecentUserLease(
+  db: Db,
   workspaceId: string,
   userId: string,
   cutoff: number,
-): { id: string } | undefined {
-  return db
+): Promise<{ id: string } | undefined> {
+  return await db
     .prepare(
       `SELECT id FROM leases
        WHERE workspace_id = ? AND uploaded_by = ? AND created_at >= ?
        ORDER BY created_at DESC
        LIMIT 1`,
     )
-    .get(workspaceId, userId, cutoff) as { id: string } | undefined;
+    .get<{ id: string }>(workspaceId, userId, cutoff);
 }
 
-export function resolveLeaseId(
-  db: Database.Database,
+export async function resolveLeaseId(
+  db: Db,
   input: { lease_id?: unknown },
   ctx: ResolveLeaseIdContext,
-): string {
+): Promise<string> {
   // 1. Explicit lease_id from the tool input wins.
   if (typeof input.lease_id === 'string' && input.lease_id.length > 0) {
-    const lease = loadLease(db, input.lease_id);
+    const lease = await loadLease(db, input.lease_id);
     assertLeaseInWorkspace(lease, input.lease_id, ctx.workspaceId);
     return lease.id;
   }
@@ -112,11 +112,11 @@ export function resolveLeaseId(
   // 2. Conversation-scoped fallback. Skipped when conversationId is
   //    empty (MCP synthetic session) or absent.
   if (ctx.conversationId) {
-    const conv = db
+    const conv = await db
       .prepare('SELECT active_lease_id FROM conversations WHERE id = ?')
-      .get(ctx.conversationId) as ConversationRow | undefined;
+      .get<ConversationRow>(ctx.conversationId);
     if (conv?.active_lease_id) {
-      const lease = loadLease(db, conv.active_lease_id);
+      const lease = await loadLease(db, conv.active_lease_id);
       assertLeaseInWorkspace(lease, conv.active_lease_id, ctx.workspaceId);
       return lease.id;
     }
@@ -130,11 +130,16 @@ export function resolveLeaseId(
   if (ctx.enableRecentLeaseFallback && ctx.conversationId && ctx.userId) {
     const now = ctx.now ?? Math.floor(Date.now() / 1000);
     const cutoff = now - RECENT_UPLOAD_WINDOW_SECONDS;
-    const recent = findRecentUserLease(db, ctx.workspaceId, ctx.userId, cutoff);
+    const recent = await findRecentUserLease(
+      db,
+      ctx.workspaceId,
+      ctx.userId,
+      cutoff,
+    );
     if (recent) {
-      db.prepare(
-        'UPDATE conversations SET active_lease_id = ? WHERE id = ?',
-      ).run(recent.id, ctx.conversationId);
+      await db
+        .prepare('UPDATE conversations SET active_lease_id = ? WHERE id = ?')
+        .run(recent.id, ctx.conversationId);
       return recent.id;
     }
   }

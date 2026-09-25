@@ -2,7 +2,7 @@
 // Adapted from docs/_references/ai_mcp_chat_ordo/src/core/use-cases/tools/CorpusTools.ts
 // Simplified: uses existing retrieve() function instead of separate SearchHandler
 
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 import { retrieve } from '@/lib/rag/retrieve';
 import type { ToolDescriptor } from './domain';
 
@@ -11,7 +11,7 @@ import type { ToolDescriptor } from './domain';
  * Roles: ALL (Creator, Editor, Admin)
  * Searches the corpus using hybrid retrieval (vector + BM25).
  */
-export function createSearchCorpusTool(db: Database.Database): ToolDescriptor {
+export function createSearchCorpusTool(db: Db): ToolDescriptor {
   return {
     name: 'search_corpus',
     description:
@@ -76,9 +76,7 @@ export function createSearchCorpusTool(db: Database.Database): ToolDescriptor {
  * Roles: Editor, Admin
  * Returns summary of a specific document by slug.
  */
-export function createGetDocumentSummaryTool(
-  db: Database.Database,
-): ToolDescriptor {
+export function createGetDocumentSummaryTool(db: Db): ToolDescriptor {
   return {
     name: 'get_document_summary',
     description:
@@ -104,28 +102,36 @@ export function createGetDocumentSummaryTool(
 
       try {
         // Get document — workspace-scoped lookup (Sprint 11).
-        const doc = db
+        const doc = await db
           .prepare(`
           SELECT id, slug, title, content
           FROM documents
           WHERE slug = ? AND workspace_id = ?
         `)
-          .get(slug, ctx.workspaceId) as
-          | { id: string; slug: string; title: string; content: string }
-          | undefined;
+          .get<{ id: string; slug: string; title: string; content: string }>(
+            slug,
+            ctx.workspaceId,
+          );
 
         if (!doc) {
           return { error: `Document not found: ${slug}` };
         }
 
         // Get chunk count
-        const chunkCount = db
+        const chunkCount = await db
           .prepare(`
           SELECT COUNT(*) as count
           FROM chunks
           WHERE document_id = ?
         `)
-          .get(doc.id) as { count: number };
+          .get<{ count: number }>(doc.id);
+        // COUNT(*) always returns exactly one row; the explicit check
+        // documents the invariant instead of silently defaulting.
+        if (!chunkCount) {
+          throw new Error(
+            `get_document_summary: COUNT(*) returned no row for ${slug}`,
+          );
+        }
 
         // Return first 500 chars as preview
         const preview = doc.content.slice(0, 500);
@@ -154,7 +160,7 @@ export function createGetDocumentSummaryTool(
  * Roles: Admin only
  * Returns list of all documents.
  */
-export function createListDocumentsTool(db: Database.Database): ToolDescriptor {
+export function createListDocumentsTool(db: Db): ToolDescriptor {
   return {
     name: 'list_documents',
     description:
@@ -167,7 +173,7 @@ export function createListDocumentsTool(db: Database.Database): ToolDescriptor {
     category: 'corpus',
     execute: async (_input, ctx) => {
       try {
-        const docs = db
+        const docs = await db
           .prepare(`
           SELECT d.id, d.slug, d.title,
                  COUNT(c.id) as chunk_count
@@ -177,12 +183,12 @@ export function createListDocumentsTool(db: Database.Database): ToolDescriptor {
           GROUP BY d.id
           ORDER BY d.title
         `)
-          .all(ctx.workspaceId) as {
-          id: string;
-          slug: string;
-          title: string;
-          chunk_count: number;
-        }[];
+          .all<{
+            id: string;
+            slug: string;
+            title: string;
+            chunk_count: number;
+          }>(ctx.workspaceId);
 
         return {
           document_count: docs.length,

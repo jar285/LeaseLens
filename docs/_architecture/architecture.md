@@ -7,7 +7,11 @@
 ## Stack
 
 Next.js 16 App Router (Turbopack) · React 19 + TypeScript strict · Tailwind CSS v4 (`@theme` tokens) ·
-SQLite via `better-sqlite3` (WAL) · Anthropic Claude (`@anthropic-ai/sdk`) over NDJSON streaming ·
+SQLite dialect via `@libsql/client` (async): local `file:` database in dev/test
+(`:memory:` in tests), hosted **Turso** (libSQL) in production — selected by
+environment, migrated by versioned migrations in `src/lib/db/migrations/`
+(#29; public-anon mode fails closed at boot without `LEASELENS_TURSO_URL`, see
+`docs/hosted-database.md`) · Anthropic Claude (`@anthropic-ai/sdk`) over NDJSON streaming ·
 `pdfjs-dist` + `react-pdf` for the PDF viewer · `@huggingface/transformers` (WASM) for local RAG embeddings ·
 Vitest + happy-dom (unit/component/integration) · Playwright (e2e) · Biome (lint + format). A custom MCP
 server lives at `mcp/leaselens-server.ts`.

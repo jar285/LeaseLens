@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 import { WORKSPACE_TTL_SECONDS } from './constants';
 import type { Workspace } from './types';
 
-export function getWorkspace(
-  db: Database.Database,
+export async function getWorkspace(
+  db: Db,
   id: string,
-): Workspace | null {
+): Promise<Workspace | null> {
   return (
-    (db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id) as
-      | Workspace
-      | undefined) ?? null
+    (await db
+      .prepare('SELECT * FROM workspaces WHERE id = ?')
+      .get<Workspace>(id)) ?? null
   );
 }
 
@@ -21,11 +21,11 @@ export function getWorkspace(
  * Spec §4.13. Defines the cookie-vs-`expires_at` gray-state behavior:
  * an expired-but-not-yet-purged workspace is treated as not-present.
  */
-export function getActiveWorkspace(
-  db: Database.Database,
+export async function getActiveWorkspace(
+  db: Db,
   id: string,
-): Workspace | null {
-  const ws = getWorkspace(db, id);
+): Promise<Workspace | null> {
+  const ws = await getWorkspace(db, id);
   if (!ws) return null;
   if (ws.is_sample === 1) return ws;
   if (ws.expires_at !== null && ws.expires_at > Math.floor(Date.now() / 1000)) {
@@ -48,17 +48,26 @@ const ANON_WORKSPACE_DESCRIPTION =
  * (unlike createWorkspace, which generates its own id — here the id already
  * lives in the visitor's signed cookie). Returns the live row.
  */
-export function ensureAnonWorkspaceExists(
-  db: Database.Database,
+export async function ensureAnonWorkspaceExists(
+  db: Db,
   id: string,
-): Workspace {
+): Promise<Workspace> {
   const now = Math.floor(Date.now() / 1000);
   const expires_at = now + WORKSPACE_TTL_SECONDS;
-  db.prepare(
-    `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
      VALUES (?, ?, ?, 0, ?, ?)`,
-  ).run(id, ANON_WORKSPACE_NAME, ANON_WORKSPACE_DESCRIPTION, now, expires_at);
-  return getWorkspace(db, id) as Workspace;
+    )
+    .run(id, ANON_WORKSPACE_NAME, ANON_WORKSPACE_DESCRIPTION, now, expires_at);
+  const row = await getWorkspace(db, id);
+  // INSERT OR IGNORE above guarantees the row exists.
+  if (!row) {
+    throw new Error(
+      `ensureAnonWorkspaceExists: workspace ${id} missing after upsert`,
+    );
+  }
+  return row;
 }
 
 export interface CreateWorkspaceInput {
@@ -66,17 +75,19 @@ export interface CreateWorkspaceInput {
   description: string;
 }
 
-export function createWorkspace(
-  db: Database.Database,
+export async function createWorkspace(
+  db: Db,
   input: CreateWorkspaceInput,
-): Workspace {
+): Promise<Workspace> {
   const id = randomUUID();
   const now = Math.floor(Date.now() / 1000);
   const expires_at = now + WORKSPACE_TTL_SECONDS;
-  db.prepare(
-    `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+  await db
+    .prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
      VALUES (?, ?, ?, 0, ?, ?)`,
-  ).run(id, input.name, input.description, now, expires_at);
+    )
+    .run(id, input.name, input.description, now, expires_at);
   return {
     id,
     name: input.name,
@@ -93,15 +104,15 @@ export function createWorkspace(
  * TTL-purged (or never existed). Preserves cookie order so the menu reads
  * upload-order top-to-bottom.
  */
-export function listVisitorBrands(
-  db: Database.Database,
+export async function listVisitorBrands(
+  db: Db,
   created_workspace_ids: string[],
   excludeId: string,
-): Workspace[] {
+): Promise<Workspace[]> {
   const candidates = created_workspace_ids.filter((id) => id !== excludeId);
   if (candidates.length === 0) return [];
   const placeholders = candidates.map(() => '?').join(',');
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT * FROM workspaces
        WHERE id IN (${placeholders})
@@ -109,19 +120,19 @@ export function listVisitorBrands(
          AND expires_at IS NOT NULL
          AND expires_at > unixepoch()`,
     )
-    .all(...candidates) as Workspace[];
+    .all<Workspace>(...candidates);
   const byId = new Map(rows.map((r) => [r.id, r]));
   return candidates
     .map((id) => byId.get(id))
     .filter((w): w is Workspace => w !== undefined);
 }
 
-export function listExpiredWorkspaceIds(db: Database.Database): string[] {
-  const rows = db
+export async function listExpiredWorkspaceIds(db: Db): Promise<string[]> {
+  const rows = await db
     .prepare(
       `SELECT id FROM workspaces
        WHERE is_sample = 0 AND expires_at IS NOT NULL AND expires_at < unixepoch()`,
     )
-    .all() as { id: string }[];
+    .all<{ id: string }>();
   return rows.map((r) => r.id);
 }

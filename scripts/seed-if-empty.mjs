@@ -12,11 +12,15 @@
 // a spinner. Doing it as a build-time step happens BEFORE dev server
 // is announced ready, so the user only sees "Ready in …" once the
 // corpus is genuinely usable.
+//
+// Issue #29 — ported from better-sqlite3 to @libsql/client so the check
+// works against the local file DB (default) or the hosted Turso database
+// when LEASELENS_TURSO_URL is set.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import Database from 'better-sqlite3';
+import { createClient } from '@libsql/client';
 
 // Read .env.local for the DB path. `next dev` does this automatically;
 // we replicate a minimal subset here so this script can run before next.
@@ -42,26 +46,33 @@ function loadEnvLocal() {
 }
 loadEnvLocal();
 
+const tursoUrl = process.env.LEASELENS_TURSO_URL;
 const dbPath = process.env.LEASELENS_DB_PATH || './data/leaselens.db';
 const absDbPath = resolve(process.cwd(), dbPath);
 
 let chunkCount = 0;
-if (existsSync(absDbPath)) {
+const dbExists = tursoUrl ? true : existsSync(absDbPath);
+if (dbExists) {
+  const client = createClient(
+    tursoUrl
+      ? { url: tursoUrl, authToken: process.env.LEASELENS_TURSO_AUTH_TOKEN }
+      : { url: dbPath === ':memory:' ? ':memory:' : `file:${absDbPath}` },
+  );
   try {
-    const db = new Database(absDbPath, { readonly: true, fileMustExist: true });
     try {
-      const row = db.prepare('SELECT COUNT(*) AS n FROM chunks').get();
-      chunkCount = row?.n ?? 0;
+      const rs = await client.execute('SELECT COUNT(*) AS n FROM chunks');
+      chunkCount = Number(rs.rows[0]?.n ?? 0);
     } catch {
       // chunks table doesn't exist (fresh DB) — treat as empty.
       chunkCount = 0;
     }
-    db.close();
   } catch {
-    // DB exists but can't be opened (locked, corrupt) — let the seed
-    // attempt to proceed; if it fails, the seed itself will surface a
+    // DB exists but can't be opened (locked, corrupt, unreachable) — let the
+    // seed attempt to proceed; if it fails, the seed itself will surface a
     // clearer error than we can produce here.
     chunkCount = 0;
+  } finally {
+    client.close();
   }
 }
 
@@ -73,7 +84,7 @@ if (chunkCount > 0) {
 }
 
 console.log(
-  `[seed-if-empty] corpus is empty${existsSync(absDbPath) ? '' : ' (no DB yet)'} — running db:seed (~30s, one-time)…`,
+  `[seed-if-empty] corpus is empty${dbExists ? '' : ' (no DB yet)'} — running db:seed (~30s, one-time)…`,
 );
 const result = spawnSync('npm', ['run', 'db:seed'], {
   stdio: 'inherit',

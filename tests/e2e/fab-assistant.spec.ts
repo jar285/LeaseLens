@@ -22,7 +22,7 @@ import { setSessionCookies } from './helpers/session';
 const TENANT_ID = DEMO_USERS.find((u) => u.role === 'Tenant')!.id;
 
 test.beforeEach(async ({ context }) => {
-  clearUserConversations(TENANT_ID);
+  await clearUserConversations(TENANT_ID);
   await setSessionCookies(context, 'Tenant');
 });
 
@@ -72,12 +72,12 @@ test('red-flag "Explain" opens the FAB drawer with a clause-aware prompt', async
   page,
 }) => {
   // Seed a graded conversation so the red-flag cards exist on first paint.
-  const leaseId = seedLease({
+  const leaseId = await seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,
     uploadedBy: TENANT_ID,
     filename: 'fab-spec-lease.pdf',
   });
-  seedGradedConversation({
+  await seedGradedConversation({
     userId: TENANT_ID,
     workspaceId: SAMPLE_WORKSPACE.id,
     leaseId,
@@ -118,12 +118,12 @@ test('red-flag "Explain" opens the FAB drawer with a clause-aware prompt', async
 test('clause-row "Explain" opens the FAB drawer with a row-aware prompt', async ({
   page,
 }) => {
-  const leaseId = seedLease({
+  const leaseId = await seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,
     uploadedBy: TENANT_ID,
     filename: 'fab-clauses-lease.pdf',
   });
-  seedGradedConversation({
+  await seedGradedConversation({
     userId: TENANT_ID,
     workspaceId: SAMPLE_WORKSPACE.id,
     leaseId,

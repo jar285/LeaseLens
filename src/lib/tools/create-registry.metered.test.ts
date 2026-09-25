@@ -24,8 +24,8 @@ describe('createToolRegistry — budgeted Anthropic client (#5a → #18)', () =>
     budgetSpy.mockClear();
   });
 
-  it('routes an injected Anthropic client through budgetedAnthropicClient', () => {
-    const db = createTestDb();
+  it('routes an injected Anthropic client through budgetedAnthropicClient', async () => {
+    const db = await createTestDb();
     const injected: AnthropicLike = { messages: { create: vi.fn() } };
 
     createToolRegistry(db, injected);
@@ -34,8 +34,8 @@ describe('createToolRegistry — budgeted Anthropic client (#5a → #18)', () =>
     expect(budgetSpy).toHaveBeenCalledWith(injected);
   });
 
-  it('budgets even when no client is injected (lazy production path)', () => {
-    const db = createTestDb();
+  it('budgets even when no client is injected (lazy production path)', async () => {
+    const db = await createTestDb();
 
     createToolRegistry(db);
 

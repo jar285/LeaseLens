@@ -1,6 +1,10 @@
 // Sprint A.5a (#5a) — the metered Anthropic gateway records every tool-issued
 // create() call's usage (closing the nested-tool spend bypass), including cache
 // tokens, and passes the response through untouched.
+//
+// Issue #29 — async: the @/lib/db singleton is mocked to a fresh migrated
+// in-memory Db (reserve/commit/release + recordSpend all write through it);
+// every statement is awaited.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -23,6 +27,15 @@ vi.mock('@/lib/env', async (importOriginal) => {
   };
 });
 
+// Issue #29 — replace the @/lib/db singleton with a fresh migrated in-memory
+// Db so the ledger/spend writes stay hermetic.
+vi.mock('@/lib/db', async () => {
+  const { createTestDb } = await import('@/lib/test/db');
+  // createTestDb is async (returns the async Db handle).
+  const db = await createTestDb();
+  return { db };
+});
+
 import { db } from '@/lib/db';
 import { BudgetExhaustedError } from '@/lib/db/budget-ledger';
 import type { AnthropicLike } from '@/lib/tools/lease-tools';
@@ -32,12 +45,14 @@ import {
   normalizeUsage,
 } from './metered-client';
 
-function todaySpend(): { tokens_in: number; tokens_out: number } | undefined {
+async function todaySpend(): Promise<
+  { tokens_in: number; tokens_out: number } | undefined
+> {
   return db
     .prepare(
       "SELECT tokens_in, tokens_out FROM spend_log WHERE date = date('now')",
     )
-    .get() as { tokens_in: number; tokens_out: number } | undefined;
+    .get<{ tokens_in: number; tokens_out: number }>();
 }
 
 describe('normalizeUsage', () => {
@@ -59,8 +74,8 @@ describe('normalizeUsage', () => {
 });
 
 describe('meterAnthropicClient', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM spend_log').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM spend_log').run();
   });
 
   it('records usage via an injected sink and returns the response unchanged', async () => {
@@ -105,7 +120,7 @@ describe('meterAnthropicClient', () => {
     const metered = meterAnthropicClient(base); // default sink = recordSpend
     await metered.messages.create({});
 
-    expect(todaySpend()).toEqual({ tokens_in: 120, tokens_out: 50 });
+    expect(await todaySpend()).toEqual({ tokens_in: 120, tokens_out: 50 });
   });
 
   it('does not write a spend row when the response carries no usage', async () => {
@@ -116,34 +131,33 @@ describe('meterAnthropicClient', () => {
     const metered = meterAnthropicClient(base);
     await metered.messages.create({});
 
-    expect(todaySpend()).toBeUndefined();
+    expect(await todaySpend()).toBeUndefined();
   });
 });
 
 describe('budgetedAnthropicClient (#18)', () => {
   let prior: string | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     prior = process.env._TEST_PUBLIC_ANON_MODE;
-    db.prepare('DELETE FROM provider_call').run();
-    db.prepare("DELETE FROM spend_log WHERE date = date('now')").run();
+    await db.prepare('DELETE FROM provider_call').run();
+    await db.prepare("DELETE FROM spend_log WHERE date = date('now')").run();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (prior === undefined) delete process.env._TEST_PUBLIC_ANON_MODE;
     else process.env._TEST_PUBLIC_ANON_MODE = prior;
-    db.prepare('DELETE FROM provider_call').run();
-    db.prepare("DELETE FROM spend_log WHERE date = date('now')").run();
+    await db.prepare('DELETE FROM provider_call').run();
+    await db.prepare("DELETE FROM spend_log WHERE date = date('now')").run();
   });
 
-  function reservedCount() {
-    return (
-      db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM provider_call WHERE status = 'reserved'",
-        )
-        .get() as { n: number }
-    ).n;
+  async function reservedCount() {
+    const row = await db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM provider_call WHERE status = 'reserved'",
+      )
+      .get<{ n: number }>();
+    return row?.n ?? 0;
   }
 
   it('records a completed call exactly once (reserve → commit, no double-count)', async () => {
@@ -165,23 +179,25 @@ describe('budgetedAnthropicClient (#18)', () => {
     await client.messages.create({ max_tokens: 1024, messages: [] });
 
     // spend_log incremented once with cache-inclusive input (120 = 100+20).
-    expect(todaySpend()).toEqual({ tokens_in: 120, tokens_out: 50 });
-    const committed = db
+    expect(await todaySpend()).toEqual({ tokens_in: 120, tokens_out: 50 });
+    const committed = await db
       .prepare(
         "SELECT COUNT(*) AS n FROM provider_call WHERE status = 'committed'",
       )
-      .get() as { n: number };
-    expect(committed.n).toBe(1);
-    expect(reservedCount()).toBe(0); // released/committed, none left dangling
+      .get<{ n: number }>();
+    expect(committed?.n).toBe(1);
+    expect(await reservedCount()).toBe(0); // released/committed, none left dangling
   });
 
   it('fails closed: reserve throws before the call when the budget is exhausted', async () => {
     process.env._TEST_PUBLIC_ANON_MODE = 'true';
     // Pre-load committed spend past the $1 ceiling.
-    db.prepare(
-      `INSERT INTO spend_log (date, tokens_in, tokens_out) VALUES (date('now'), 0, 300000)
-       ON CONFLICT(date) DO UPDATE SET tokens_out = 300000`,
-    ).run();
+    await db
+      .prepare(
+        `INSERT INTO spend_log (date, tokens_in, tokens_out) VALUES (date('now'), 0, 300000)
+         ON CONFLICT(date) DO UPDATE SET tokens_out = 300000`,
+      )
+      .run();
     const create = vi.fn().mockResolvedValue({ content: [], usage: {} });
     const client = budgetedAnthropicClient({ messages: { create } });
 
@@ -189,7 +205,7 @@ describe('budgetedAnthropicClient (#18)', () => {
       client.messages.create({ max_tokens: 1024, messages: [] }),
     ).rejects.toBeInstanceOf(BudgetExhaustedError);
     expect(create).not.toHaveBeenCalled(); // never hit the provider
-    expect(reservedCount()).toBe(0); // nothing reserved (rolled back)
+    expect(await reservedCount()).toBe(0); // nothing reserved (rolled back)
   });
 
   it('releases the reservation when the underlying call throws (no leak)', async () => {
@@ -202,6 +218,6 @@ describe('budgetedAnthropicClient (#18)', () => {
     await expect(
       client.messages.create({ max_tokens: 1024, messages: [] }),
     ).rejects.toThrow('aborted');
-    expect(reservedCount()).toBe(0); // finally-release cleared it
+    expect(await reservedCount()).toBe(0); // finally-release cleared it
   });
 });

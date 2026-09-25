@@ -40,49 +40,50 @@ const OUT_040 = 100_000; // $0.40
 const OUT_060 = 150_000; // $0.60
 const OUT_120 = 300_000; // $1.20
 
-function todaySpend(): { tokens_in: number; tokens_out: number } {
+async function todaySpend(): Promise<{
+  tokens_in: number;
+  tokens_out: number;
+}> {
   return (
-    (db
+    (await db
       .prepare(
         "SELECT tokens_in, tokens_out FROM spend_log WHERE date = date('now')",
       )
-      .get() as { tokens_in: number; tokens_out: number } | undefined) ?? {
+      .get<{ tokens_in: number; tokens_out: number }>()) ?? {
       tokens_in: 0,
       tokens_out: 0,
     }
   );
 }
 
-function rowOf(id: string) {
-  return db.prepare('SELECT * FROM provider_call WHERE id = ?').get(id) as
-    | {
-        status: string;
-        estimated_out: number;
-        estimated_cost: number;
-        actual_out: number | null;
-        committed_at: number | null;
-      }
-    | undefined;
+async function rowOf(id: string) {
+  return db.prepare('SELECT * FROM provider_call WHERE id = ?').get<{
+    status: string;
+    estimated_out: number;
+    estimated_cost: number;
+    actual_out: number | null;
+    committed_at: number | null;
+  }>(id);
 }
 
 describe('budget-ledger (#18)', () => {
   let priorPublic: string | undefined;
   let priorDemo: string | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     priorPublic = process.env._TEST_PUBLIC_ANON_MODE;
     priorDemo = process.env._TEST_DEMO_MODE;
-    db.prepare('DELETE FROM provider_call').run();
-    db.prepare("DELETE FROM spend_log WHERE date = date('now')").run();
+    await db.prepare('DELETE FROM provider_call').run();
+    await db.prepare("DELETE FROM spend_log WHERE date = date('now')").run();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (priorPublic === undefined) delete process.env._TEST_PUBLIC_ANON_MODE;
     else process.env._TEST_PUBLIC_ANON_MODE = priorPublic;
     if (priorDemo === undefined) delete process.env._TEST_DEMO_MODE;
     else process.env._TEST_DEMO_MODE = priorDemo;
-    db.prepare('DELETE FROM provider_call').run();
-    db.prepare("DELETE FROM spend_log WHERE date = date('now')").run();
+    await db.prepare('DELETE FROM provider_call').run();
+    await db.prepare("DELETE FROM spend_log WHERE date = date('now')").run();
   });
 
   describe('guardrails enforced (public-anon mode)', () => {
@@ -90,81 +91,83 @@ describe('budget-ledger (#18)', () => {
       process.env._TEST_PUBLIC_ANON_MODE = 'true';
     });
 
-    it('reserves under the ceiling → returns an id + inserts one reserved row', () => {
-      const id = reserve({ estIn: 0, maxOut: OUT_040 });
+    it('reserves under the ceiling → returns an id + inserts one reserved row', async () => {
+      const id = await reserve({ estIn: 0, maxOut: OUT_040 });
       expect(typeof id).toBe('string');
-      const row = rowOf(id);
+      const row = await rowOf(id);
       expect(row?.status).toBe('reserved');
       expect(row?.estimated_out).toBe(OUT_040);
       expect(row?.estimated_cost).toBeCloseTo(0.4, 5);
     });
 
-    it('throws BudgetExhaustedError when committed spend already meets the ceiling', () => {
-      recordSpend(0, OUT_120); // $1.20 committed ≥ $1 ceiling
-      expect(() => reserve({ estIn: 0, maxOut: OUT_040 })).toThrow(
+    it('throws BudgetExhaustedError when committed spend already meets the ceiling', async () => {
+      await recordSpend(0, OUT_120); // $1.20 committed ≥ $1 ceiling
+      await expect(reserve({ estIn: 0, maxOut: OUT_040 })).rejects.toThrow(
         BudgetExhaustedError,
       );
     });
 
-    it('closes the TOCTOU: two reserves without a commit between → the second throws', () => {
-      reserve({ estIn: 0, maxOut: OUT_060 }); // $0.60 reserved
-      expect(() => reserve({ estIn: 0, maxOut: OUT_060 })).toThrow(
+    it('closes the TOCTOU: two reserves without a commit between → the second throws', async () => {
+      await reserve({ estIn: 0, maxOut: OUT_060 }); // $0.60 reserved
+      await expect(reserve({ estIn: 0, maxOut: OUT_060 })).rejects.toThrow(
         BudgetExhaustedError,
       ); // $0.60 + $0.60 = $1.20 > $1
     });
 
-    it('commit → committed status, spend_log incremented, isSpendCeilingExceeded reflects it', () => {
-      const id = reserve({ estIn: 0, maxOut: OUT_040 });
-      commit(id, 0, 250_000); // actual = $1.00
-      const row = rowOf(id);
+    it('commit → committed status, spend_log incremented, isSpendCeilingExceeded reflects it', async () => {
+      const id = await reserve({ estIn: 0, maxOut: OUT_040 });
+      await commit(id, 0, 250_000); // actual = $1.00
+      const row = await rowOf(id);
       expect(row?.status).toBe('committed');
       expect(row?.actual_out).toBe(250_000);
       expect(row?.committed_at).toBeTypeOf('number');
-      expect(todaySpend().tokens_out).toBe(250_000);
-      expect(isSpendCeilingExceeded()).toBe(true);
+      expect((await todaySpend()).tokens_out).toBe(250_000);
+      expect(await isSpendCeilingExceeded()).toBe(true);
     });
 
-    it('release: reserved→released, excluded from the reserved-sum, idempotent, no-op on committed', () => {
-      const id = reserve({ estIn: 0, maxOut: OUT_060 }); // $0.60 reserved
-      release(id);
-      expect(rowOf(id)?.status).toBe('released');
+    it('release: reserved→released, excluded from the reserved-sum, idempotent, no-op on committed', async () => {
+      const id = await reserve({ estIn: 0, maxOut: OUT_060 }); // $0.60 reserved
+      await release(id);
+      expect((await rowOf(id))?.status).toBe('released');
       // Released reservation is excluded from the sum → a fresh $0.60 fits.
-      const id2 = reserve({ estIn: 0, maxOut: OUT_060 });
+      const id2 = await reserve({ estIn: 0, maxOut: OUT_060 });
       expect(typeof id2).toBe('string');
       // Idempotent second release; no throw.
-      expect(() => release(id)).not.toThrow();
+      await release(id);
       // Releasing a committed reservation is a no-op (does not un-commit).
-      const id3 = reserve({ estIn: 0, maxOut: OUT_040 });
-      commit(id3, 0, OUT_040);
-      release(id3);
-      expect(rowOf(id3)?.status).toBe('committed');
+      const id3 = await reserve({ estIn: 0, maxOut: OUT_040 });
+      await commit(id3, 0, OUT_040);
+      await release(id3);
+      expect((await rowOf(id3))?.status).toBe('committed');
     });
 
-    it('sweeps stale reserved rows so a crashed request cannot poison the daily budget', () => {
+    it('sweeps stale reserved rows so a crashed request cannot poison the daily budget', async () => {
       // A reserved row older than the TTL (never committed/released — e.g. a
       // SIGKILLed request) worth $3.60 would otherwise exhaust the ceiling.
       const staleId = 'stale-reservation-15b';
       const old = Math.floor(Date.now() / 1000) - 999_999;
-      db.prepare(
-        `INSERT INTO provider_call (id, status, estimated_in, estimated_out, estimated_cost, date, created_at)
-         VALUES (?, 'reserved', 0, 900000, ?, date('now'), ?)`,
-      ).run(staleId, estimateCost(0, 900_000), old);
+      await db
+        .prepare(
+          `INSERT INTO provider_call (id, status, estimated_in, estimated_out, estimated_cost, date, created_at)
+           VALUES (?, 'reserved', 0, 900000, ?, date('now'), ?)`,
+        )
+        .run(staleId, estimateCost(0, 900_000), old);
 
-      const id = reserve({ estIn: 0, maxOut: OUT_040 });
+      const id = await reserve({ estIn: 0, maxOut: OUT_040 });
       expect(typeof id).toBe('string'); // stale swept → sum excludes it
-      expect(rowOf(staleId)?.status).toBe('released');
+      expect((await rowOf(staleId))?.status).toBe('released');
     });
   });
 
   describe('guardrails NOT enforced (plain local dev)', () => {
-    it('never throws even over the ceiling, but still records (always-track invariant)', () => {
-      recordSpend(0, OUT_120); // $1.20 committed
+    it('never throws even over the ceiling, but still records (always-track invariant)', async () => {
+      await recordSpend(0, OUT_120); // $1.20 committed
       // Over-ceiling reservation would throw under guardrails, but must not here.
-      const id = reserve({ estIn: 0, maxOut: OUT_120 });
+      const id = await reserve({ estIn: 0, maxOut: OUT_120 });
       expect(typeof id).toBe('string');
-      commit(id, 0, 50_000);
+      await commit(id, 0, 50_000);
       // Recording is unconditional so the cockpit/spend_log stay accurate.
-      expect(todaySpend().tokens_out).toBe(OUT_120 + 50_000);
+      expect((await todaySpend()).tokens_out).toBe(OUT_120 + 50_000);
     });
   });
 });

@@ -54,7 +54,7 @@ export default async function CockpitPage() {
     ? await decodeWorkspace(workspaceCookie.value)
     : null;
   let workspace = workspacePayload
-    ? getActiveWorkspace(db, workspacePayload.workspace_id)
+    ? await getActiveWorkspace(db, workspacePayload.workspace_id)
     : null;
   if (!workspace) {
     if (workspaceCookie) cookieStore.delete(WORKSPACE_COOKIE_NAME);
@@ -79,18 +79,18 @@ export default async function CockpitPage() {
   const since = Math.floor(Date.now() / 1000) - TWENTY_FOUR_HOURS_S;
 
   const initialData: CockpitInitialData = {
-    recentAudit: listRecentToolCalls(db, {
+    recentAudit: await listRecentToolCalls(db, {
       workspaceId: workspace.id,
       actorUserId: actorFilter,
       limit: 50,
     }),
-    scheduled: listScheduledItems(db, {
+    scheduled: await listScheduledItems(db, {
       workspaceId: workspace.id,
       scheduledBy: actorFilter,
       limit: 50,
     }),
     approvals: isAdmin
-      ? listRecentApprovals(db, {
+      ? await listRecentApprovals(db, {
           workspaceId: workspace.id,
           approvedBy: undefined,
           limit: 50,
@@ -98,18 +98,18 @@ export default async function CockpitPage() {
       : [],
     evalHealth: getLatestEvalReport(),
     leaseGrading: getLatestLeaseGradingReport(),
-    spend: getTodaySpend(db),
+    spend: await getTodaySpend(db),
     // Sprint 24 — three new agent-observability KPIs.
-    perToolStats: listPerToolStats(db, {
+    perToolStats: await listPerToolStats(db, {
       workspaceId: workspace.id,
       since,
       limit: 20,
     }),
-    leasePipeline: getLeasePipelineStats(db, {
+    leasePipeline: await getLeasePipelineStats(db, {
       workspaceId: workspace.id,
       since,
     }),
-    severityDistribution: getSeverityDistribution(db, {
+    severityDistribution: await getSeverityDistribution(db, {
       workspaceId: workspace.id,
     }),
     role,

@@ -2,13 +2,18 @@
 // Source: docs/_references/ai_mcp_chat_ordo/src/core/tool-registry/ToolRegistry.ts
 // Simplified: no bundles, no policy pipeline, no result formatter, no deferred execution.
 //
-// Sprint 8: extended with the mutating-tool path. Sync execute + audit-row insert
-// share a single better-sqlite3 transaction. External return type is a
+// Sprint 8: extended with the mutating-tool path. Async execute + audit-row insert
+// share a single async DB transaction. External return type is a
 // ToolExecutionResult envelope so audit_id never leaks into the LLM-visible
 // tool result. See spec sections 4.1, 4.3.
+//
+// Issue #29 — async: the transaction body awaits each statement and reads/writes
+// through the `tx` handle (statements issued on the module-level `db` inside the
+// callback would NOT join the transaction and throw TRANSACTION_ACTIVE on
+// single-connection clients).
 
-import type Database from 'better-sqlite3';
 import type { Role } from '@/lib/auth/types';
+import type { Db } from '@/lib/db/client';
 import { env } from '@/lib/env';
 import { logger } from '@/lib/log/logger';
 import { writeAuditRow } from './audit-log';
@@ -27,13 +32,14 @@ import {
 import { toSafeToolError } from './safe-tool-error';
 import { writeToolCall } from './tool-calls';
 
-// Sprint A.8 (#8) — bound an async tool step (prepare / read-only execute) to a
+// Sprint A.8 (#8) — bound an async tool step (prepare / execute) to a
 // wall-clock budget. A bulkhead so a slow/hung dependency (e.g. a stuck
 // Anthropic call inside a tool) can't stall the whole turn (Michael Nygard:
 // timeouts). The timer is cleared once the real promise settles so it never
-// leaks or fires late. The sync mutating execute (inside db.transaction) is
-// deliberately NOT wrapped — a synchronous better-sqlite3 call can't be aborted
-// mid-flight, and its work is local, not a remote dependency.
+// leaks or fires late. The mutating execute inside db.transaction is
+// deliberately NOT wrapped — its work is local DB writes (the LLM call
+// happens in `prepare`, which IS bounded above), and timing out the
+// transaction body mid-flight could commit/roll back unpredictably.
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -62,10 +68,10 @@ export interface ToolRegistryOptions {
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDescriptor>();
-  private readonly db?: Database.Database;
+  private readonly db?: Db;
   private readonly toolTimeoutMs: number;
 
-  constructor(db?: Database.Database, opts?: ToolRegistryOptions) {
+  constructor(db?: Db, opts?: ToolRegistryOptions) {
     this.db = db;
     this.toolTimeoutMs = opts?.toolTimeoutMs ?? env.LEASELENS_TOOL_TIMEOUT_MS;
   }
@@ -108,8 +114,9 @@ export class ToolRegistry {
    * — `result` carries the tool's logical output, `audit_id` is set only
    * for mutating tools (i.e., descriptors with a compensatingAction).
    *
-   * For mutating tools: the descriptor's execute is called synchronously
-   * inside `db.transaction(...)` together with the audit-row insert. If
+   * For mutating tools: the descriptor's execute is awaited inside
+   * `db.transaction(...)` together with the audit-row insert — every
+   * statement goes through the `tx` handle so both land atomically. If
    * either throws, the transaction rolls back atomically.
    */
   async execute(
@@ -165,33 +172,36 @@ export class ToolRegistry {
             )
           : undefined;
 
-        const txn = db.transaction((): ToolExecutionResult => {
-          const outcome = descriptor.execute(
-            input,
-            context,
-            prepared,
-          ) as MutationOutcome;
-          const audit_id = writeAuditRow(db, {
-            tool_name: name,
-            tool_use_id: context.toolUseId ?? null,
-            context,
-            input,
-            output: outcome.result,
-            compensatingActionPayload: outcome.compensatingActionPayload,
-          });
-          return { result: outcome.result, audit_id };
-        });
-        return txn();
+        const txnResult = await db.transaction(
+          async (tx): Promise<ToolExecutionResult> => {
+            // Issue #29 — the mutating execute receives the open `tx` via
+            // the context so its writes join this transaction; writeAuditRow
+            // takes the same handle. Nothing here may touch the outer `db`.
+            const outcome = (await descriptor.execute(
+              input,
+              { ...context, tx },
+              prepared,
+            )) as MutationOutcome;
+            const audit_id = await writeAuditRow(tx, {
+              tool_name: name,
+              tool_use_id: context.toolUseId ?? null,
+              context,
+              input,
+              output: outcome.result,
+              compensatingActionPayload: outcome.compensatingActionPayload,
+            });
+            return { result: outcome.result, audit_id };
+          },
+        );
+        return txnResult;
       }
 
-      // Read-only path. Descriptor's execute return type is the union
-      // `Promise<unknown> | MutationOutcome`; for read-only tools it's
-      // always a Promise. `await` on a non-Promise resolves to the value,
-      // so the union is harmless at runtime.
+      // Read-only path. `await` on the execute promise resolves to the
+      // tool's raw result.
       // Sprint A.8 (#8) — bound the read-only async work too (e.g.
       // grade_clause_severity makes its Anthropic call inside execute).
       const rawResult = await withTimeout(
-        Promise.resolve(descriptor.execute(input, context)),
+        descriptor.execute(input, context),
         this.toolTimeoutMs,
         name,
       );
@@ -219,9 +229,11 @@ export class ToolRegistry {
       // Sprint 24.5 — best-effort tool_calls write. Wrapped in its own
       // try/catch so an observability-log failure never breaks the
       // tool-call return path. The audit_log invariants are unchanged.
+      // Runs after the transaction above has committed or rolled back,
+      // so the outer `db` handle is safe to use here.
       if (this.db) {
         try {
-          writeToolCall(this.db, {
+          await writeToolCall(this.db, {
             tool_name: name,
             tool_use_id: context.toolUseId ?? null,
             actor_user_id: context.userId,

@@ -27,7 +27,7 @@ function tenantId(): string {
 }
 
 test.beforeEach(async ({ context }) => {
-  clearUserConversations(tenantId());
+  await clearUserConversations(tenantId());
   await setSessionCookies(context, 'Tenant');
 });
 
@@ -94,12 +94,12 @@ test('T14e — orphan tool_result row is silently skipped (card count check)', a
   page,
 }) => {
   const userId = tenantId();
-  const leaseId = seedLease({
+  const leaseId = await seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,
     uploadedBy: userId,
     filename: 't14e-lease.pdf',
   });
-  const { conversationId } = seedGradedConversation({
+  const { conversationId } = await seedGradedConversation({
     userId,
     workspaceId: SAMPLE_WORKSPACE.id,
     leaseId,

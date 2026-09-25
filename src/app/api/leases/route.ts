@@ -64,7 +64,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // weighted action); the demo profile keeps the legacy single-key limiter.
     if (guardrailsEnforced()) {
       if (isPublicAnonMode()) {
-        const result = enforceQuota(
+        // Issue #29 — enforceQuota is async (remote-capable driver).
+        const result = await enforceQuota(
           db,
           defaultTiers({
             userId,
@@ -80,7 +81,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           });
         }
       } else {
-        const rl = checkAndIncrementRateLimit(userId);
+        // Issue #29 — checkAndIncrementRateLimit is async.
+        const rl = await checkAndIncrementRateLimit(userId);
         if (!rl.allowed) {
           return errorResponse('RATE_LIMITED', {
             requestId,
@@ -124,7 +126,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Lazy TTL purge (Spec §4.5) before inserting.
-    purgeExpiredWorkspaces(db);
+    // Issue #29 — async driver: await.
+    await purgeExpiredWorkspaces(db);
 
     // Sprint B.15 (#15) — public-anon: materialize the visitor's OWN users row
     // (FK) + non-sample expiring workspace, gated on isPublicAnonMode() (NOT
@@ -134,8 +137,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // visitor whose per-visitor workspace has aged past the TTL would otherwise
     // be re-materialized and then purged out from under insertLease.
     if (isPublicAnonMode()) {
-      ensureAnonUserExists(db, userId);
-      ensureAnonWorkspaceExists(db, workspaceId);
+      // Issue #29 — async driver: await.
+      await ensureAnonUserExists(db, userId);
+      await ensureAnonWorkspaceExists(db, workspaceId);
     }
 
     const buffer = new Uint8Array(await validation.file.arrayBuffer());
@@ -182,8 +186,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const segmented = segmentClauses(parsed.pages);
 
     // Atomic write: lease + clauses + (optional) active-lease pointer.
-    const tx = db.transaction(() => {
-      const leaseId = insertLease(db, {
+    // Issue #29 — the old sync `db.transaction(() => {...})()` double-call
+    // form is now `await db.transaction(async (tx) => {...})`. The helpers
+    // take a DbHandle (satisfied by tx), so every INSERT joins this
+    // transaction. No logic change.
+    const { leaseId, clauseCount } = await db.transaction(async (tx) => {
+      const newLeaseId = await insertLease(tx, {
         workspaceId,
         filename: validation.file.name || 'lease.pdf',
         textExtract: parsed.pages.map((p) => p.text).join('\n\n'),
@@ -192,8 +200,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
 
       for (const seg of segmented) {
-        insertClause(db, {
-          leaseId,
+        await insertClause(tx, {
+          leaseId: newLeaseId,
           workspaceId,
           clauseIndex: seg.clauseIndex,
           clauseType: seg.clauseType,
@@ -206,26 +214,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // conversation must belong to the same user AND workspace; we
       // refuse to set active_lease_id on someone else's conversation.
       if (conversationId) {
-        const conv = db
+        const conv = await tx
           .prepare(
             'SELECT user_id, workspace_id FROM conversations WHERE id = ?',
           )
-          .get(conversationId) as
-          | { user_id: string; workspace_id: string }
-          | undefined;
+          .get<{ user_id: string; workspace_id: string }>(conversationId);
         if (
           conv &&
           conv.user_id === userId &&
           conv.workspace_id === workspaceId
         ) {
-          setActiveLease(db, conversationId, leaseId);
+          await setActiveLease(tx, conversationId, newLeaseId);
         }
       }
 
-      return { leaseId, clauseCount: segmented.length };
+      return { leaseId: newLeaseId, clauseCount: segmented.length };
     });
-
-    const { leaseId, clauseCount } = tx();
 
     return NextResponse.json(
       {

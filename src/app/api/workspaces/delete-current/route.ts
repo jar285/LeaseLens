@@ -67,7 +67,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  purgeWorkspaceNow(db, workspaceId);
+  // Issue #29 — purgeWorkspaceNow is async (remote-capable driver).
+  await purgeWorkspaceNow(db, workspaceId);
 
   const res = NextResponse.json({ deleted: true }, { status: 200 });
   if (isPublicAnonMode()) {

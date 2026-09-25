@@ -22,28 +22,34 @@ function makeRequest(body: unknown, cookie?: string): NextRequest {
   return req;
 }
 
-function insertWorkspace(id: string, expires_at: number | null): void {
+// Issue #29 — async driver: the seeding INSERT is awaited.
+async function insertWorkspace(
+  id: string,
+  expires_at: number | null,
+): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  db.prepare(
-    `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+  await db
+    .prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
      VALUES (?, ?, ?, 0, ?, ?)`,
-  ).run(id, `Brand ${id.slice(-4)}`, 'test brand', now, expires_at);
+    )
+    .run(id, `Brand ${id.slice(-4)}`, 'test brand', now, expires_at);
 }
 
 describe('POST /api/workspaces/select', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
-    db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
+    await db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
     const future = Math.floor(Date.now() / 1000) + 86_400;
     const past = Math.floor(Date.now() / 1000) - 60;
-    insertWorkspace(A_ID, future);
-    insertWorkspace(B_ID, future);
-    insertWorkspace(EXPIRED_ID, past);
+    await insertWorkspace(A_ID, future);
+    await insertWorkspace(B_ID, future);
+    await insertWorkspace(EXPIRED_ID, past);
   });
 
-  afterEach(() => {
-    db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
+  afterEach(async () => {
+    await db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
   });
 
   it('switches active workspace when target id is in created list and active', async () => {

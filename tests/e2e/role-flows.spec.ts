@@ -31,14 +31,14 @@ function roleId(role: Role): string {
 test.beforeEach(async () => {
   // Clear all three demo users' conversations + leftover audit/calendar
   // rows so each test starts from a known empty state.
-  clearUserConversations(roleId('Tenant'));
-  clearUserConversations(roleId('Reviewer'));
-  clearUserConversations(roleId('Admin'));
+  await clearUserConversations(roleId('Tenant'));
+  await clearUserConversations(roleId('Reviewer'));
+  await clearUserConversations(roleId('Admin'));
   // Audit / tool-call / content_calendar rows accumulate across tests;
   // wipe them so audit-row count assertions are deterministic.
-  db.prepare('DELETE FROM audit_log').run();
-  db.prepare('DELETE FROM tool_calls').run();
-  db.prepare('DELETE FROM content_calendar').run();
+  await db.prepare('DELETE FROM audit_log').run();
+  await db.prepare('DELETE FROM tool_calls').run();
+  await db.prepare('DELETE FROM content_calendar').run();
 });
 
 /**
@@ -48,7 +48,10 @@ test.beforeEach(async () => {
  * value returned. actor_role carries the legacy DB literal
  * (Creator/Editor/Admin); the role-codec maps the LeaseLens-facing Role.
  */
-function seedAuditRow(actorUserId: string, actorRole: Role): string {
+async function seedAuditRow(
+  actorUserId: string,
+  actorRole: Role,
+): Promise<string> {
   const dbRole = toDbRole(actorRole);
   const now = Math.floor(Date.now() / 1000) + 7200;
   const scheduleId = randomUUID();
@@ -67,60 +70,66 @@ function seedAuditRow(actorUserId: string, actorRole: Role): string {
     channel: input.channel,
   };
 
-  db.transaction(() => {
-    db.prepare(
-      `INSERT INTO content_calendar (
+  await db.transaction(async (tx) => {
+    await tx
+      .prepare(
+        `INSERT INTO content_calendar (
          id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      scheduleId,
-      input.document_slug,
-      SAMPLE_WORKSPACE.id,
-      Math.floor(Date.now() / 1000) + 86_400,
-      input.channel,
-      actorUserId,
-      now,
-    );
+      )
+      .run(
+        scheduleId,
+        input.document_slug,
+        SAMPLE_WORKSPACE.id,
+        Math.floor(Date.now() / 1000) + 86_400,
+        input.channel,
+        actorUserId,
+        now,
+      );
     // tool_calls is what the cockpit's audit-feed query reads from;
     // tc.id becomes the audit-row-${id} testid.
-    db.prepare(
-      `INSERT INTO tool_calls (
+    await tx
+      .prepare(
+        `INSERT INTO tool_calls (
          id, tool_name, tool_use_id, actor_user_id, actor_role,
          conversation_id, workspace_id, status, created_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'success', ?)`,
-    ).run(
-      toolCallId,
-      'schedule_content_item',
-      toolUseId,
-      actorUserId,
-      dbRole,
-      null,
-      SAMPLE_WORKSPACE.id,
-      now,
-    );
+      )
+      .run(
+        toolCallId,
+        'schedule_content_item',
+        toolUseId,
+        actorUserId,
+        dbRole,
+        null,
+        SAMPLE_WORKSPACE.id,
+        now,
+      );
     // audit_log links via tool_use_id so the Undo flow can resolve
     // the compensating action.
-    db.prepare(
-      `INSERT INTO audit_log (
+    await tx
+      .prepare(
+        `INSERT INTO audit_log (
          id, tool_name, tool_use_id, actor_user_id, actor_role, conversation_id,
          workspace_id, input_json, output_json, compensating_action_json,
          status, created_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      auditId,
-      'schedule_content_item',
-      toolUseId,
-      actorUserId,
-      dbRole,
-      null,
-      SAMPLE_WORKSPACE.id,
-      JSON.stringify(input),
-      JSON.stringify(output),
-      JSON.stringify({ schedule_id: scheduleId }),
-      'executed',
-      now,
-    );
-  })();
+      )
+      .run(
+        auditId,
+        'schedule_content_item',
+        toolUseId,
+        actorUserId,
+        dbRole,
+        null,
+        SAMPLE_WORKSPACE.id,
+        JSON.stringify(input),
+        JSON.stringify(output),
+        JSON.stringify({ schedule_id: scheduleId }),
+        'executed',
+        now,
+      );
+  });
 
   return toolCallId;
 }
@@ -144,7 +153,7 @@ test('T12 — Reviewer cockpit visibility: panels render, Approvals hidden', asy
 }) => {
   await setSessionCookies(context, 'Reviewer');
   // Give Reviewer something to view in the audit feed.
-  seedAuditRow(roleId('Reviewer'), 'Reviewer');
+  await seedAuditRow(roleId('Reviewer'), 'Reviewer');
 
   await page.goto('/cockpit');
 
@@ -168,7 +177,7 @@ test('T13 — Admin sees audit rows from other actors; Reviewer sees only own', 
 }) => {
   // Seed an audit row authored by Reviewer.
   const reviewerId = roleId('Reviewer');
-  const auditId = seedAuditRow(reviewerId, 'Reviewer');
+  const auditId = await seedAuditRow(reviewerId, 'Reviewer');
 
   // First pass: Admin sees it.
   await setSessionCookies(context, 'Admin');
@@ -179,7 +188,7 @@ test('T13 — Admin sees audit rows from other actors; Reviewer sees only own', 
   // tautological for this seed — but the point is Tenant/Admin's rows
   // would NOT appear). Seed a second row authored by Admin to make the
   // negative assertion meaningful.
-  const adminAuthoredId = seedAuditRow(roleId('Admin'), 'Admin');
+  const adminAuthoredId = await seedAuditRow(roleId('Admin'), 'Admin');
   await context.clearCookies();
   await setSessionCookies(context, 'Reviewer');
   await page.goto('/cockpit');
@@ -196,12 +205,12 @@ test('T15 — "Clear assistant chat" preserves the lease + red-flag cards (parse
 }) => {
   await setSessionCookies(context, 'Tenant');
   const userId = roleId('Tenant');
-  const leaseId = seedLease({
+  const leaseId = await seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,
     uploadedBy: userId,
     filename: 't15-lease.pdf',
   });
-  seedGradedConversation({
+  await seedGradedConversation({
     userId,
     workspaceId: SAMPLE_WORKSPACE.id,
     leaseId,

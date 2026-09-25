@@ -6,10 +6,15 @@
 // agent-guidelines §1 Vitest hermeticity rule. Pre-S13 the file opened
 // the dev DB directly, which made the envelope test order-dependent on
 // db:seed state.
+//
+// Issue #29: converted from the old synchronous driver to the async Db
+// driver. The
+// fixture DB is a hermetic in-memory client (createDbClient({url:
+// ':memory:'}) + runMigrations) — never the real file.
 
-import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTestDb } from '../src/lib/test/db';
+import { createDbClient, type Db } from '../src/lib/db/client';
+import { runMigrations } from '../src/lib/db/migrations';
 import { seedChunk, seedDocument } from '../src/lib/test/seed';
 import { createToolRegistry } from '../src/lib/tools/create-registry';
 import { SAMPLE_WORKSPACE } from '../src/lib/workspaces/constants';
@@ -60,34 +65,37 @@ const FIXTURE_DOCS = [
   },
 ];
 
-function seedFixture(db: Database.Database): void {
-  db.prepare(
-    `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
-  ).run(
-    SAMPLE_WORKSPACE.id,
-    SAMPLE_WORKSPACE.name,
-    SAMPLE_WORKSPACE.description,
-    Math.floor(Date.now() / 1000),
-  );
+async function seedFixture(db: Db): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
+    )
+    .run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      Math.floor(Date.now() / 1000),
+    );
   for (const doc of FIXTURE_DOCS) {
-    const docId = seedDocument(db, doc.slug);
-    doc.chunks.forEach((chunk, index) => {
-      seedChunk(db, docId, {
+    const docId = await seedDocument(db, doc.slug);
+    for (const [index, chunk] of doc.chunks.entries()) {
+      await seedChunk(db, docId, {
         id: chunk.id,
         content: chunk.content,
         index,
         level: 'section',
       });
-    });
+    }
   }
 }
 
 describe('MCP Server Contract', () => {
-  let db: Database.Database;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createTestDb();
-    seedFixture(db);
+  beforeEach(async () => {
+    db = createDbClient({ url: ':memory:' });
+    await runMigrations(db);
+    await seedFixture(db);
   });
 
   describe('Tool Parity', () => {
@@ -221,9 +229,9 @@ describe('MCP Server Contract', () => {
 
     it('render_workflow_diagram executes via registry as a read-only tool (no audit row)', async () => {
       const registry = createToolRegistry(db);
-      const beforeRow = db
+      const beforeRow = await db
         .prepare('SELECT COUNT(*) as n FROM audit_log')
-        .get() as { n: number };
+        .get<{ n: number }>();
 
       const { result, audit_id } = await registry.execute(
         'render_workflow_diagram',
@@ -246,10 +254,10 @@ describe('MCP Server Contract', () => {
         title: 'MCP smoke',
       });
 
-      const afterRow = db
+      const afterRow = await db
         .prepare('SELECT COUNT(*) as n FROM audit_log')
-        .get() as { n: number };
-      expect(afterRow.n).toBe(beforeRow.n);
+        .get<{ n: number }>();
+      expect(afterRow?.n).toBe(beforeRow?.n);
     });
   });
 
@@ -274,27 +282,33 @@ describe('MCP Server Contract', () => {
       const registry = createToolRegistry(db, fakeAnthropic);
 
       // Seed mcp-server user + a lease + a clause Admin can act on.
-      db.prepare(
-        'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-      ).run(
-        'mcp-server',
-        'mcp@local',
-        'Admin',
-        'MCP Server',
-        Math.floor(Date.now() / 1000),
-      );
-      db.prepare(
-        `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+      await db
+        .prepare(
+          'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(
+          'mcp-server',
+          'mcp@local',
+          'Admin',
+          'MCP Server',
+          Math.floor(Date.now() / 1000),
+        );
+      await db
+        .prepare(
+          `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
          VALUES ('lease-mcp', ?, 'mcp.pdf', 'text', 1, 'mcp-server', 1)`,
-      ).run(SAMPLE_WORKSPACE.id);
-      db.prepare(
-        `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
+        )
+        .run(SAMPLE_WORKSPACE.id);
+      await db
+        .prepare(
+          `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
          VALUES ('clause-mcp', 'lease-mcp', ?, 0, 'security_deposit', 'Tenant shall provide a security deposit equal to two months rent.', 1, 1)`,
-      ).run(SAMPLE_WORKSPACE.id);
+        )
+        .run(SAMPLE_WORKSPACE.id);
 
-      const beforeRow = db
+      const beforeRow = await db
         .prepare('SELECT COUNT(*) as n FROM audit_log')
-        .get() as { n: number };
+        .get<{ n: number }>();
 
       const { result, audit_id } = await registry.execute(
         'draft_negotiation_email',
@@ -310,23 +324,23 @@ describe('MCP Server Contract', () => {
       expect(audit_id).toBeTruthy();
       expect(result).toHaveProperty('email_id');
 
-      const auditRow = db
+      const auditRow = await db
         .prepare(
           'SELECT actor_user_id, actor_role, tool_name FROM audit_log WHERE id = ?',
         )
-        .get(audit_id) as {
-        actor_user_id: string;
-        actor_role: string;
-        tool_name: string;
-      };
-      expect(auditRow.actor_user_id).toBe('mcp-server');
-      expect(auditRow.actor_role).toBe('Admin');
-      expect(auditRow.tool_name).toBe('draft_negotiation_email');
+        .get<{
+          actor_user_id: string;
+          actor_role: string;
+          tool_name: string;
+        }>(audit_id);
+      expect(auditRow?.actor_user_id).toBe('mcp-server');
+      expect(auditRow?.actor_role).toBe('Admin');
+      expect(auditRow?.tool_name).toBe('draft_negotiation_email');
 
-      const afterRow = db
+      const afterRow = await db
         .prepare('SELECT COUNT(*) as n FROM audit_log')
-        .get() as { n: number };
-      expect(afterRow.n).toBe(beforeRow.n + 1);
+        .get<{ n: number }>();
+      expect(afterRow?.n).toBe((beforeRow?.n ?? 0) + 1);
     });
   });
 });

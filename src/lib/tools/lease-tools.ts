@@ -6,12 +6,15 @@
 //
 // `draft_negotiation_email` uses the new `prepare` step on
 // ToolDescriptor (added in Sprint 13) so the Anthropic call runs
-// BEFORE the sync better-sqlite3 transaction. The transaction wraps
+// BEFORE the async DB transaction. The transaction wraps
 // only the `negotiation_emails` INSERT and the audit-row write — both
 // land atomically per spec §2.4.
+//
+// Issue #29 — async: the mutating `execute` awaits its INSERT through
+// the `tx` handle the registry passes on the execution context.
 
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 import { env } from '@/lib/env';
 import { assertLeaseOwnership } from '@/lib/lease/assert-lease-ownership';
 import {
@@ -45,12 +48,12 @@ export interface AnthropicLike {
 const CLAUSE_TEXT_TRUNCATE = 1200;
 const RETRIEVAL_K = 4;
 
-function loadOwnedLease(
-  db: Database.Database,
+async function loadOwnedLease(
+  db: Db,
   leaseId: string,
   ctx: ToolExecutionContext,
 ) {
-  const lease = getLease(db, leaseId, ctx.workspaceId);
+  const lease = await getLease(db, leaseId, ctx.workspaceId);
   if (!lease) {
     throw new Error(`Lease ${leaseId} not found in active workspace`);
   }
@@ -58,18 +61,18 @@ function loadOwnedLease(
   return lease;
 }
 
-function loadOwnedLeaseFromClauseId(
-  db: Database.Database,
+async function loadOwnedLeaseFromClauseId(
+  db: Db,
   clauseId: string,
   ctx: ToolExecutionContext,
-): ClauseRow {
-  const clause = db
+): Promise<ClauseRow> {
+  const clause = await db
     .prepare('SELECT * FROM clauses WHERE id = ? AND workspace_id = ?')
-    .get(clauseId, ctx.workspaceId) as ClauseRow | undefined;
+    .get<ClauseRow>(clauseId, ctx.workspaceId);
   if (!clause) {
     throw new Error(`Clause ${clauseId} not found in active workspace`);
   }
-  loadOwnedLease(db, clause.lease_id, ctx);
+  await loadOwnedLease(db, clause.lease_id, ctx);
   return clause;
 }
 
@@ -77,9 +80,7 @@ function loadOwnedLeaseFromClauseId(
 // extract_clauses
 // -----------------------------------------------------------------------------
 
-export function createExtractClausesTool(
-  db: Database.Database,
-): ToolDescriptor {
+export function createExtractClausesTool(db: Db): ToolDescriptor {
   return {
     name: 'extract_clauses',
     description:
@@ -97,7 +98,7 @@ export function createExtractClausesTool(
     roles: 'ALL',
     category: 'lease',
     execute: async (input, ctx) => {
-      const leaseId = resolveLeaseId(db, input, {
+      const leaseId = await resolveLeaseId(db, input, {
         workspaceId: ctx.workspaceId,
         conversationId: ctx.conversationId,
         userId: ctx.userId,
@@ -107,8 +108,8 @@ export function createExtractClausesTool(
         // (mcp/leaselens-server.ts) leaves this off per spec H5.
         enableRecentLeaseFallback: true,
       });
-      const lease = loadOwnedLease(db, leaseId, ctx);
-      const clauses = listClauses(db, leaseId, ctx.workspaceId);
+      const lease = await loadOwnedLease(db, leaseId, ctx);
+      const clauses = await listClauses(db, leaseId, ctx.workspaceId);
 
       return {
         lease_id: leaseId,
@@ -132,9 +133,7 @@ export function createExtractClausesTool(
 // get_lease_findings (read-only — returns the STORED gradings, never re-scans)
 // -----------------------------------------------------------------------------
 
-export function createGetLeaseFindingsTool(
-  db: Database.Database,
-): ToolDescriptor {
+export function createGetLeaseFindingsTool(db: Db): ToolDescriptor {
   return {
     name: 'get_lease_findings',
     description:
@@ -152,7 +151,7 @@ export function createGetLeaseFindingsTool(
     roles: 'ALL',
     category: 'lease',
     execute: async (input, ctx) => {
-      const leaseId = resolveLeaseId(db, input, {
+      const leaseId = await resolveLeaseId(db, input, {
         workspaceId: ctx.workspaceId,
         conversationId: ctx.conversationId,
         userId: ctx.userId,
@@ -161,11 +160,11 @@ export function createGetLeaseFindingsTool(
         // scan (the auto-scan uses a separate conversation; see ChatUI sync).
         enableRecentLeaseFallback: true,
       });
-      loadOwnedLease(db, leaseId, ctx);
-      const findings = listGradings(db, leaseId, ctx.workspaceId);
+      await loadOwnedLease(db, leaseId, ctx);
+      const findings = await listGradings(db, leaseId, ctx.workspaceId);
       return {
         lease_id: leaseId,
-        total_clauses: listClauses(db, leaseId, ctx.workspaceId).length,
+        total_clauses: (await listClauses(db, leaseId, ctx.workspaceId)).length,
         graded_count: findings.length,
         findings,
       };
@@ -395,7 +394,7 @@ function validateGrading(
 }
 
 export function createGradeClauseSeverityTool(
-  db: Database.Database,
+  db: Db,
   anthropic: AnthropicLike,
 ): ToolDescriptor {
   return {
@@ -425,7 +424,7 @@ export function createGradeClauseSeverityTool(
       if (!clauseId) {
         throw new Error('grade_clause_severity: clause_id is required');
       }
-      const clause = loadOwnedLeaseFromClauseId(db, clauseId, ctx);
+      const clause = await loadOwnedLeaseFromClauseId(db, clauseId, ctx);
 
       // Sprint 45 — already-graded short-circuit. If the clause was graded in a
       // prior turn, return the STORED grading (no retrieve, no Anthropic) — so
@@ -458,11 +457,11 @@ export function createGradeClauseSeverityTool(
         // Phase 10.7 — surface the actionable hint when applicable.
         const corpusSize =
           (
-            db
+            await db
               .prepare(
                 'SELECT COUNT(*) AS n FROM chunks WHERE workspace_id = ?',
               )
-              .get(ctx.workspaceId) as { n: number } | undefined
+              .get<{ n: number }>(ctx.workspaceId)
           )?.n ?? 0;
         if (corpusSize === 0) {
           throw new Error(
@@ -501,21 +500,23 @@ export function createGradeClauseSeverityTool(
       // graded_at), not just severity, so the chat reads findings via
       // get_lease_findings WITHOUT re-running the scan. graded_at is the
       // "has been graded" sentinel (powers the read tool + the short-circuit).
-      db.prepare(
-        `UPDATE clauses
+      await db
+        .prepare(
+          `UPDATE clauses
             SET severity = ?, statute_citation = ?, chunk_id = ?,
                 reasoning = ?, recommended_action = ?, graded_at = ?
           WHERE id = ? AND workspace_id = ?`,
-      ).run(
-        validated.severity,
-        validated.statute_citation,
-        validated.chunk_id,
-        validated.reasoning,
-        validated.recommended_action,
-        Math.floor(Date.now() / 1000),
-        clauseId,
-        ctx.workspaceId,
-      );
+        )
+        .run(
+          validated.severity,
+          validated.statute_citation,
+          validated.chunk_id,
+          validated.reasoning,
+          validated.recommended_action,
+          Math.floor(Date.now() / 1000),
+          clauseId,
+          ctx.workspaceId,
+        );
 
       return {
         clause_id: clauseId,
@@ -606,7 +607,7 @@ function normalizeTone(input: unknown): ToneLiteral {
 }
 
 export function createDraftNegotiationEmailTool(
-  db: Database.Database,
+  db: Db,
   anthropic: AnthropicLike,
 ): ToolDescriptor {
   return {
@@ -650,7 +651,7 @@ export function createDraftNegotiationEmailTool(
         throw new Error('draft_negotiation_email: clause_id is required');
       }
       const tone = normalizeTone(input.tone);
-      const clause = loadOwnedLeaseFromClauseId(db, clauseId, ctx);
+      const clause = await loadOwnedLeaseFromClauseId(db, clauseId, ctx);
 
       // Phase 10.8 — concern + citation are optional but improve
       // grounding dramatically. Trim/normalize to defensive defaults
@@ -701,26 +702,31 @@ ${clause.text}`,
       };
     },
 
-    // Sync: INSERT + return MutationOutcome. The registry wraps this in
+    // Async: INSERT + return MutationOutcome. The registry wraps this in
     // db.transaction() with the audit-row insert, so both land atomically
-    // (or neither does).
-    execute: (_input, ctx, prepared): MutationOutcome => {
+    // (or neither does). The INSERT goes through `ctx.tx` so it joins the
+    // registry's transaction (the fallback to `db` keeps direct descriptor
+    // calls, e.g. in unit tests, working).
+    execute: async (_input, ctx, prepared): Promise<MutationOutcome> => {
       const draft = prepared as DraftPrepared;
       const id = randomUUID();
-      db.prepare(
-        `INSERT INTO negotiation_emails
+      const tdb = ctx.tx ?? db;
+      await tdb
+        .prepare(
+          `INSERT INTO negotiation_emails
            (id, clause_id, workspace_id, tone, subject, body, drafted_by, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        id,
-        draft.clauseId,
-        ctx.workspaceId,
-        draft.tone,
-        draft.subject,
-        draft.body,
-        ctx.userId,
-        Math.floor(Date.now() / 1000),
-      );
+        )
+        .run(
+          id,
+          draft.clauseId,
+          ctx.workspaceId,
+          draft.tone,
+          draft.subject,
+          draft.body,
+          ctx.userId,
+          Math.floor(Date.now() / 1000),
+        );
 
       return {
         result: {
@@ -734,10 +740,16 @@ ${clause.text}`,
       };
     },
 
-    compensatingAction: (payload) => {
+    compensatingAction: async (payload, context) => {
       const id = String(payload.email_id ?? '');
       if (!id) return;
-      db.prepare('DELETE FROM negotiation_emails WHERE id = ?').run(id);
+      // Issue #29 — prefer the caller's open transaction handle: the
+      // rollback route invokes this inside db.transaction(), and issuing
+      // on the outer db would throw TRANSACTION_ACTIVE on
+      // single-connection clients (and escape the transaction elsewhere).
+      await (context.tx ?? db)
+        .prepare('DELETE FROM negotiation_emails WHERE id = ?')
+        .run(id);
     },
   };
 }

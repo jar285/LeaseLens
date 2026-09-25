@@ -12,11 +12,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/db', async () => {
   const { createTestDb } = await import('@/lib/test/db');
-  const db = createTestDb();
+  // Issue #29 — createTestDb is async (returns the async Db handle).
+  const db = await createTestDb();
   // This test exercises redaction, not referential integrity — drop FK
   // enforcement so we can persist a `messages` row without seeding the
-  // conversation/workspace/user chain.
-  db.pragma('foreign_keys = OFF');
+  // conversation/workspace/user chain. The old db.pragma() helper is gone
+  // with better-sqlite3; issue the PRAGMA via exec (same dialect).
+  await db.exec('PRAGMA foreign_keys = OFF;');
   return { db };
 });
 
@@ -29,9 +31,11 @@ import { executeToolAndPersist } from './route';
 const PII = 'DRAFT-BODY-PII-xyz tenant Jane Doe $2200';
 const CONV = 'conv-44b2';
 
-afterEach(() => {
-  db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(CONV);
-  db.prepare('DELETE FROM tool_calls WHERE conversation_id = ?').run(CONV);
+afterEach(async () => {
+  await db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(CONV);
+  await db
+    .prepare('DELETE FROM tool_calls WHERE conversation_id = ?')
+    .run(CONV);
 });
 
 function registryWithFailingTool(): ToolRegistry {
@@ -97,11 +101,11 @@ describe('chat route — tool-failure error redaction (Sprint 44B.2)', () => {
     });
 
     // 3. The persisted `messages` tool row (re-fed to the LLM) has no PII.
-    const toolRow = db
+    const toolRow = await db
       .prepare(
         "SELECT content FROM messages WHERE conversation_id = ? AND role = 'tool'",
       )
-      .get(CONV) as { content: string } | undefined;
+      .get<{ content: string }>(CONV);
     expect(toolRow?.content ?? '').not.toContain('DRAFT-BODY-PII-xyz');
     expect(toolRow?.content ?? '').not.toContain('Jane Doe');
   });

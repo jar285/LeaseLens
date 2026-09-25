@@ -109,26 +109,30 @@ async function drainNdjson(res: Response): Promise<NdjsonEvent[]> {
 }
 
 describe('Chat API — render_workflow_diagram tool flow (Sprint 12)', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM spend_log').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM spend_log').run();
 
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'diag@example.com', 'Creator', 'Diag', 0);
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'diag@example.com', 'Creator', 'Diag', 0);
 
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
 
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
@@ -158,8 +162,8 @@ describe('Chat API — render_workflow_diagram tool flow (Sprint 12)', () => {
     });
   });
 
-  afterEach(() => {
-    db.prepare('DELETE FROM audit_log').run();
+  afterEach(async () => {
+    await db.prepare('DELETE FROM audit_log').run();
   });
 
   it('emits tool_use + tool_result NDJSON events with the validated diagram envelope', async () => {
@@ -196,18 +200,18 @@ describe('Chat API — render_workflow_diagram tool flow (Sprint 12)', () => {
   });
 
   it('does not write an audit_log row for read-only diagram tool calls', async () => {
-    const beforeRow = db
+    const beforeRow = await db
       .prepare('SELECT COUNT(*) as n FROM audit_log')
-      .get() as { n: number };
+      .get<{ n: number }>();
 
     const req = await makeSessionRequest('Draw the approval pipeline.');
     const res = await POST(req);
     await drainNdjson(res);
 
-    const afterRow = db
+    const afterRow = await db
       .prepare('SELECT COUNT(*) as n FROM audit_log')
-      .get() as { n: number };
-    expect(afterRow.n).toBe(beforeRow.n);
+      .get<{ n: number }>();
+    expect(afterRow?.n).toBe(beforeRow?.n);
   });
 
   it('persists user message, tool_use envelope, tool_result row, and final assistant text', async () => {
@@ -215,9 +219,9 @@ describe('Chat API — render_workflow_diagram tool flow (Sprint 12)', () => {
     const res = await POST(req);
     await drainNdjson(res);
 
-    const messages = db
+    const messages = await db
       .prepare('SELECT role, content FROM messages ORDER BY created_at ASC')
-      .all() as { role: string; content: string }[];
+      .all<{ role: string; content: string }>();
 
     const userMsgs = messages.filter((m) => m.role === 'user');
     expect(userMsgs).toHaveLength(1);

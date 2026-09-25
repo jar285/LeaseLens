@@ -10,8 +10,8 @@ import { createTestDb } from '@/lib/test/db';
 import { createToolRegistry } from './create-registry';
 
 describe('createToolRegistry', () => {
-  it('registers get_lease_findings alongside the existing lease + corpus tools', () => {
-    const registry = createToolRegistry(createTestDb());
+  it('registers get_lease_findings alongside the existing lease + corpus tools', async () => {
+    const registry = createToolRegistry(await createTestDb());
     const names = registry.getToolNames();
 
     expect(names).toContain('get_lease_findings');
@@ -30,8 +30,8 @@ describe('createToolRegistry', () => {
     }
   });
 
-  it('exposes get_lease_findings to every role (read-only, ALL)', () => {
-    const registry = createToolRegistry(createTestDb());
+  it('exposes get_lease_findings to every role (read-only, ALL)', async () => {
+    const registry = createToolRegistry(await createTestDb());
     for (const role of ['Tenant', 'Reviewer', 'Admin'] as const) {
       expect(registry.getToolsForRole(role).map((t) => t.name)).toContain(
         'get_lease_findings',

@@ -26,12 +26,12 @@ const REVIEWER_ID = DEMO_USERS.find((u) => u.role === 'Reviewer')!.id;
 async function waitForActiveLeaseBinding(userId: string) {
   await expect
     .poll(
-      () => {
-        const row = db
+      async () => {
+        const row = await db
           .prepare(
             'SELECT active_lease_id FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT 1',
           )
-          .get(userId) as { active_lease_id: string | null } | undefined;
+          .get<{ active_lease_id: string | null }>(userId);
         return row?.active_lease_id ?? null;
       },
       { timeout: 30_000, intervals: [250, 500, 1000] },
@@ -44,8 +44,8 @@ test.beforeEach(async ({ context }) => {
   // empty state (the home-page query loads the latest conversation for
   // the role's user). Workers: 1 + shared DB means state otherwise
   // leaks across tests and files.
-  clearUserConversations(TENANT_ID);
-  clearUserConversations(REVIEWER_ID);
+  await clearUserConversations(TENANT_ID);
+  await clearUserConversations(REVIEWER_ID);
   await setSessionCookies(context, 'Tenant');
 });
 

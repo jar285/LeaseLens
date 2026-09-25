@@ -6,7 +6,7 @@ import { db } from '@/lib/db';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { encodeWorkspace } from '@/lib/workspaces/cookie';
 
-function seedExecutedAuditRow(actorUserId: string): string {
+async function seedExecutedAuditRow(actorUserId: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const scheduleId = randomUUID();
   const auditId = randomUUID();
@@ -24,62 +24,68 @@ function seedExecutedAuditRow(actorUserId: string): string {
     channel: input.channel,
   };
 
-  db.transaction(() => {
-    db.prepare(
-      `INSERT INTO content_calendar (
+  await db.transaction(async (tx) => {
+    await tx
+      .prepare(
+        `INSERT INTO content_calendar (
          id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      scheduleId,
-      input.document_slug,
-      SAMPLE_WORKSPACE.id,
-      Math.floor(Date.now() / 1000) + 86_400,
-      input.channel,
-      actorUserId,
-      now,
-    );
+      )
+      .run(
+        scheduleId,
+        input.document_slug,
+        SAMPLE_WORKSPACE.id,
+        Math.floor(Date.now() / 1000) + 86_400,
+        input.channel,
+        actorUserId,
+        now,
+      );
 
     // Sprint 25.2 — the cockpit audit feed reads from tool_calls (LEFT
     // JOIN audit_log on tool_use_id), not audit_log directly. Without
     // a tool_calls row, AuditFeedPanel renders no rows and the
     // audit-row-${id} testid never resolves.
-    db.prepare(
-      `INSERT INTO tool_calls (
+    await tx
+      .prepare(
+        `INSERT INTO tool_calls (
          id, tool_name, tool_use_id, actor_user_id, actor_role,
          conversation_id, workspace_id, status, created_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'success', ?)`,
-    ).run(
-      toolCallId,
-      'schedule_content_item',
-      toolUseId,
-      actorUserId,
-      'Admin',
-      null,
-      SAMPLE_WORKSPACE.id,
-      now,
-    );
+      )
+      .run(
+        toolCallId,
+        'schedule_content_item',
+        toolUseId,
+        actorUserId,
+        'Admin',
+        null,
+        SAMPLE_WORKSPACE.id,
+        now,
+      );
 
-    db.prepare(
-      `INSERT INTO audit_log (
+    await tx
+      .prepare(
+        `INSERT INTO audit_log (
          id, tool_name, tool_use_id, actor_user_id, actor_role, conversation_id,
          workspace_id,
          input_json, output_json, compensating_action_json, status, created_at
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      auditId,
-      'schedule_content_item',
-      toolUseId,
-      actorUserId,
-      'Admin',
-      null,
-      SAMPLE_WORKSPACE.id,
-      JSON.stringify(input),
-      JSON.stringify(output),
-      JSON.stringify({ schedule_id: scheduleId }),
-      'executed',
-      now,
-    );
-  })();
+      )
+      .run(
+        auditId,
+        'schedule_content_item',
+        toolUseId,
+        actorUserId,
+        'Admin',
+        null,
+        SAMPLE_WORKSPACE.id,
+        JSON.stringify(input),
+        JSON.stringify(output),
+        JSON.stringify({ schedule_id: scheduleId }),
+        'executed',
+        now,
+      );
+  });
 
   // Return tool_call.id since that's what the audit-row testid uses
   // (AuditFeedPanel.tsx:67 — `audit-row-${row.id}` where row.id is tc.id).
@@ -122,7 +128,7 @@ test.beforeEach(async ({ context, page }) => {
 
   // Seed an executed audit row directly so cockpit clickability tests isolate
   // cockpit layout, not chat/model behavior.
-  seededAuditId = seedExecutedAuditRow(admin.id);
+  seededAuditId = await seedExecutedAuditRow(admin.id);
 });
 
 test('cockpit dashboard renders panels and supports Undo on audit row', async ({

@@ -45,7 +45,8 @@ export async function GET(request: NextRequest) {
   const since = sinceRaw ? Number(sinceRaw) : undefined;
 
   // Admin sees all; non-admins only their own audit rows.
-  const entries = listAuditRows(db, {
+  // Issue #29 — listAuditRows is async (remote-capable driver).
+  const entries = await listAuditRows(db, {
     actorUserId: role === 'Admin' ? undefined : userId,
     limit,
     since: Number.isFinite(since) ? since : undefined,

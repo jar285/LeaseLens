@@ -5,9 +5,9 @@
 // LeaseLens tools take their place; the read-only corpus tools and the
 // visualization tool stay. Total surface: 7 tools (4 retained + 3 new).
 
-import type Database from 'better-sqlite3';
 import { getAnthropicClient } from '@/lib/anthropic/client';
 import { budgetedAnthropicClient } from '@/lib/anthropic/metered-client';
+import type { Db } from '@/lib/db/client';
 import {
   createGetDocumentSummaryTool,
   createListDocumentsTool,
@@ -32,7 +32,7 @@ import { ToolRegistry } from './registry';
  *                  may inject a deterministic stub.
  */
 export function createToolRegistry(
-  db: Database.Database,
+  db: Db,
   anthropic?: AnthropicLike,
 ): ToolRegistry {
   const registry = new ToolRegistry(db);

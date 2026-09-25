@@ -7,61 +7,73 @@
 //      subsequent calls in the same conversation take step 2.
 //   4. Throw with a message naming the ways to provide it.
 
-import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { createTestDb } from '@/lib/test/db';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { resolveLeaseId } from './resolve-lease-id';
 
 const OTHER_WS = 'workspace-other';
 
-function seedWorkspaces(db: Database.Database): void {
+async function seedWorkspaces(db: Db): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  db.prepare(
-    `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
-  ).run(
-    SAMPLE_WORKSPACE.id,
-    SAMPLE_WORKSPACE.name,
-    SAMPLE_WORKSPACE.description,
-    now,
-  );
-  db.prepare(
-    `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, 'Other', 'other', 0, ?)`,
-  ).run(OTHER_WS, now);
+  await db
+    .prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
+    )
+    .run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      now,
+    );
+  await db
+    .prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, 'Other', 'other', 0, ?)`,
+    )
+    .run(OTHER_WS, now);
 }
 
-function seedLease(
-  db: Database.Database,
+async function seedLease(
+  db: Db,
   id: string,
   workspaceId: string,
   opts: { uploadedBy?: string; createdAt?: number } = {},
-): void {
+): Promise<void> {
   const uploadedBy = opts.uploadedBy ?? 'u-tenant';
   const createdAt = opts.createdAt ?? 1;
-  db.prepare(
-    `INSERT INTO users (id, email, role, display_name, created_at)
+  await db
+    .prepare(
+      `INSERT INTO users (id, email, role, display_name, created_at)
      VALUES (?, ?, 'Creator', 'U', 1) ON CONFLICT(id) DO NOTHING`,
-  ).run(uploadedBy, `${uploadedBy}-${id}@example.com`);
-  db.prepare(
-    `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+    )
+    .run(uploadedBy, `${uploadedBy}-${id}@example.com`);
+  await db
+    .prepare(
+      `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
      VALUES (?, ?, 'lease.pdf', 'text', 5, ?, ?)`,
-  ).run(id, workspaceId, uploadedBy, createdAt);
+    )
+    .run(id, workspaceId, uploadedBy, createdAt);
 }
 
-function seedConversation(
-  db: Database.Database,
+async function seedConversation(
+  db: Db,
   id: string,
   workspaceId: string,
   activeLeaseId: string | null,
-): void {
-  db.prepare(
-    `INSERT INTO users (id, email, role, display_name, created_at)
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO users (id, email, role, display_name, created_at)
      VALUES (?, ?, 'Creator', 'U', 1) ON CONFLICT(id) DO NOTHING`,
-  ).run('u-tenant', `u-tenant-${id}@example.com`);
-  db.prepare(
-    `INSERT INTO conversations (id, user_id, workspace_id, title, created_at, active_lease_id)
+    )
+    .run('u-tenant', `u-tenant-${id}@example.com`);
+  await db
+    .prepare(
+      `INSERT INTO conversations (id, user_id, workspace_id, title, created_at, active_lease_id)
      VALUES (?, 'u-tenant', ?, 't', 1, ?)`,
-  ).run(id, workspaceId, activeLeaseId);
+    )
+    .run(id, workspaceId, activeLeaseId);
 }
 
 const ctxBase = {
@@ -70,82 +82,82 @@ const ctxBase = {
 };
 
 describe('resolveLeaseId', () => {
-  let db: Database.Database;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createTestDb();
-    seedWorkspaces(db);
+  beforeEach(async () => {
+    db = await createTestDb();
+    await seedWorkspaces(db);
   });
 
-  it('returns the explicit lease_id when set and the lease belongs to ctx.workspaceId', () => {
-    seedLease(db, 'lease-explicit', SAMPLE_WORKSPACE.id);
-    seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+  it('returns the explicit lease_id when set and the lease belongs to ctx.workspaceId', async () => {
+    await seedLease(db, 'lease-explicit', SAMPLE_WORKSPACE.id);
+    await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
-    expect(resolveLeaseId(db, { lease_id: 'lease-explicit' }, ctxBase)).toBe(
-      'lease-explicit',
-    );
+    expect(
+      await resolveLeaseId(db, { lease_id: 'lease-explicit' }, ctxBase),
+    ).toBe('lease-explicit');
   });
 
-  it('throws when the explicit lease_id refers to a non-existent lease', () => {
-    seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
-    expect(() =>
+  it('throws when the explicit lease_id refers to a non-existent lease', async () => {
+    await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+    await expect(
       resolveLeaseId(db, { lease_id: 'lease-missing' }, ctxBase),
-    ).toThrow(/lease/i);
+    ).rejects.toThrow(/lease/i);
   });
 
-  it('throws when the explicit lease_id belongs to a different workspace', () => {
-    seedLease(db, 'lease-other', OTHER_WS);
-    seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
-    expect(() =>
+  it('throws when the explicit lease_id belongs to a different workspace', async () => {
+    await seedLease(db, 'lease-other', OTHER_WS);
+    await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+    await expect(
       resolveLeaseId(db, { lease_id: 'lease-other' }, ctxBase),
-    ).toThrow(/workspace/i);
+    ).rejects.toThrow(/workspace/i);
   });
 
-  it('falls back to conversations.active_lease_id when input has no lease_id', () => {
-    seedLease(db, 'lease-active', SAMPLE_WORKSPACE.id);
-    seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, 'lease-active');
+  it('falls back to conversations.active_lease_id when input has no lease_id', async () => {
+    await seedLease(db, 'lease-active', SAMPLE_WORKSPACE.id);
+    await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, 'lease-active');
 
-    expect(resolveLeaseId(db, {}, ctxBase)).toBe('lease-active');
+    expect(await resolveLeaseId(db, {}, ctxBase)).toBe('lease-active');
   });
 
-  it('explicit lease_id wins over conversation fallback', () => {
-    seedLease(db, 'lease-explicit', SAMPLE_WORKSPACE.id);
-    seedLease(db, 'lease-active', SAMPLE_WORKSPACE.id);
-    seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, 'lease-active');
+  it('explicit lease_id wins over conversation fallback', async () => {
+    await seedLease(db, 'lease-explicit', SAMPLE_WORKSPACE.id);
+    await seedLease(db, 'lease-active', SAMPLE_WORKSPACE.id);
+    await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, 'lease-active');
 
-    expect(resolveLeaseId(db, { lease_id: 'lease-explicit' }, ctxBase)).toBe(
-      'lease-explicit',
-    );
+    expect(
+      await resolveLeaseId(db, { lease_id: 'lease-explicit' }, ctxBase),
+    ).toBe('lease-explicit');
   });
 
-  it('throws when the conversation row references a missing lease', () => {
-    seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, 'lease-missing');
-    expect(() => resolveLeaseId(db, {}, ctxBase)).toThrow();
+  it('throws when the conversation row references a missing lease', async () => {
+    await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, 'lease-missing');
+    await expect(resolveLeaseId(db, {}, ctxBase)).rejects.toThrow();
   });
 
-  it('throws when the conversation row references a lease in another workspace', () => {
+  it('throws when the conversation row references a lease in another workspace', async () => {
     // Edge case: workspace cookie shifted but conversation still points
     // at a lease from the prior workspace. Ownership check must fail.
-    seedLease(db, 'lease-other', OTHER_WS);
-    seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, 'lease-other');
-    expect(() => resolveLeaseId(db, {}, ctxBase)).toThrow(/workspace/i);
+    await seedLease(db, 'lease-other', OTHER_WS);
+    await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, 'lease-other');
+    await expect(resolveLeaseId(db, {}, ctxBase)).rejects.toThrow(/workspace/i);
   });
 
-  it('throws with a clear "no lease" message when neither input nor conversation provides a lease_id', () => {
-    seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
-    expect(() => resolveLeaseId(db, {}, ctxBase)).toThrow(/lease/i);
+  it('throws with a clear "no lease" message when neither input nor conversation provides a lease_id', async () => {
+    await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+    await expect(resolveLeaseId(db, {}, ctxBase)).rejects.toThrow(/lease/i);
   });
 
-  it('throws when conversationId is missing AND no input.lease_id (MCP case with no upload)', () => {
+  it('throws when conversationId is missing AND no input.lease_id (MCP case with no upload)', async () => {
     // MCP server context — no conversationId, no input.lease_id. This is
     // the "explicit only" enforcement from spec H5.
-    expect(() =>
+    await expect(
       resolveLeaseId(
         db,
         {},
         { workspaceId: SAMPLE_WORKSPACE.id, conversationId: '' },
       ),
-    ).toThrow(/lease/i);
+    ).rejects.toThrow(/lease/i);
   });
 
   // -------------------------------------------------------------------
@@ -155,15 +167,15 @@ describe('resolveLeaseId', () => {
   describe('recent-upload fallback (enableRecentLeaseFallback)', () => {
     const NOW = 1_700_000_000; // arbitrary fixed epoch seconds for determinism
 
-    it('returns the most recent lease uploaded by ctx.userId in the workspace within 30 min', () => {
-      seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
+    it('returns the most recent lease uploaded by ctx.userId in the workspace within 30 min', async () => {
+      await seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 60, // 1 min ago
       });
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
       expect(
-        resolveLeaseId(
+        await resolveLeaseId(
           db,
           {},
           {
@@ -177,14 +189,14 @@ describe('resolveLeaseId', () => {
       ).toBe('lease-recent');
     });
 
-    it('promotes the implicit binding by writing active_lease_id onto the conversation', () => {
-      seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
+    it('promotes the implicit binding by writing active_lease_id onto the conversation', async () => {
+      await seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 60,
       });
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
-      resolveLeaseId(
+      await resolveLeaseId(
         db,
         {},
         {
@@ -196,25 +208,25 @@ describe('resolveLeaseId', () => {
         },
       );
 
-      const row = db
+      const row = await db
         .prepare('SELECT active_lease_id FROM conversations WHERE id = ?')
-        .get('conv-1') as { active_lease_id: string | null };
-      expect(row.active_lease_id).toBe('lease-recent');
+        .get<{ active_lease_id: string | null }>('conv-1');
+      expect(row?.active_lease_id).toBe('lease-recent');
     });
 
-    it('returns the newest when multiple recent leases exist for the same user', () => {
-      seedLease(db, 'lease-old', SAMPLE_WORKSPACE.id, {
+    it('returns the newest when multiple recent leases exist for the same user', async () => {
+      await seedLease(db, 'lease-old', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 600, // 10 min ago
       });
-      seedLease(db, 'lease-newest', SAMPLE_WORKSPACE.id, {
+      await seedLease(db, 'lease-newest', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 30, // 30 sec ago
       });
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
       expect(
-        resolveLeaseId(
+        await resolveLeaseId(
           db,
           {},
           {
@@ -228,14 +240,14 @@ describe('resolveLeaseId', () => {
       ).toBe('lease-newest');
     });
 
-    it('skips leases uploaded by other users', () => {
-      seedLease(db, 'lease-other-user', SAMPLE_WORKSPACE.id, {
+    it('skips leases uploaded by other users', async () => {
+      await seedLease(db, 'lease-other-user', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-someone-else',
         createdAt: NOW - 60,
       });
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
-      expect(() =>
+      await expect(
         resolveLeaseId(
           db,
           {},
@@ -247,17 +259,17 @@ describe('resolveLeaseId', () => {
             now: NOW,
           },
         ),
-      ).toThrow(/lease/i);
+      ).rejects.toThrow(/lease/i);
     });
 
-    it('skips leases older than the 30-minute window', () => {
-      seedLease(db, 'lease-stale', SAMPLE_WORKSPACE.id, {
+    it('skips leases older than the 30-minute window', async () => {
+      await seedLease(db, 'lease-stale', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 31 * 60, // 31 min ago — outside window
       });
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
-      expect(() =>
+      await expect(
         resolveLeaseId(
           db,
           {},
@@ -269,17 +281,17 @@ describe('resolveLeaseId', () => {
             now: NOW,
           },
         ),
-      ).toThrow(/lease/i);
+      ).rejects.toThrow(/lease/i);
     });
 
-    it('skips leases in other workspaces', () => {
-      seedLease(db, 'lease-other-ws', OTHER_WS, {
+    it('skips leases in other workspaces', async () => {
+      await seedLease(db, 'lease-other-ws', OTHER_WS, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 60,
       });
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
-      expect(() =>
+      await expect(
         resolveLeaseId(
           db,
           {},
@@ -291,19 +303,19 @@ describe('resolveLeaseId', () => {
             now: NOW,
           },
         ),
-      ).toThrow(/lease/i);
+      ).rejects.toThrow(/lease/i);
     });
 
-    it('does NOT activate when enableRecentLeaseFallback is omitted (default off / MCP-safe)', () => {
+    it('does NOT activate when enableRecentLeaseFallback is omitted (default off / MCP-safe)', async () => {
       // Even with a recent matching lease, the fallback stays off when
       // the caller has not opted in. Spec H5: MCP requires explicit lease_id.
-      seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
+      await seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 60,
       });
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
-      expect(() =>
+      await expect(
         resolveLeaseId(
           db,
           {},
@@ -315,16 +327,16 @@ describe('resolveLeaseId', () => {
             // enableRecentLeaseFallback intentionally not set
           },
         ),
-      ).toThrow(/lease/i);
+      ).rejects.toThrow(/lease/i);
     });
 
-    it('does NOT activate when conversationId is missing (MCP synthetic session)', () => {
-      seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
+    it('does NOT activate when conversationId is missing (MCP synthetic session)', async () => {
+      await seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 60,
       });
 
-      expect(() =>
+      await expect(
         resolveLeaseId(
           db,
           {},
@@ -336,17 +348,17 @@ describe('resolveLeaseId', () => {
             now: NOW,
           },
         ),
-      ).toThrow(/lease/i);
+      ).rejects.toThrow(/lease/i);
     });
 
-    it('does NOT activate when userId is missing', () => {
-      seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
+    it('does NOT activate when userId is missing', async () => {
+      await seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 60,
       });
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
-      expect(() =>
+      await expect(
         resolveLeaseId(
           db,
           {},
@@ -358,22 +370,22 @@ describe('resolveLeaseId', () => {
             // userId intentionally not set
           },
         ),
-      ).toThrow(/lease/i);
+      ).rejects.toThrow(/lease/i);
     });
 
-    it('explicit lease_id and active_lease_id still win over the recent-upload fallback', () => {
-      seedLease(db, 'lease-explicit', SAMPLE_WORKSPACE.id, {
+    it('explicit lease_id and active_lease_id still win over the recent-upload fallback', async () => {
+      await seedLease(db, 'lease-explicit', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 60,
       });
-      seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
+      await seedLease(db, 'lease-recent', SAMPLE_WORKSPACE.id, {
         uploadedBy: 'u-tenant',
         createdAt: NOW - 30,
       });
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id, null);
 
       expect(
-        resolveLeaseId(
+        await resolveLeaseId(
           db,
           { lease_id: 'lease-explicit' },
           {

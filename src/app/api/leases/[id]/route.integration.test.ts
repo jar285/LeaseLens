@@ -70,36 +70,45 @@ describe('GET /api/leases/[id]', () => {
   let creatorLeaseId: string;
   let editorLeaseId: string;
 
-  beforeEach(() => {
-    db.prepare('DELETE FROM negotiation_emails').run();
-    db.prepare('DELETE FROM clauses').run();
-    db.prepare('DELETE FROM leases').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM negotiation_emails').run();
+    await db.prepare('DELETE FROM clauses').run();
+    await db.prepare('DELETE FROM leases').run();
 
     const insertUser = db.prepare(
       'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
     );
     const now = Math.floor(Date.now() / 1000);
     for (const u of DEMO_USERS) {
-      insertUser.run(u.id, u.email, toDbRole(u.role), u.display_name, now);
+      await insertUser.run(
+        u.id,
+        u.email,
+        toDbRole(u.role),
+        u.display_name,
+        now,
+      );
     }
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      now,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        now,
+      );
 
-    creatorLeaseId = insertLease(db, {
+    // Issue #29 — the lease helpers are async (remote-capable driver).
+    creatorLeaseId = await insertLease(db, {
       workspaceId: SAMPLE_WORKSPACE.id,
       filename: 'creator.pdf',
       textExtract: 'creator lease text',
       pageCount: 3,
       uploadedBy: demoUser('Tenant').id,
     });
-    insertClause(db, {
+    await insertClause(db, {
       leaseId: creatorLeaseId,
       workspaceId: SAMPLE_WORKSPACE.id,
       clauseIndex: 0,
@@ -108,7 +117,7 @@ describe('GET /api/leases/[id]', () => {
       pageNumber: 1,
     });
 
-    editorLeaseId = insertLease(db, {
+    editorLeaseId = await insertLease(db, {
       workspaceId: SAMPLE_WORKSPACE.id,
       filename: 'editor.pdf',
       textExtract: 'editor lease text',
@@ -117,10 +126,10 @@ describe('GET /api/leases/[id]', () => {
     });
   });
 
-  afterEach(() => {
-    db.prepare('DELETE FROM negotiation_emails').run();
-    db.prepare('DELETE FROM clauses').run();
-    db.prepare('DELETE FROM leases').run();
+  afterEach(async () => {
+    await db.prepare('DELETE FROM negotiation_emails').run();
+    await db.prepare('DELETE FROM clauses').run();
+    await db.prepare('DELETE FROM leases').run();
   });
 
   it('returns 200 with lease + clauses for the owner (Tenant)', async () => {
@@ -209,25 +218,26 @@ describe('GET /api/leases/[id] — public-anon isolation (#15)', () => {
 
   let priorMode: string | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     priorMode = process.env._TEST_PUBLIC_ANON_MODE;
     process.env._TEST_PUBLIC_ANON_MODE = 'true';
 
-    db.prepare('DELETE FROM clauses').run();
-    db.prepare('DELETE FROM leases').run();
-    ensureAnonUserExists(db, visitorA.userId);
-    ensureAnonUserExists(db, visitorB.userId);
-    ensureAnonWorkspaceExists(db, WS_A);
-    ensureAnonWorkspaceExists(db, WS_B);
+    await db.prepare('DELETE FROM clauses').run();
+    await db.prepare('DELETE FROM leases').run();
+    // Issue #29 — the anon-identity/workspace helpers are async.
+    await ensureAnonUserExists(db, visitorA.userId);
+    await ensureAnonUserExists(db, visitorB.userId);
+    await ensureAnonWorkspaceExists(db, WS_A);
+    await ensureAnonWorkspaceExists(db, WS_B);
 
-    leaseA = insertLease(db, {
+    leaseA = await insertLease(db, {
       workspaceId: WS_A,
       filename: 'visitor-a.pdf',
       textExtract: 'visitor A lease',
       pageCount: 2,
       uploadedBy: visitorA.userId,
     });
-    insertClause(db, {
+    await insertClause(db, {
       leaseId: leaseA,
       workspaceId: WS_A,
       clauseIndex: 0,
@@ -237,16 +247,16 @@ describe('GET /api/leases/[id] — public-anon isolation (#15)', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (priorMode === undefined) delete process.env._TEST_PUBLIC_ANON_MODE;
     else process.env._TEST_PUBLIC_ANON_MODE = priorMode;
-    db.prepare('DELETE FROM clauses').run();
-    db.prepare('DELETE FROM leases').run();
+    await db.prepare('DELETE FROM clauses').run();
+    await db.prepare('DELETE FROM leases').run();
     for (const id of [WS_A, WS_B]) {
-      db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+      await db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
     }
     for (const id of [visitorA.userId, visitorB.userId]) {
-      db.prepare('DELETE FROM users WHERE id = ?').run(id);
+      await db.prepare('DELETE FROM users WHERE id = ?').run(id);
     }
   });
 

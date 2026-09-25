@@ -1,5 +1,5 @@
-import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { createTestDb } from '@/lib/test/db';
 import { seedUser } from '@/lib/test/seed';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
@@ -12,12 +12,12 @@ import {
 import type { ToolExecutionContext } from './domain';
 
 describe('audit-log', () => {
-  let db: Database.Database;
+  let db: Db;
   let ctx: ToolExecutionContext;
 
-  beforeEach(() => {
-    db = createTestDb();
-    const admin = seedUser(db, 'Admin');
+  beforeEach(async () => {
+    db = await createTestDb();
+    const admin = await seedUser(db, 'Admin');
     ctx = {
       role: 'Admin',
       userId: admin.id,
@@ -26,12 +26,12 @@ describe('audit-log', () => {
     };
   });
 
-  it('round-trips JSON columns through write + read', () => {
+  it('round-trips JSON columns through write + read', async () => {
     const input = { document_slug: 'sqs-launch', channel: 'twitter' };
     const output = { schedule_id: 'sched-1', document_slug: 'sqs-launch' };
     const compensating = { schedule_id: 'sched-1' };
 
-    const id = writeAuditRow(db, {
+    const id = await writeAuditRow(db, {
       tool_name: 'schedule_content_item',
       tool_use_id: 'toolu_abc',
       context: ctx,
@@ -40,7 +40,7 @@ describe('audit-log', () => {
       compensatingActionPayload: compensating,
     });
 
-    const row = getAuditRow(db, id);
+    const row = await getAuditRow(db, id);
     expect(row).not.toBeNull();
     if (!row) return;
     expect(row.tool_name).toBe('schedule_content_item');
@@ -54,8 +54,8 @@ describe('audit-log', () => {
     expect(JSON.parse(row.compensating_action_json)).toEqual(compensating);
   });
 
-  it('markRolledBack flips status; second call is a no-op preserving the original timestamp', () => {
-    const id = writeAuditRow(db, {
+  it('markRolledBack flips status; second call is a no-op preserving the original timestamp', async () => {
+    const id = await writeAuditRow(db, {
       tool_name: 'schedule_content_item',
       context: ctx,
       input: {},
@@ -63,30 +63,30 @@ describe('audit-log', () => {
       compensatingActionPayload: {},
     });
 
-    markRolledBack(db, id);
-    const firstRow = getAuditRow(db, id);
+    await markRolledBack(db, id);
+    const firstRow = await getAuditRow(db, id);
     expect(firstRow?.status).toBe('rolled_back');
     expect(firstRow?.rolled_back_at).not.toBeNull();
     const firstTimestamp = firstRow?.rolled_back_at;
 
     // Second call must be a true no-op — UPDATE matches 0 rows because
     // of the `WHERE status = 'executed'` guard.
-    markRolledBack(db, id);
-    const secondRow = getAuditRow(db, id);
+    await markRolledBack(db, id);
+    const secondRow = await getAuditRow(db, id);
     expect(secondRow?.status).toBe('rolled_back');
     expect(secondRow?.rolled_back_at).toBe(firstTimestamp);
   });
 
-  it('listAuditRows filters by actor + orders by created_at DESC', () => {
-    const editor = seedUser(db, 'Reviewer');
-    const id1 = writeAuditRow(db, {
+  it('listAuditRows filters by actor + orders by created_at DESC', async () => {
+    const editor = await seedUser(db, 'Reviewer');
+    const id1 = await writeAuditRow(db, {
       tool_name: 'schedule_content_item',
       context: ctx,
       input: {},
       output: {},
       compensatingActionPayload: {},
     });
-    const id2 = writeAuditRow(db, {
+    const id2 = await writeAuditRow(db, {
       tool_name: 'approve_draft',
       context: {
         role: 'Reviewer',
@@ -99,10 +99,10 @@ describe('audit-log', () => {
       compensatingActionPayload: {},
     });
 
-    const adminView = listAuditRows(db, { limit: 10 });
+    const adminView = await listAuditRows(db, { limit: 10 });
     expect(adminView.map((r) => r.id).sort()).toEqual([id1, id2].sort());
 
-    const editorView = listAuditRows(db, {
+    const editorView = await listAuditRows(db, {
       actorUserId: editor.id,
       limit: 10,
     });

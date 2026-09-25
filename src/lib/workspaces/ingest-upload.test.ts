@@ -1,5 +1,5 @@
-import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { createTestDb } from '@/lib/test/db';
 
 // Mock embed to avoid loading WASM model in unit tests.
@@ -76,9 +76,9 @@ describe('validateUpload', () => {
 });
 
 describe('ingestUpload', () => {
-  let db: Database.Database;
-  beforeEach(() => {
-    db = createTestDb();
+  let db: Db;
+  beforeEach(async () => {
+    db = await createTestDb();
   });
 
   it('creates a workspace and inserts chunks scoped to its id', async () => {
@@ -98,19 +98,19 @@ describe('ingestUpload', () => {
     });
     const { workspaceId } = await ingestUpload(db, validated);
 
-    const docs = db
+    const docs = await db
       .prepare('SELECT slug FROM documents WHERE workspace_id = ?')
-      .all(workspaceId) as { slug: string }[];
+      .all<{ slug: string }>(workspaceId);
     expect(docs.map((d) => d.slug).sort()).toEqual([
       'audience',
       'brand-identity',
     ]);
 
     const chunkCount = (
-      db
+      await db
         .prepare('SELECT COUNT(*) as c FROM chunks WHERE workspace_id = ?')
-        .get(workspaceId) as { c: number }
-    ).c;
+        .get<{ c: number }>(workspaceId)
+    )?.c;
     expect(chunkCount).toBeGreaterThan(0);
   });
 
@@ -145,20 +145,22 @@ describe('ingestUpload', () => {
     await expect(ingestUpload(db, validated)).rejects.toThrow('embed boom');
 
     const wsCount = (
-      db
+      await db
         .prepare('SELECT COUNT(*) as n FROM workspaces WHERE is_sample = 0')
-        .get() as { n: number }
-    ).n;
+        .get<{ n: number }>()
+    )?.n;
     expect(wsCount, 'workspace row must be rolled back').toBe(0);
 
     const docs = (
-      db.prepare('SELECT COUNT(*) as n FROM documents').get() as { n: number }
-    ).n;
+      await db
+        .prepare('SELECT COUNT(*) as n FROM documents')
+        .get<{ n: number }>()
+    )?.n;
     expect(docs, 'document rows must be rolled back').toBe(0);
 
     const chunks = (
-      db.prepare('SELECT COUNT(*) as n FROM chunks').get() as { n: number }
-    ).n;
+      await db.prepare('SELECT COUNT(*) as n FROM chunks').get<{ n: number }>()
+    )?.n;
     expect(chunks, 'chunk rows must be rolled back').toBe(0);
   });
 });

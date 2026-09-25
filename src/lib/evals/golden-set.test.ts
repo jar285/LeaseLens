@@ -7,8 +7,8 @@
 // reports a misleading 0% recall.
 
 import { join } from 'node:path';
-import type Database from 'better-sqlite3';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 
 vi.mock('@/lib/rag/embed', async () => {
@@ -23,18 +23,20 @@ import { GOLDEN_SET } from './golden-set';
 const NJ_CORPUS_DIR = join(process.cwd(), 'src', 'corpus', 'nj-tenant-law');
 
 describe('GOLDEN_SET (NJ tenant-law Tier 1)', () => {
-  let db: Database.Database;
+  let db: Db;
 
   beforeAll(async () => {
-    db = createTestDb();
-    db.prepare(
-      `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      Math.floor(Date.now() / 1000),
-    );
+    db = await createTestDb();
+    await db
+      .prepare(
+        `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        Math.floor(Date.now() / 1000),
+      );
     await ingestCorpus(db, NJ_CORPUS_DIR);
   });
 
@@ -58,12 +60,12 @@ describe('GOLDEN_SET (NJ tenant-law Tier 1)', () => {
     }
   });
 
-  it('every expectedChunkId resolves to a real chunk after ingesting the NJ corpus', () => {
+  it('every expectedChunkId resolves to a real chunk after ingesting the NJ corpus', async () => {
     const allChunkIds = new Set(
       (
-        db
+        await db
           .prepare('SELECT id FROM chunks WHERE workspace_id = ?')
-          .all(SAMPLE_WORKSPACE.id) as { id: string }[]
+          .all<{ id: string }>(SAMPLE_WORKSPACE.id)
       ).map((r) => r.id),
     );
 

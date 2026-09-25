@@ -71,7 +71,7 @@ async function resolveSession(): Promise<SessionResult> {
   if (!workspacePayload) {
     throw new Error('Forbidden: no workspace selected');
   }
-  const workspace = getActiveWorkspace(db, workspacePayload.workspace_id);
+  const workspace = await getActiveWorkspace(db, workspacePayload.workspace_id);
   if (!workspace) {
     throw new Error('Forbidden: workspace expired');
   }
@@ -110,7 +110,7 @@ export async function refreshAuditFeed(opts: {
   // its mutations.
   const session = requireOperator(await resolveSession());
   const limit = opts.limit ?? 50;
-  const entries = listRecentToolCalls(db, {
+  const entries = await listRecentToolCalls(db, {
     workspaceId: session.workspaceId,
     actorUserId: session.role === 'Admin' ? undefined : session.userId,
     limit,
@@ -125,7 +125,7 @@ export async function refreshSchedule(opts: {
 }): Promise<{ items: ScheduledItem[] }> {
   const session = requireOperator(await resolveSession());
   return {
-    items: listScheduledItems(db, {
+    items: await listScheduledItems(db, {
       workspaceId: session.workspaceId,
       scheduledBy: session.role === 'Admin' ? undefined : session.userId,
       limit: opts.limit ?? 50,
@@ -140,7 +140,7 @@ export async function refreshApprovals(opts: {
   // refuse rather than empty-array. requireAdmin throws for non-Admin.
   const session = requireAdmin(await resolveSession());
   return {
-    items: listRecentApprovals(db, {
+    items: await listRecentApprovals(db, {
       workspaceId: session.workspaceId,
       approvedBy: undefined,
       limit: opts.limit ?? 50,
@@ -150,7 +150,7 @@ export async function refreshApprovals(opts: {
 
 export async function refreshSpend(): Promise<{ spend: SpendSnapshot }> {
   requireOperator(await resolveSession());
-  return { spend: getTodaySpend(db) };
+  return { spend: await getTodaySpend(db) };
 }
 
 export async function refreshEvalHealth(): Promise<{
@@ -179,7 +179,7 @@ export async function refreshPerToolStats(): Promise<{
   const session = requireOperator(await resolveSession());
   const since = Math.floor(Date.now() / 1000) - TWENTY_FOUR_HOURS_S;
   return {
-    stats: listPerToolStats(db, {
+    stats: await listPerToolStats(db, {
       workspaceId: session.workspaceId,
       since,
       limit: 20,
@@ -193,7 +193,7 @@ export async function refreshLeasePipeline(): Promise<{
   const session = requireOperator(await resolveSession());
   const since = Math.floor(Date.now() / 1000) - TWENTY_FOUR_HOURS_S;
   return {
-    stats: getLeasePipelineStats(db, {
+    stats: await getLeasePipelineStats(db, {
       workspaceId: session.workspaceId,
       since,
     }),
@@ -205,7 +205,7 @@ export async function refreshSeverityDistribution(): Promise<{
 }> {
   const session = requireOperator(await resolveSession());
   return {
-    distribution: getSeverityDistribution(db, {
+    distribution: await getSeverityDistribution(db, {
       workspaceId: session.workspaceId,
     }),
   };

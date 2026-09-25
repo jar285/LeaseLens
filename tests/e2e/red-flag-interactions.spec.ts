@@ -29,7 +29,7 @@ function tenantId(): string {
 }
 
 test.beforeEach(async ({ context }) => {
-  clearUserConversations(tenantId());
+  await clearUserConversations(tenantId());
   await setSessionCookies(context, 'Tenant');
 });
 
@@ -37,12 +37,12 @@ test('T11 — Tenant golden path: seeded gradings render, expand, jump-to-page',
   page,
 }) => {
   const userId = tenantId();
-  const leaseId = seedLease({
+  const leaseId = await seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,
     uploadedBy: userId,
     filename: 't11-lease.pdf',
   });
-  seedGradedConversation({
+  await seedGradedConversation({
     userId,
     workspaceId: SAMPLE_WORKSPACE.id,
     leaseId,
@@ -108,12 +108,12 @@ test('T6 (R7) — rapid citation clicks: most recent owns full 4s ring', async (
   await page.emulateMedia({ reducedMotion: 'reduce' });
 
   const userId = tenantId();
-  const leaseId = seedLease({
+  const leaseId = await seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,
     uploadedBy: userId,
     filename: 't6-lease.pdf',
   });
-  seedGradedConversation({
+  await seedGradedConversation({
     userId,
     workspaceId: SAMPLE_WORKSPACE.id,
     leaseId,
@@ -167,12 +167,12 @@ test('T18 — reduced-motion: active ring renders static fallback (data-motion="
   await page.emulateMedia({ reducedMotion: 'reduce' });
 
   const userId = tenantId();
-  const leaseId = seedLease({
+  const leaseId = await seedLease({
     workspaceId: SAMPLE_WORKSPACE.id,
     uploadedBy: userId,
     filename: 't18-lease.pdf',
   });
-  seedGradedConversation({
+  await seedGradedConversation({
     userId,
     workspaceId: SAMPLE_WORKSPACE.id,
     leaseId,

@@ -53,14 +53,17 @@ export function normalizeUsage(
   };
 }
 
-export type SpendSink = (usage: MeteredUsage) => void;
+export type SpendSink = (usage: MeteredUsage) => void | Promise<void>;
 
 // Default sink: record to the daily spend_log (the single pricing source of
 // truth). Skip zero-usage calls (e.g. test stubs with no usage block) so we
 // never write empty rows.
-const recordSpendSink: SpendSink = (usage) => {
+//
+// Issue #29 — async: recordSpend is async now, so the sink may return a
+// promise; meterAnthropicClient awaits it so tests observe the write.
+const recordSpendSink: SpendSink = async (usage) => {
   if (usage.input > 0 || usage.output > 0) {
-    recordSpend(usage.input, usage.output);
+    await recordSpend(usage.input, usage.output);
   }
 };
 
@@ -78,7 +81,7 @@ export function meterAnthropicClient(
     messages: {
       create: async (args) => {
         const response = await base.messages.create(args);
-        sink(
+        await sink(
           normalizeUsage((response as { usage?: AnthropicUsageLike }).usage),
         );
         return response;
@@ -125,7 +128,8 @@ export function budgetedAnthropicClient(
           tools?: unknown;
           max_tokens?: unknown;
         };
-        const reservationId = reserve({
+        // Issue #29 — the budget ledger is async now (remote-capable driver).
+        const reservationId = await reserve({
           sessionId: opts.sessionId ?? null,
           estIn: estimateInputTokens(a.system, a.messages, a.tools),
           maxOut: typeof a.max_tokens === 'number' ? a.max_tokens : 1024,
@@ -135,10 +139,10 @@ export function budgetedAnthropicClient(
           const usage = normalizeUsage(
             (response as { usage?: AnthropicUsageLike }).usage,
           );
-          commit(reservationId, usage.input, usage.output);
+          await commit(reservationId, usage.input, usage.output);
           return response;
         } finally {
-          release(reservationId);
+          await release(reservationId);
         }
       },
     },

@@ -26,8 +26,8 @@
 // EXACT_MATCH for transparency.
 
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
 import { SAMPLE_LEASE_ID } from '@/db/seed';
+import type { Db } from '@/lib/db/client';
 import {
   type AnthropicLike,
   createGradeClauseSeverityTool,
@@ -109,7 +109,7 @@ export interface RunLeaseGradingEvalOptions {
 }
 
 export async function runLeaseGradingEval(
-  db: Database.Database,
+  db: Db,
   opts: RunLeaseGradingEvalOptions,
 ): Promise<LeaseGradingReport> {
   const cases = opts.cases ?? LEASE_GRADING_SET;
@@ -120,9 +120,9 @@ export async function runLeaseGradingEval(
   // `assertLeaseOwnership` against the eval's user. Tier 2 uses the
   // SAMPLE_LEASE_UPLOADER_ID (set by the seed) as the test actor, so
   // ownership passes without an Editor/Admin override.
-  const uploader = db
+  const uploader = await db
     .prepare('SELECT uploaded_by FROM leases WHERE id = ? AND workspace_id = ?')
-    .get(SAMPLE_LEASE_ID, workspaceId) as { uploaded_by: string } | undefined;
+    .get<{ uploaded_by: string }>(SAMPLE_LEASE_ID, workspaceId);
   if (!uploader) {
     throw new Error(
       `lease-grading-runner: sample lease ${SAMPLE_LEASE_ID} not found in workspace ${workspaceId}. Did the seed run?`,
@@ -133,13 +133,11 @@ export async function runLeaseGradingEval(
   const results: LeaseGradingCaseResult[] = [];
 
   for (const c of cases) {
-    const clause = db
+    const clause = await db
       .prepare(
         'SELECT id, clause_index, text FROM clauses WHERE lease_id = ? AND workspace_id = ? AND clause_index = ?',
       )
-      .get(SAMPLE_LEASE_ID, workspaceId, c.clauseIndex) as
-      | ClauseRow
-      | undefined;
+      .get<ClauseRow>(SAMPLE_LEASE_ID, workspaceId, c.clauseIndex);
 
     if (!clause) {
       results.push({

@@ -3,19 +3,22 @@
 // mode NEVER falls back to the seeded demo Tenant / sample workspace (Robert C.
 // Martin: authz at the boundary; Google SRE: fail closed at trust boundaries),
 // while the demo/default profile keeps the legacy seeded fallback.
+//
+// Issue #29 — async: the @/lib/db singleton is mocked to a fresh migrated
+// in-memory Db (never the real singleton in unit tests); every statement is
+// awaited.
 
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { db } from '@/lib/db';
 import {
   SAMPLE_CLEAN_WORKSPACE,
   SAMPLE_WORKSPACE,
+  WORKSPACE_TTL_SECONDS,
 } from '@/lib/workspaces/constants';
 import {
   encodeWorkspace,
   WORKSPACE_COOKIE_NAME,
 } from '@/lib/workspaces/cookie';
-import { ensureAnonWorkspaceExists } from '@/lib/workspaces/queries';
 import { DEMO_USERS } from './constants';
 import { encrypt } from './session';
 import type { Role, SessionPayload } from './types';
@@ -38,6 +41,16 @@ vi.mock('@/lib/env', async (importOriginal) => {
   };
 });
 
+// Issue #29 — the @/lib/db singleton is replaced with a fresh migrated
+// in-memory Db for hermetic tests.
+vi.mock('@/lib/db', async () => {
+  const { createTestDb } = await import('@/lib/test/db');
+  // createTestDb is async (returns the async Db handle).
+  const db = await createTestDb();
+  return { db };
+});
+
+import { db } from '@/lib/db';
 import { requireSessionOrAnon } from './resolve-session';
 
 const ACTIVE_WS = '00000000-0000-0000-0000-0000000015a1';
@@ -77,22 +90,32 @@ describe('requireSessionOrAnon (#15)', () => {
   let priorPublic: string | undefined;
   let priorDemo: string | undefined;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     priorPublic = process.env._TEST_PUBLIC_ANON_MODE;
     priorDemo = process.env._TEST_DEMO_MODE;
     delete process.env._TEST_PUBLIC_ANON_MODE;
     delete process.env._TEST_DEMO_MODE;
     // Active non-sample workspace for the requireActiveWorkspace branch.
-    ensureAnonWorkspaceExists(db, ACTIVE_WS);
+    // (ensureAnonWorkspaceExists is one of the unconverted workspaces helpers;
+    // inline the INSERT OR IGNORE with identical semantics.)
+    const now = Math.floor(Date.now() / 1000);
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+         VALUES (?, 'anon', 'anon', 0, ?, ?)`,
+      )
+      .run(ACTIVE_WS, now, now + WORKSPACE_TTL_SECONDS);
     // Expired-but-unpurged non-sample workspace.
     const past = Math.floor(Date.now() / 1000) - 100;
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
-       VALUES (?, 'expired', 'expired', 0, ?, ?)`,
-    ).run(EXPIRED_WS, past, past);
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+         VALUES (?, 'expired', 'expired', 0, ?, ?)`,
+      )
+      .run(EXPIRED_WS, past, past);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     // Snapshot/restore — vitest shares process.env across files.
     if (priorPublic === undefined) delete process.env._TEST_PUBLIC_ANON_MODE;
     else process.env._TEST_PUBLIC_ANON_MODE = priorPublic;
@@ -101,8 +124,8 @@ describe('requireSessionOrAnon (#15)', () => {
     // Sprint D.20 — children first: leases.workspace_id now carries an FK,
     // so a workspace delete with surviving children is refused by design.
     for (const id of [ACTIVE_WS, EXPIRED_WS, ABSENT_WS]) {
-      db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(id);
-      db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+      await db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(id);
+      await db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
     }
   });
 
@@ -193,14 +216,18 @@ describe('requireSessionOrAnon (#15)', () => {
     it('purges the expired workspace and its children on the read path (D.20)', async () => {
       const now = Math.floor(Date.now() / 1000);
       // FK-valid parents: the lease needs a real uploader row.
-      db.prepare(
-        `INSERT OR IGNORE INTO users (id, email, role, display_name, created_at)
-         VALUES ('u-d20', 'd20@anon.leaselens.local', 'Creator', 'D20', ?)`,
-      ).run(now);
-      db.prepare(
-        `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
-         VALUES ('lease-d20', ?, 'x.pdf', 't', 1, 'u-d20', ?)`,
-      ).run(EXPIRED_WS, now);
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO users (id, email, role, display_name, created_at)
+           VALUES ('u-d20', 'd20@anon.leaselens.local', 'Creator', 'D20', ?)`,
+        )
+        .run(now);
+      await db
+        .prepare(
+          `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+           VALUES ('lease-d20', ?, 'x.pdf', 't', 1, 'u-d20', ?)`,
+        )
+        .run(EXPIRED_WS, now);
 
       const req = await makeReq({
         session: anonSession,
@@ -213,12 +240,16 @@ describe('requireSessionOrAnon (#15)', () => {
 
       // The expired workspace AND its lease are gone, not merely hidden.
       expect(
-        db.prepare('SELECT 1 FROM workspaces WHERE id = ?').get(EXPIRED_WS),
+        await db
+          .prepare('SELECT 1 AS one FROM workspaces WHERE id = ?')
+          .get(EXPIRED_WS),
       ).toBeUndefined();
       expect(
-        db.prepare('SELECT 1 FROM leases WHERE id = ?').get('lease-d20'),
+        await db
+          .prepare('SELECT 1 AS one FROM leases WHERE id = ?')
+          .get('lease-d20'),
       ).toBeUndefined();
-      db.prepare('DELETE FROM users WHERE id = ?').run('u-d20');
+      await db.prepare('DELETE FROM users WHERE id = ?').run('u-d20');
     });
 
     it('resolves on the read path for an active per-visitor workspace', async () => {

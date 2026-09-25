@@ -1,5 +1,5 @@
-import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { createTestDb } from '@/lib/test/db';
 import { seedChunk, seedDocument } from '@/lib/test/seed';
 import type { GoldenCase } from './domain';
@@ -11,22 +11,22 @@ vi.mock('@/lib/rag/embed', async () => {
 });
 
 describe('runGoldenEval', () => {
-  let db: Database.Database;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createTestDb();
+  beforeEach(async () => {
+    db = await createTestDb();
   });
 
   it('produces correct report structure with synthetic golden set', async () => {
-    const docId = seedDocument(db, 'test-doc');
-    seedChunk(db, docId, {
+    const docId = await seedDocument(db, 'test-doc');
+    await seedChunk(db, docId, {
       id: 'test-doc#section:0',
       content:
         'The brand voice is conversational and knowledgeable like a friend',
       heading: 'Brand Voice',
       index: 0,
     });
-    seedChunk(db, docId, {
+    await seedChunk(db, docId, {
       id: 'test-doc#section:1',
       content: 'Secondary content about other topics',
       heading: 'Other',
@@ -64,8 +64,8 @@ describe('runGoldenEval', () => {
   });
 
   it('fails gracefully when case expects non-existent chunks', async () => {
-    const docId = seedDocument(db, 'test-doc');
-    seedChunk(db, docId, {
+    const docId = await seedDocument(db, 'test-doc');
+    await seedChunk(db, docId, {
       id: 'test-doc#section:0',
       content: 'Some content about gaming reviews',
       heading: 'Reviews',

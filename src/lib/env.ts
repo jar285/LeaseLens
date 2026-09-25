@@ -88,6 +88,17 @@ export const envSchema = z
       .int()
       .positive()
       .default(30000),
+    // Issue #29 — hosted database (Turso/libSQL) for production. When set,
+    // the app talks to the hosted database instead of the local SQLite file.
+    // Local dev keeps working with no new config: unset means `file:` mode.
+    LEASELENS_TURSO_URL: z
+      .string()
+      .min(1, 'LEASELENS_TURSO_URL must not be empty')
+      .optional(),
+    // Turso auth token for the database URL above. Optional in the schema
+    // because local `sqld` dev servers need no token — but a remote
+    // `libsql://` URL without a token will fail at first query, loudly.
+    LEASELENS_TURSO_AUTH_TOKEN: z.string().min(1).optional(),
   })
   // Sprint B.9 (#9) — fail closed when public anonymous mode is enabled without
   // the guardrails a public deploy requires. Better to refuse to boot than to
@@ -110,6 +121,17 @@ export const envSchema = z
         path: ['LEASELENS_DAILY_SPEND_CEILING_USD'],
         message:
           'A positive LEASELENS_DAILY_SPEND_CEILING_USD is required when LEASELENS_PUBLIC_ANON_MODE is enabled.',
+      });
+    }
+    // Issue #29 — a public deploy must not run on the local SQLite file:
+    // Vercel's filesystem is ephemeral, so every redeploy/scale-out would
+    // silently drop reviews, quotas, and audit rows. Fail closed at boot.
+    if (!val.LEASELENS_TURSO_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['LEASELENS_TURSO_URL'],
+        message:
+          'LEASELENS_TURSO_URL is required when LEASELENS_PUBLIC_ANON_MODE is enabled — local SQLite does not survive production deploys.',
       });
     }
   });

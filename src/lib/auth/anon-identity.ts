@@ -7,7 +7,7 @@
 // how isolation is achieved (React Team / Dan Abramov: state ownership; Don
 // Norman: "this review is mine, temporary, and isolated").
 
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 import { toDbRole } from './role-codec';
 import type { Role, SessionPayload } from './types';
 
@@ -39,18 +39,22 @@ export function newAnonIdentity(): AnonIdentity {
  * IGNORE), mirroring ensureDemoUsersExist. The role is persisted as the DB
  * literal ('Creator'); the email is synthesized unique-per-id (users.email is
  * UNIQUE NOT NULL).
+ *
+ * Issue #29 — async: awaits the INSERT against the async `Db` handle.
  */
-export function ensureAnonUserExists(
-  db: Database.Database,
+export async function ensureAnonUserExists(
+  db: Db,
   userId: string,
-): void {
-  db.prepare(
-    'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-  ).run(
-    userId,
-    `anon+${userId}@anon.leaselens.local`,
-    toDbRole('Tenant'),
-    ANON_DISPLAY_NAME,
-    Math.floor(Date.now() / 1000),
-  );
+): Promise<void> {
+  await db
+    .prepare(
+      'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(
+      userId,
+      `anon+${userId}@anon.leaselens.local`,
+      toDbRole('Tenant'),
+      ANON_DISPLAY_NAME,
+      Math.floor(Date.now() / 1000),
+    );
 }

@@ -1,5 +1,11 @@
-import type Database from 'better-sqlite3';
+// Issue #29 — async: every query awaits its statement against the async
+// `Db` driver. The better-sqlite3 named-parameter objects (`@workspace_id`)
+// are converted to positional `?` bindings (the new statement interface
+// binds positional args); the dynamic WHERE-builder now accumulates a
+// positional params array in the same order the clauses are appended.
+
 import { fromDbRole } from '@/lib/auth/role-codec';
+import type { Db } from '@/lib/db/client';
 import { estimateCost } from '@/lib/db/spend';
 import type {
   ApprovalRecord,
@@ -27,30 +33,29 @@ interface ListAuditOpts {
  *
  * Sprint 11: workspace-scoped — `WHERE a.workspace_id = ?`.
  */
-export function listRecentAuditRows(
-  db: Database.Database,
+export async function listRecentAuditRows(
+  db: Db,
   opts: ListAuditOpts,
-): CockpitAuditRow[] {
-  const whereClauses: string[] = ['a.workspace_id = @workspace_id'];
-  const params: Record<string, unknown> = {
-    limit: opts.limit,
-    workspace_id: opts.workspaceId,
-  };
+): Promise<CockpitAuditRow[]> {
+  const whereClauses: string[] = ['a.workspace_id = ?'];
+  const params: unknown[] = [opts.workspaceId];
   if (opts.actorUserId !== undefined) {
-    whereClauses.push('a.actor_user_id = @actor_user_id');
-    params.actor_user_id = opts.actorUserId;
+    whereClauses.push('a.actor_user_id = ?');
+    params.push(opts.actorUserId);
   }
   const whereSql = `WHERE ${whereClauses.join(' AND ')}`;
-  return db
+  params.push(opts.limit);
+  const rows = await db
     .prepare(
       `SELECT a.*, u.display_name AS actor_display_name
          FROM audit_log a
          LEFT JOIN users u ON u.id = a.actor_user_id
          ${whereSql}
          ORDER BY a.created_at DESC
-         LIMIT @limit`,
+         LIMIT ?`,
     )
-    .all(params) as CockpitAuditRow[];
+    .all<CockpitAuditRow>(...params);
+  return rows;
 }
 
 /**
@@ -93,22 +98,20 @@ interface ToolCallRowWire {
   rolled_back_at: number | null;
 }
 
-export function listRecentToolCalls(
-  db: Database.Database,
+export async function listRecentToolCalls(
+  db: Db,
   opts: ListToolCallsOpts,
-): CockpitToolCallRow[] {
-  const whereClauses: string[] = ['tc.workspace_id = @workspace_id'];
-  const params: Record<string, unknown> = {
-    limit: opts.limit,
-    workspace_id: opts.workspaceId,
-  };
+): Promise<CockpitToolCallRow[]> {
+  const whereClauses: string[] = ['tc.workspace_id = ?'];
+  const params: unknown[] = [opts.workspaceId];
   if (opts.actorUserId !== undefined) {
-    whereClauses.push('tc.actor_user_id = @actor_user_id');
-    params.actor_user_id = opts.actorUserId;
+    whereClauses.push('tc.actor_user_id = ?');
+    params.push(opts.actorUserId);
   }
   const whereSql = `WHERE ${whereClauses.join(' AND ')}`;
+  params.push(opts.limit);
 
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT
          tc.id                            AS id,
@@ -134,9 +137,9 @@ export function listRecentToolCalls(
          ON tc.tool_use_id IS NOT NULL AND al.tool_use_id = tc.tool_use_id
        ${whereSql}
        ORDER BY tc.created_at DESC
-       LIMIT @limit`,
+       LIMIT ?`,
     )
-    .all(params) as ToolCallRowWire[];
+    .all<ToolCallRowWire>(...params);
 
   return rows.map((r) => ({
     ...r,
@@ -150,26 +153,24 @@ interface ListScheduledOpts {
   limit: number;
 }
 
-export function listScheduledItems(
-  db: Database.Database,
+export async function listScheduledItems(
+  db: Db,
   opts: ListScheduledOpts,
-): ScheduledItem[] {
-  const whereClauses: string[] = ['workspace_id = @workspace_id'];
-  const params: Record<string, unknown> = {
-    limit: opts.limit,
-    workspace_id: opts.workspaceId,
-  };
+): Promise<ScheduledItem[]> {
+  const whereClauses: string[] = ['workspace_id = ?'];
+  const params: unknown[] = [opts.workspaceId];
   if (opts.scheduledBy !== undefined) {
-    whereClauses.push('scheduled_by = @scheduled_by');
-    params.scheduled_by = opts.scheduledBy;
+    whereClauses.push('scheduled_by = ?');
+    params.push(opts.scheduledBy);
   }
   const whereSql = `WHERE ${whereClauses.join(' AND ')}`;
-  return db
+  params.push(opts.limit);
+  return await db
     .prepare(
       `SELECT * FROM content_calendar ${whereSql}
-       ORDER BY scheduled_for ASC LIMIT @limit`,
+       ORDER BY scheduled_for ASC LIMIT ?`,
     )
-    .all(params) as ScheduledItem[];
+    .all<ScheduledItem>(...params);
 }
 
 interface ListApprovalsOpts {
@@ -178,26 +179,24 @@ interface ListApprovalsOpts {
   limit: number;
 }
 
-export function listRecentApprovals(
-  db: Database.Database,
+export async function listRecentApprovals(
+  db: Db,
   opts: ListApprovalsOpts,
-): ApprovalRecord[] {
-  const whereClauses: string[] = ['workspace_id = @workspace_id'];
-  const params: Record<string, unknown> = {
-    limit: opts.limit,
-    workspace_id: opts.workspaceId,
-  };
+): Promise<ApprovalRecord[]> {
+  const whereClauses: string[] = ['workspace_id = ?'];
+  const params: unknown[] = [opts.workspaceId];
   if (opts.approvedBy !== undefined) {
-    whereClauses.push('approved_by = @approved_by');
-    params.approved_by = opts.approvedBy;
+    whereClauses.push('approved_by = ?');
+    params.push(opts.approvedBy);
   }
   const whereSql = `WHERE ${whereClauses.join(' AND ')}`;
-  return db
+  params.push(opts.limit);
+  return await db
     .prepare(
       `SELECT * FROM approvals ${whereSql}
-       ORDER BY created_at DESC LIMIT @limit`,
+       ORDER BY created_at DESC LIMIT ?`,
     )
-    .all(params) as ApprovalRecord[];
+    .all<ApprovalRecord>(...params);
 }
 
 /**
@@ -210,17 +209,22 @@ export function listRecentApprovals(
  * estimateCost from src/lib/db/spend.ts — the same function the
  * daily-spend ceiling check uses, single source of truth.
  */
-export function getTodaySpend(db: Database.Database): SpendSnapshot {
-  const row = db
+export async function getTodaySpend(db: Db): Promise<SpendSnapshot> {
+  const row = await db
     .prepare(
       "SELECT date, tokens_in, tokens_out FROM spend_log WHERE date = date('now')",
     )
-    .get() as
-    | { date: string; tokens_in: number; tokens_out: number }
-    | undefined;
+    .get<{ date: string; tokens_in: number; tokens_out: number }>();
 
-  const today = (db.prepare("SELECT date('now') AS d").get() as { d: string })
-    .d;
+  const todayRow = await db
+    .prepare("SELECT date('now') AS d")
+    .get<{ d: string }>();
+  // date('now') always returns exactly one row; the explicit check
+  // documents the invariant instead of a bare dereference.
+  if (!todayRow) {
+    throw new Error("getTodaySpend: SELECT date('now') returned no row");
+  }
+  const today = todayRow.d;
 
   if (!row) {
     return { date: today, tokens_in: 0, tokens_out: 0, estimated_dollars: 0 };
@@ -266,11 +270,11 @@ interface PerToolStatRow {
   last_invoked_at: number;
 }
 
-export function listPerToolStats(
-  db: Database.Database,
+export async function listPerToolStats(
+  db: Db,
   opts: ListPerToolStatsOpts,
-): PerToolStat[] {
-  const rows = db
+): Promise<PerToolStat[]> {
+  const rows = await db
     .prepare(
       `SELECT
          tc.tool_name                                                   AS tool_name,
@@ -285,17 +289,13 @@ export function listPerToolStats(
          )                                                              AS rolled_back_count,
          MAX(tc.created_at)                                             AS last_invoked_at
        FROM tool_calls tc
-       WHERE tc.workspace_id = @workspace_id
-         AND tc.created_at   >= @since
+       WHERE tc.workspace_id = ?
+         AND tc.created_at   >= ?
        GROUP BY tc.tool_name
        ORDER BY invocations DESC
-       LIMIT @limit`,
+       LIMIT ?`,
     )
-    .all({
-      workspace_id: opts.workspaceId,
-      since: opts.since,
-      limit: opts.limit,
-    }) as PerToolStatRow[];
+    .all<PerToolStatRow>(opts.workspaceId, opts.since, opts.limit);
 
   return rows.map((r) => ({
     tool_name: r.tool_name,
@@ -321,42 +321,42 @@ interface GetLeasePipelineStatsOpts {
   since: number;
 }
 
-export function getLeasePipelineStats(
-  db: Database.Database,
+export async function getLeasePipelineStats(
+  db: Db,
   opts: GetLeasePipelineStatsOpts,
-): LeasePipelineStats {
-  const recent = db
+): Promise<LeasePipelineStats> {
+  const recent = await db
     .prepare(
       `SELECT COUNT(*) AS uploads_24h
          FROM leases
-        WHERE workspace_id = @workspace_id
-          AND created_at  >= @since`,
+        WHERE workspace_id = ?
+          AND created_at  >= ?`,
     )
-    .get({
-      workspace_id: opts.workspaceId,
-      since: opts.since,
-    }) as { uploads_24h: number };
+    .get<{ uploads_24h: number }>(opts.workspaceId, opts.since);
 
-  const clauses = db
+  const clauses = await db
     .prepare(
       `SELECT COUNT(*) AS total_clauses_24h
          FROM clauses c
          JOIN leases l ON l.id = c.lease_id
-        WHERE c.workspace_id = @workspace_id
-          AND l.created_at  >= @since`,
+        WHERE c.workspace_id = ?
+          AND l.created_at  >= ?`,
     )
-    .get({
-      workspace_id: opts.workspaceId,
-      since: opts.since,
-    }) as { total_clauses_24h: number };
+    .get<{ total_clauses_24h: number }>(opts.workspaceId, opts.since);
 
-  const lifetime = db
+  const lifetime = await db
     .prepare(
       `SELECT COUNT(*) AS lifetime_uploads
          FROM leases
-        WHERE workspace_id = @workspace_id`,
+        WHERE workspace_id = ?`,
     )
-    .get({ workspace_id: opts.workspaceId }) as { lifetime_uploads: number };
+    .get<{ lifetime_uploads: number }>(opts.workspaceId);
+
+  // COUNT(*) always returns exactly one row; the explicit checks document
+  // the invariant instead of a bare dereference.
+  if (!recent || !clauses || !lifetime) {
+    throw new Error('getLeasePipelineStats: COUNT(*) returned no row');
+  }
 
   const uploads = recent.uploads_24h;
   const totalClauses = clauses.total_clauses_24h;
@@ -378,7 +378,8 @@ export function getLeasePipelineStats(
  * Previous (Sprint 24) implementation tried to derive this from
  * `audit_log.output_json` but grade_clause_severity is a read-only tool
  * and never writes to audit_log, so the panel always rendered zero.
- * The fix is the migration in src/lib/db/schema.ts + the UPDATE in
+ * The fix is the migration in
+ * src/lib/db/migrations/0001_initial_schema.ts + the UPDATE in
  * src/lib/tools/lease-tools.ts that persists severity to the clause row.
  *
  * Workspace-scoped. No time window — this is an all-time view of
@@ -393,19 +394,19 @@ interface SeverityCountRow {
   count: number;
 }
 
-export function getSeverityDistribution(
-  db: Database.Database,
+export async function getSeverityDistribution(
+  db: Db,
   opts: GetSeverityDistributionOpts,
-): SeverityDistribution {
-  const rows = db
+): Promise<SeverityDistribution> {
+  const rows = await db
     .prepare(
       `SELECT severity, COUNT(*) AS count
          FROM clauses
-        WHERE workspace_id = @workspace_id
+        WHERE workspace_id = ?
           AND severity IS NOT NULL
         GROUP BY severity`,
     )
-    .all({ workspace_id: opts.workspaceId }) as SeverityCountRow[];
+    .all<SeverityCountRow>(opts.workspaceId);
 
   const counts: SeverityDistribution = {
     high: 0,

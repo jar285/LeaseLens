@@ -1,8 +1,8 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { createTestDb } from '@/lib/test/db';
 import { ingestCorpus, ingestMarkdownFile } from './ingest';
 
@@ -36,11 +36,11 @@ function makeTempCorpus(content: string): string {
 }
 
 describe('ingestCorpus', () => {
-  let db: Database.Database;
+  let db: Db;
   let corpusDir: string;
 
-  beforeEach(() => {
-    db = createTestDb();
+  beforeEach(async () => {
+    db = await createTestDb();
     corpusDir = makeTempCorpus(DOC_CONTENT);
     vi.clearAllMocks();
   });
@@ -53,11 +53,13 @@ describe('ingestCorpus', () => {
     await ingestCorpus(db, corpusDir);
 
     const docCount = (
-      db.prepare('SELECT COUNT(*) as n FROM documents').get() as { n: number }
-    ).n;
+      await db
+        .prepare('SELECT COUNT(*) as n FROM documents')
+        .get<{ n: number }>()
+    )?.n;
     const chunkCount = (
-      db.prepare('SELECT COUNT(*) as n FROM chunks').get() as { n: number }
-    ).n;
+      await db.prepare('SELECT COUNT(*) as n FROM chunks').get<{ n: number }>()
+    )?.n;
 
     expect(docCount).toBe(1);
     expect(chunkCount).toBeGreaterThan(0);
@@ -66,13 +68,13 @@ describe('ingestCorpus', () => {
   it('skips re-ingestion when slug and content_hash are unchanged (idempotency)', async () => {
     await ingestCorpus(db, corpusDir);
     const afterFirst = (
-      db.prepare('SELECT COUNT(*) as n FROM chunks').get() as { n: number }
-    ).n;
+      await db.prepare('SELECT COUNT(*) as n FROM chunks').get<{ n: number }>()
+    )?.n;
 
     await ingestCorpus(db, corpusDir);
     const afterSecond = (
-      db.prepare('SELECT COUNT(*) as n FROM chunks').get() as { n: number }
-    ).n;
+      await db.prepare('SELECT COUNT(*) as n FROM chunks').get<{ n: number }>()
+    )?.n;
 
     expect(afterSecond).toBe(afterFirst);
   });
@@ -80,29 +82,29 @@ describe('ingestCorpus', () => {
   it('replaces old chunks when content changes for the same slug', async () => {
     await ingestCorpus(db, corpusDir);
 
-    const docBefore = db
+    const docBefore = await db
       .prepare('SELECT id, content_hash FROM documents WHERE slug = ?')
-      .get('mock-doc') as { id: string; content_hash: string };
+      .get<{ id: string; content_hash: string }>('mock-doc');
     const idsBefore = (
-      db
+      await db
         .prepare('SELECT id FROM chunks WHERE document_id = ?')
-        .all(docBefore.id) as { id: string }[]
+        .all<{ id: string }>(docBefore?.id)
     ).map((r) => r.id);
 
     writeFileSync(join(corpusDir, 'mock-doc.md'), DOC_CONTENT_V2, 'utf-8');
     await ingestCorpus(db, corpusDir);
 
-    const docAfter = db
+    const docAfter = await db
       .prepare('SELECT id, content_hash FROM documents WHERE slug = ?')
-      .get('mock-doc') as { id: string; content_hash: string };
+      .get<{ id: string; content_hash: string }>('mock-doc');
     const idsAfter = (
-      db
+      await db
         .prepare('SELECT id FROM chunks WHERE document_id = ?')
-        .all(docAfter.id) as { id: string }[]
+        .all<{ id: string }>(docAfter?.id)
     ).map((r) => r.id);
 
-    expect(docAfter.id).toBe(docBefore.id);
-    expect(docAfter.content_hash).not.toBe(docBefore.content_hash);
+    expect(docAfter?.id).toBe(docBefore?.id);
+    expect(docAfter?.content_hash).not.toBe(docBefore?.content_hash);
     expect(idsAfter.length).toBeGreaterThan(0);
     expect(idsAfter).toEqual(idsBefore);
   });
@@ -110,36 +112,40 @@ describe('ingestCorpus', () => {
   it('stores embeddings as non-null BLOBs with the correct byte length', async () => {
     await ingestCorpus(db, corpusDir);
 
-    const rows = db.prepare('SELECT embedding FROM chunks').all() as {
-      embedding: Buffer;
-    }[];
+    const rows = await db
+      .prepare('SELECT embedding FROM chunks')
+      .all<{ embedding: ArrayBuffer | Uint8Array | null }>();
 
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.embedding).not.toBeNull();
-      expect(row.embedding.byteLength).toBe(384 * 4);
+      expect(row.embedding?.byteLength).toBe(384 * 4);
     }
   });
 });
 
 describe('ingestMarkdownFile cross-workspace (Round 5)', () => {
-  let db: Database.Database;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createTestDb();
+  beforeEach(async () => {
+    db = await createTestDb();
     vi.clearAllMocks();
 
     // Two non-sample workspaces. The same slug + identical content should land
     // in both without colliding on the chunks PRIMARY KEY.
     const now = Math.floor(Date.now() / 1000);
-    db.prepare(
-      `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 0, ?, ?)`,
-    ).run('ws-a', 'A', 'A', now, now + 3600);
-    db.prepare(
-      `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+      )
+      .run('ws-a', 'A', 'A', now, now + 3600);
+    await db
+      .prepare(
+        `INSERT INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 0, ?, ?)`,
-    ).run('ws-b', 'B', 'B', now, now + 3600);
+      )
+      .run('ws-b', 'B', 'B', now, now + 3600);
   });
 
   it('ingests the same slug+content into two workspaces without chunk-id collision', async () => {
@@ -151,11 +157,11 @@ describe('ingestMarkdownFile cross-workspace (Round 5)', () => {
       ingestMarkdownFile(db, { slug, content, workspaceId: 'ws-b' }),
     ).resolves.toMatchObject({ chunkCount: expect.any(Number) });
 
-    const counts = db
+    const counts = await db
       .prepare(
         'SELECT workspace_id, COUNT(*) as n FROM chunks GROUP BY workspace_id',
       )
-      .all() as { workspace_id: string; n: number }[];
+      .all<{ workspace_id: string; n: number }>();
     const byWs = Object.fromEntries(counts.map((r) => [r.workspace_id, r.n]));
     expect(byWs['ws-a']).toBeGreaterThan(0);
     // Same content → same chunk count in each workspace.
@@ -163,11 +169,13 @@ describe('ingestMarkdownFile cross-workspace (Round 5)', () => {
   });
 
   it('Sprint 12 — uses forceDocumentId verbatim as document.id and chunk-id prefix when provided', async () => {
-    const db = createTestDb();
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    const db = await createTestDb();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES ('ws-seed', 'seed', 'd', 1, 0, NULL)`,
-    ).run();
+      )
+      .run();
 
     const result = await ingestMarkdownFile(db, {
       slug: 'brand-identity',
@@ -177,15 +185,15 @@ describe('ingestMarkdownFile cross-workspace (Round 5)', () => {
     });
 
     expect(result.documentId).toBe('brand-identity');
-    const docs = db
+    const docs = await db
       .prepare('SELECT id, slug FROM documents WHERE slug = ?')
-      .all('brand-identity') as { id: string; slug: string }[];
+      .all<{ id: string; slug: string }>('brand-identity');
     expect(docs).toHaveLength(1);
     expect(docs[0].id).toBe('brand-identity');
 
-    const chunkIds = db
+    const chunkIds = await db
       .prepare('SELECT id FROM chunks WHERE document_id = ?')
-      .all('brand-identity') as { id: string }[];
+      .all<{ id: string }>('brand-identity');
     expect(chunkIds.length).toBeGreaterThan(0);
     for (const row of chunkIds) {
       expect(row.id).toMatch(/^brand-identity#(document|section|passage):\d+$/);
@@ -193,15 +201,19 @@ describe('ingestMarkdownFile cross-workspace (Round 5)', () => {
   });
 
   it('Sprint 12 — omits forceDocumentId → randomUUID for upload safety (no cross-workspace collision)', async () => {
-    const db = createTestDb();
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    const db = await createTestDb();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES ('ws-1', 'a', 'd', 0, 0, 9999999999)`,
-    ).run();
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+      )
+      .run();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES ('ws-2', 'b', 'd', 0, 0, 9999999999)`,
-    ).run();
+      )
+      .run();
 
     const r1 = await ingestMarkdownFile(db, {
       slug: 'brand-identity',

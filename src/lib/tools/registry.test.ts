@@ -3,10 +3,15 @@
 //
 // Sprint 8: existing 6 tests updated to read `result` from the envelope.
 // 5 new tests cover the audit hook + invariants (sprint plan Task 8).
+//
+// Issue #29 — async: `createTestDb()` is awaited, every readback awaits
+// its statement, and the synthetic mutating descriptor writes through the
+// `tx` handle the registry passes on the execution context (statements on
+// the outer `db` inside the transaction would throw TRANSACTION_ACTIVE).
 
-import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Role } from '@/lib/auth/types';
+import type { Db } from '@/lib/db/client';
 import { createTestDb } from '@/lib/test/db';
 import { seedUser } from '@/lib/test/seed';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
@@ -232,26 +237,28 @@ describe('ToolRegistry', () => {
   // Sprint 8 — mutating-tool path tests
   // ==========================================================================
   describe('execute (mutating path — Sprint 8)', () => {
-    let db: Database.Database;
+    let db: Db;
 
-    beforeEach(() => {
-      db = createTestDb();
+    beforeEach(async () => {
+      db = await createTestDb();
       // Seed an Admin and a content_calendar-able document so the mutating
       // mock tool can write through. The mutating tools real-world tests live
       // in mutating-tools.test.ts; here we exercise the registry's audit hook
       // with a synthetic descriptor so the test is independent of those tools.
-      seedUser(db, 'Admin');
-      db.prepare(
-        'INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ).run(
-        'doc-1',
-        'doc-slug',
-        SAMPLE_WORKSPACE.id,
-        'Doc',
-        'content',
-        'hash',
-        Date.now(),
-      );
+      await seedUser(db, 'Admin');
+      await db
+        .prepare(
+          'INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          'doc-1',
+          'doc-slug',
+          SAMPLE_WORKSPACE.id,
+          'Doc',
+          'content',
+          'hash',
+          Date.now(),
+        );
     });
 
     function buildMutatingTool(opts?: {
@@ -263,23 +270,33 @@ describe('ToolRegistry', () => {
         inputSchema: { type: 'object', properties: {} },
         roles: 'ALL',
         category: 'system',
-        execute: (): MutationOutcome => {
+        execute: async (_input, ctx): Promise<MutationOutcome> => {
+          // Issue #29 — the registry runs this inside its transaction and
+          // passes the open handle as ctx.tx; writes must go through it.
+          // The `?? db` fallback keeps the descriptor callable directly.
+          const tdb = ctx.tx ?? db;
           if (opts?.throwInExecute) {
-            db.prepare(
-              'INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            ).run('halfway', 'doc-slug', SAMPLE_WORKSPACE.id, 0, 'x', 'u', 0);
+            await tdb
+              .prepare(
+                'INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+              )
+              .run('halfway', 'doc-slug', SAMPLE_WORKSPACE.id, 0, 'x', 'u', 0);
             throw new Error('mutation failed');
           }
-          db.prepare(
-            'INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          ).run('row-1', 'doc-slug', SAMPLE_WORKSPACE.id, 0, 'x', 'u', 0);
+          await tdb
+            .prepare(
+              'INSERT INTO content_calendar (id, document_slug, workspace_id, scheduled_for, channel, scheduled_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            )
+            .run('row-1', 'doc-slug', SAMPLE_WORKSPACE.id, 0, 'x', 'u', 0);
           return {
             result: { schedule_id: 'row-1' },
             compensatingActionPayload: { schedule_id: 'row-1' },
           };
         },
-        compensatingAction: () => {
-          db.prepare('DELETE FROM content_calendar WHERE id = ?').run('row-1');
+        compensatingAction: async () => {
+          await db
+            .prepare('DELETE FROM content_calendar WHERE id = ?')
+            .run('row-1');
         },
       };
     }
@@ -303,18 +320,18 @@ describe('ToolRegistry', () => {
       expect(result).toEqual({ schedule_id: 'row-1' });
       expect(audit_id).toBeTruthy();
 
-      const auditRow = db
+      const auditRow = await db
         .prepare('SELECT * FROM audit_log WHERE id = ?')
-        .get(audit_id) as {
-        tool_name: string;
-        tool_use_id: string | null;
-        actor_user_id: string;
-        input_json: string;
-      };
-      expect(auditRow.tool_name).toBe('mut_tool');
-      expect(auditRow.tool_use_id).toBe('toolu_1');
-      expect(auditRow.actor_user_id).toBe('admin-id');
-      expect(JSON.parse(auditRow.input_json)).toEqual({ foo: 'bar' });
+        .get<{
+          tool_name: string;
+          tool_use_id: string | null;
+          actor_user_id: string;
+          input_json: string;
+        }>(audit_id);
+      expect(auditRow?.tool_name).toBe('mut_tool');
+      expect(auditRow?.tool_use_id).toBe('toolu_1');
+      expect(auditRow?.actor_user_id).toBe('admin-id');
+      expect(JSON.parse(auditRow?.input_json ?? '')).toEqual({ foo: 'bar' });
     });
 
     it('Mutation throws → both rows absent (transaction rollback)', async () => {
@@ -334,14 +351,14 @@ describe('ToolRegistry', () => {
         ),
       ).rejects.toThrow('mutation failed');
 
-      const cal = db
+      const cal = await db
         .prepare('SELECT COUNT(*) as n FROM content_calendar')
-        .get() as { n: number };
-      const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
-        n: number;
-      };
-      expect(cal.n).toBe(0);
-      expect(aud.n).toBe(0);
+        .get<{ n: number }>();
+      const aud = await db
+        .prepare('SELECT COUNT(*) as n FROM audit_log')
+        .get<{ n: number }>();
+      expect(cal?.n).toBe(0);
+      expect(aud?.n).toBe(0);
     });
 
     it('Read-only tool: no audit row written (existing async path unchanged)', async () => {
@@ -359,10 +376,10 @@ describe('ToolRegistry', () => {
         },
       );
 
-      const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
-        n: number;
-      };
-      expect(aud.n).toBe(0);
+      const aud = await db
+        .prepare('SELECT COUNT(*) as n FROM audit_log')
+        .get<{ n: number }>();
+      expect(aud?.n).toBe(0);
     });
 
     it('Mutating tool registered against a no-db registry → diagnostic throw', async () => {
@@ -391,11 +408,11 @@ describe('ToolRegistry', () => {
         inputSchema: { type: 'object', properties: {} },
         roles: 'ALL',
         category: 'system',
-        execute: (input): MutationOutcome => {
+        execute: async (input): Promise<MutationOutcome> => {
           if (!input.required_field) throw new Error('missing required_field');
           return { result: {}, compensatingActionPayload: {} };
         },
-        compensatingAction: () => {},
+        compensatingAction: async () => {},
       };
       registry.register(tool);
 
@@ -412,17 +429,17 @@ describe('ToolRegistry', () => {
         ),
       ).rejects.toThrow('missing required_field');
 
-      const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
-        n: number;
-      };
-      expect(aud.n).toBe(0);
+      const aud = await db
+        .prepare('SELECT COUNT(*) as n FROM audit_log')
+        .get<{ n: number }>();
+      expect(aud?.n).toBe(0);
     });
   });
 
   describe('createToolRegistry factory', () => {
     it('registers render_workflow_diagram for all roles', async () => {
       const { createToolRegistry } = await import('./create-registry');
-      const db = createTestDb();
+      const db = await createTestDb();
       const registry = createToolRegistry(db);
       for (const role of ['Tenant', 'Reviewer', 'Admin'] as const) {
         const names = registry.getToolsForRole(role).map((t) => t.name);
@@ -432,7 +449,7 @@ describe('ToolRegistry', () => {
 
     it('Sprint 13: registers the three lease tools', async () => {
       const { createToolRegistry } = await import('./create-registry');
-      const db = createTestDb();
+      const db = await createTestDb();
       const registry = createToolRegistry(db);
       const names = registry.getToolNames();
 
@@ -443,7 +460,7 @@ describe('ToolRegistry', () => {
 
     it('Sprint 13: drops the ContentOps mutating tools', async () => {
       const { createToolRegistry } = await import('./create-registry');
-      const db = createTestDb();
+      const db = await createTestDb();
       const registry = createToolRegistry(db);
       const names = registry.getToolNames();
 
@@ -453,7 +470,7 @@ describe('ToolRegistry', () => {
 
     it('Sprint 13: extract_clauses + grade_clause_severity are ALL roles; draft_negotiation_email is Tenant+Reviewer+Admin', async () => {
       const { createToolRegistry } = await import('./create-registry');
-      const db = createTestDb();
+      const db = await createTestDb();
       const registry = createToolRegistry(db);
 
       for (const role of ['Tenant', 'Reviewer', 'Admin'] as const) {
@@ -466,7 +483,7 @@ describe('ToolRegistry', () => {
 
     it('Sprint 13 + 45: total tool count is 8 (4 retained + 3 new + get_lease_findings)', async () => {
       const { createToolRegistry } = await import('./create-registry');
-      const db = createTestDb();
+      const db = await createTestDb();
       const registry = createToolRegistry(db);
 
       // 4 retained: search_corpus, get_document_summary, list_documents, render_workflow_diagram
@@ -484,13 +501,15 @@ describe('ToolRegistry', () => {
   // ==========================================================================
   describe('execute (tool-failure redaction — Sprint 44B)', () => {
     it('persists a safe { name, code } error record, never the raw PII message', async () => {
-      const db = createTestDb();
+      const db = await createTestDb();
       // Sprint D.20 (#20) — tool_calls.workspace_id now carries an FK; the
       // workspace the failed call is logged against must exist.
-      db.prepare(
-        `INSERT INTO workspaces (id, name, description, is_sample, created_at)
+      await db
+        .prepare(
+          `INSERT INTO workspaces (id, name, description, is_sample, created_at)
          VALUES (?, 'W', 'test', 1, 1)`,
-      ).run(SAMPLE_WORKSPACE.id);
+        )
+        .run(SAMPLE_WORKSPACE.id);
       const registry = new ToolRegistry(db);
       registry.register({
         name: 'parse_tool',
@@ -520,16 +539,16 @@ describe('ToolRegistry', () => {
         ),
       ).rejects.toThrow(SyntaxError);
 
-      const row = db
+      const row = await db
         .prepare('SELECT status, error_message, error_code FROM tool_calls')
-        .get() as {
-        status: string;
-        error_message: string | null;
-        error_code: string | null;
-      };
-      expect(row.status).toBe('error');
-      expect(row.error_message).toBe('SyntaxError'); // the safe NAME, not the message
-      expect(row.error_code).toBe('parse_error');
+        .get<{
+          status: string;
+          error_message: string | null;
+          error_code: string | null;
+        }>();
+      expect(row?.status).toBe('error');
+      expect(row?.error_message).toBe('SyntaxError'); // the safe NAME, not the message
+      expect(row?.error_code).toBe('parse_error');
 
       // The gating assertion: no substring of the model output is persisted.
       const serialized = JSON.stringify(row);
@@ -538,10 +557,10 @@ describe('ToolRegistry', () => {
       expect(serialized).not.toContain('2200');
 
       // audit_log stays mutations-only — no failure rows written there.
-      const aud = db.prepare('SELECT COUNT(*) as n FROM audit_log').get() as {
-        n: number;
-      };
-      expect(aud.n).toBe(0);
+      const aud = await db
+        .prepare('SELECT COUNT(*) as n FROM audit_log')
+        .get<{ n: number }>();
+      expect(aud?.n).toBe(0);
     });
   });
 });

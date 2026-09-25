@@ -8,11 +8,12 @@
 // boundaries). The demo/default profile keeps the legacy seeded fallback so the
 // portfolio deploy is behavior-preserving.
 //
-// NODE-ONLY: imports auth/mode.ts (validated env) + better-sqlite3. Never import
-// from middleware (Edge) — mint anon identities there via anon-identity.ts.
+// NODE-ONLY: imports auth/mode.ts (validated env) + the async Db handle.
+// Never import from middleware (Edge) — mint anon identities there via
+// anon-identity.ts.
 
-import type Database from 'better-sqlite3';
 import type { NextRequest, NextResponse } from 'next/server';
+import type { Db } from '@/lib/db/client';
 import { errorResponse } from '@/lib/http/error-response';
 import { purgeExpiredWorkspaces } from '@/lib/workspaces/cleanup';
 import {
@@ -51,7 +52,7 @@ export interface RequireSessionOptions {
  */
 export async function requireSessionOrAnon(
   req: NextRequest,
-  db: Database.Database,
+  db: Db,
   opts: RequireSessionOptions = {},
 ): Promise<RequireSessionResult> {
   const { requestId, requireActiveWorkspace = false } = opts;
@@ -116,8 +117,8 @@ export async function requireSessionOrAnon(
       // Sprint D.20 (#20) — purge-before-resolve: without this, an expired
       // workspace's children (tenant PII) linger until someone happens to hit
       // a write route. Cheap when idle (one indexed SELECT, early return).
-      purgeExpiredWorkspaces(db);
-      if (!getActiveWorkspace(db, wsId)) {
+      await purgeExpiredWorkspaces(db);
+      if (!(await getActiveWorkspace(db, wsId))) {
         return {
           ok: false,
           response: errorResponse('UNAUTHENTICATED', { requestId }),
@@ -129,7 +130,7 @@ export async function requireSessionOrAnon(
     // Demo/default: use the cookie workspace when it resolves to an active row,
     // else fall back to the sample (preserved).
     workspaceId =
-      wsId && getActiveWorkspace(db, wsId) ? wsId : SAMPLE_WORKSPACE.id;
+      wsId && (await getActiveWorkspace(db, wsId)) ? wsId : SAMPLE_WORKSPACE.id;
   }
 
   return { ok: true, userId, role, workspaceId };

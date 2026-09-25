@@ -19,15 +19,15 @@ interface WorkspaceRow {
 describe('Database Seed Verification', () => {
   it('should have the three exact stable demo UUIDs after seeding', async () => {
     // Clear and re-seed
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
 
     await runSeed(db);
 
-    const users = db
+    const users = await db
       .prepare('SELECT id, role, display_name FROM users ORDER BY id ASC')
-      .all() as SeededUserRow[];
+      .all<SeededUserRow>();
 
     expect(users).toHaveLength(3);
     // Demo-user display names are content-level identifiers carried over
@@ -46,11 +46,11 @@ describe('Database Seed Verification', () => {
   it('seeds the LeaseLens NJ Tenant Law sample workspace (Sprint 13 §3d)', async () => {
     await runSeed(db);
 
-    const ws = db
+    const ws = await db
       .prepare(
         'SELECT id, name, description, is_sample FROM workspaces WHERE id = ?',
       )
-      .get(SAMPLE_WORKSPACE.id) as WorkspaceRow | undefined;
+      .get<WorkspaceRow>(SAMPLE_WORKSPACE.id);
 
     expect(ws).toBeDefined();
     expect(ws?.is_sample).toBe(1);

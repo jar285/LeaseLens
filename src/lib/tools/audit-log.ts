@@ -7,12 +7,23 @@
  *   - POST /api/audit/[id]/rollback                           (getAuditRow, markRolledBack)
  *
  * Sprint 8 spec sections 4.2 / 4.3 / 4.4 / 4.5.
+ *
+ * Issue #29 — async: every helper awaits its statement against the async
+ * `Db` driver. The registry's mutating path calls these with the open
+ * `DbTransaction` handle (both shapes expose `prepare`); issuing the
+ * statements on the outer `db` inside a transaction would throw
+ * TRANSACTION_ACTIVE on single-connection clients. SQL text is unchanged
+ * apart from the mechanical `@name` → `?` positional conversion the new
+ * statement interface requires.
  */
 
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
 import { fromDbRole, toDbRole } from '@/lib/auth/role-codec';
+import type { Db } from '@/lib/db/client';
 import type { AuditLogEntry, ToolExecutionContext } from './domain';
+
+/** Accepts the `Db` singleton or an open `DbTransaction` — both expose `prepare`. */
+type DbHandle = Pick<Db, 'prepare'>;
 
 export interface AuditWriteInput {
   tool_name: string;
@@ -23,35 +34,37 @@ export interface AuditWriteInput {
   compensatingActionPayload: Record<string, unknown>;
 }
 
-export function writeAuditRow(
-  db: Database.Database,
+export async function writeAuditRow(
+  db: DbHandle,
   input: AuditWriteInput,
-): string {
+): Promise<string> {
   const id = randomUUID();
-  db.prepare(
-    `INSERT INTO audit_log (
+  await db
+    .prepare(
+      `INSERT INTO audit_log (
        id, tool_name, tool_use_id, actor_user_id, actor_role, conversation_id,
        workspace_id,
        input_json, output_json, compensating_action_json, created_at
      ) VALUES (
-       @id, @tool_name, @tool_use_id, @actor_user_id, @actor_role, @conversation_id,
-       @workspace_id,
-       @input_json, @output_json, @compensating_action_json, @created_at
+       ?, ?, ?, ?, ?, ?,
+       ?,
+       ?, ?, ?, ?
      )`,
-  ).run({
-    id,
-    tool_name: input.tool_name,
-    tool_use_id: input.tool_use_id ?? null,
-    actor_user_id: input.context.userId,
-    // DB persists wire literals (Creator/Editor/Admin); translate at write.
-    actor_role: toDbRole(input.context.role),
-    conversation_id: input.context.conversationId,
-    workspace_id: input.context.workspaceId,
-    input_json: JSON.stringify(input.input),
-    output_json: JSON.stringify(input.output),
-    compensating_action_json: JSON.stringify(input.compensatingActionPayload),
-    created_at: Math.floor(Date.now() / 1000),
-  });
+    )
+    .run(
+      id,
+      input.tool_name,
+      input.tool_use_id ?? null,
+      input.context.userId,
+      // DB persists wire literals (Creator/Editor/Admin); translate at write.
+      toDbRole(input.context.role),
+      input.context.conversationId,
+      input.context.workspaceId,
+      JSON.stringify(input.input),
+      JSON.stringify(input.output),
+      JSON.stringify(input.compensatingActionPayload),
+      Math.floor(Date.now() / 1000),
+    );
   return id;
 }
 
@@ -66,38 +79,39 @@ function hydrateAuditRow(row: AuditRowWire): AuditLogEntry {
   return { ...row, actor_role: fromDbRole(row.actor_role) };
 }
 
-export function getAuditRow(
-  db: Database.Database,
+export async function getAuditRow(
+  db: DbHandle,
   id: string,
-): AuditLogEntry | null {
-  const row = db.prepare('SELECT * FROM audit_log WHERE id = ?').get(id) as
-    | AuditRowWire
-    | undefined;
+): Promise<AuditLogEntry | null> {
+  const row = await db
+    .prepare('SELECT * FROM audit_log WHERE id = ?')
+    .get<AuditRowWire>(id);
   return row ? hydrateAuditRow(row) : null;
 }
 
-export function listAuditRows(
-  db: Database.Database,
+export async function listAuditRows(
+  db: DbHandle,
   opts: { actorUserId?: string; limit: number; since?: number },
-): AuditLogEntry[] {
+): Promise<AuditLogEntry[]> {
   const whereClauses: string[] = [];
-  const params: Record<string, unknown> = { limit: opts.limit };
+  const params: unknown[] = [];
   if (opts.actorUserId !== undefined) {
-    whereClauses.push('actor_user_id = @actor_user_id');
-    params.actor_user_id = opts.actorUserId;
+    whereClauses.push('actor_user_id = ?');
+    params.push(opts.actorUserId);
   }
   if (opts.since !== undefined) {
-    whereClauses.push('created_at < @since');
-    params.since = opts.since;
+    whereClauses.push('created_at < ?');
+    params.push(opts.since);
   }
   const whereSql = whereClauses.length
     ? `WHERE ${whereClauses.join(' AND ')}`
     : '';
-  const rows = db
+  params.push(opts.limit);
+  const rows = await db
     .prepare(
-      `SELECT * FROM audit_log ${whereSql} ORDER BY created_at DESC LIMIT @limit`,
+      `SELECT * FROM audit_log ${whereSql} ORDER BY created_at DESC LIMIT ?`,
     )
-    .all(params) as AuditRowWire[];
+    .all<AuditRowWire>(...params);
   return rows.map(hydrateAuditRow);
 }
 
@@ -107,9 +121,11 @@ export function listAuditRows(
  * updates 0 rows, leaving rolled_back_at frozen at the original timestamp
  * (sprint-qa H5).
  */
-export function markRolledBack(db: Database.Database, id: string): void {
-  db.prepare(
-    `UPDATE audit_log SET status = 'rolled_back', rolled_back_at = ?
+export async function markRolledBack(db: DbHandle, id: string): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE audit_log SET status = 'rolled_back', rolled_back_at = ?
      WHERE id = ? AND status = 'executed'`,
-  ).run(Math.floor(Date.now() / 1000), id);
+    )
+    .run(Math.floor(Date.now() / 1000), id);
 }

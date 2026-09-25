@@ -3,7 +3,7 @@
 // No DB read, no LLM call. The `db` parameter is accepted for
 // signature parity with the corpus tools but unused.
 
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 import type { ToolDescriptor } from './domain';
 
 // Sprint 25.2 Path B — block-beta was briefly added as the recommended
@@ -54,9 +54,7 @@ function stripLeadingNoise(code: string): string {
   return working;
 }
 
-export function createRenderWorkflowDiagramTool(
-  _db: Database.Database,
-): ToolDescriptor {
+export function createRenderWorkflowDiagramTool(_db: Db): ToolDescriptor {
   return {
     name: 'render_workflow_diagram',
     description: [

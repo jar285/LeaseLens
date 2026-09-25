@@ -1,7 +1,7 @@
 // Adapted from docs/_references/ai_mcp_chat_ordo/src/lib/evals/runner.ts
 // Simplified: iterate golden cases → retrieve → score → aggregate.
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 import { retrieve } from '@/lib/rag/retrieve';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import type {
@@ -40,7 +40,7 @@ export interface RunGoldenEvalOptions {
 }
 
 export async function runGoldenEval(
-  db: Database.Database,
+  db: Db,
   goldenSet: GoldenCase[] = GOLDEN_SET,
   opts: RunGoldenEvalOptions = {},
 ): Promise<EvalRunReport> {

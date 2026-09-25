@@ -7,12 +7,15 @@
  * Newly added in Sprint 8 for mutating-tool tests:
  *   - seedUser (default Creator role)
  *   - seedConversation
+ *
+ * Issue #29 — async: every helper awaits its DB calls against the async `Db`
+ * handle (type from `@/lib/db/client`); SQL text is unchanged.
  */
 
-import type Database from 'better-sqlite3';
 import { DEMO_USERS } from '@/lib/auth/constants';
 import { toDbRole } from '@/lib/auth/role-codec';
 import type { Role } from '@/lib/auth/types';
+import type { Db } from '@/lib/db/client';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { mockEmbedding } from './embed-mock';
 
@@ -21,16 +24,26 @@ import { mockEmbedding } from './embed-mock';
  * SAMPLE_WORKSPACE.id so existing test sites work without code changes
  * (Sprint 11 sweep — sprint-QA H3 / Task 23).
  */
-export function seedDocument(
-  db: Database.Database,
+export async function seedDocument(
+  db: Db,
   slug: string,
   workspaceId: string = SAMPLE_WORKSPACE.id,
-): string {
+): Promise<string> {
   const docId = `doc-${slug}-${workspaceId.slice(-6)}`;
-  db.prepare(
-    `INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at)
+  await db
+    .prepare(
+      `INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(docId, slug, workspaceId, slug, 'full doc content', 'hash', Date.now());
+    )
+    .run(
+      docId,
+      slug,
+      workspaceId,
+      slug,
+      'full doc content',
+      'hash',
+      Date.now(),
+    );
   return docId;
 }
 
@@ -38,8 +51,8 @@ export function seedDocument(
  * Inserts a chunks row. Default workspace is SAMPLE_WORKSPACE.id; pass
  * `overrides.workspaceId` for cross-workspace fixtures.
  */
-export function seedChunk(
-  db: Database.Database,
+export async function seedChunk(
+  db: Db,
   docId: string,
   overrides: {
     id: string;
@@ -49,28 +62,30 @@ export function seedChunk(
     index?: number;
     workspaceId?: string;
   },
-): void {
+): Promise<void> {
   const level = overrides.level ?? 'section';
   const heading = overrides.heading ?? null;
   const chunkIndex = overrides.index ?? 0;
   const workspaceId = overrides.workspaceId ?? SAMPLE_WORKSPACE.id;
   const embedding = mockEmbedding(overrides.content);
 
-  db.prepare(
-    `INSERT INTO chunks (id, document_id, workspace_id, chunk_index, chunk_level, heading, content, embedding, embedding_model, created_at)
+  await db
+    .prepare(
+      `INSERT INTO chunks (id, document_id, workspace_id, chunk_index, chunk_level, heading, content, embedding, embedding_model, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    overrides.id,
-    docId,
-    workspaceId,
-    chunkIndex,
-    level,
-    heading,
-    overrides.content,
-    embedding,
-    'all-MiniLM-L6-v2',
-    Date.now(),
-  );
+    )
+    .run(
+      overrides.id,
+      docId,
+      workspaceId,
+      chunkIndex,
+      level,
+      heading,
+      overrides.content,
+      embedding,
+      'all-MiniLM-L6-v2',
+      Date.now(),
+    );
 }
 
 /**
@@ -79,16 +94,18 @@ export function seedChunk(
  * actor_user_id values are predictable across tests. Idempotent
  * (INSERT OR IGNORE) so repeated calls are safe.
  */
-export function seedUser(
-  db: Database.Database,
+export async function seedUser(
+  db: Db,
   role: Role = 'Tenant',
-): { id: string; email: string; role: Role; display_name: string } {
+): Promise<{ id: string; email: string; role: Role; display_name: string }> {
   const user = DEMO_USERS.find((u) => u.role === role);
   if (!user) throw new Error(`No demo user with role ${role}`);
   const now = Math.floor(Date.now() / 1000);
-  db.prepare(
-    'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-  ).run(user.id, user.email, toDbRole(user.role), user.display_name, now);
+  await db
+    .prepare(
+      'INSERT OR IGNORE INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(user.id, user.email, toDbRole(user.role), user.display_name, now);
   return user;
 }
 
@@ -96,15 +113,17 @@ export function seedUser(
  * Inserts a conversations row owned by `userId`.
  * Equivalent to the inline INSERT in src/app/api/chat/route.integration.test.ts.
  */
-export function seedConversation(
-  db: Database.Database,
+export async function seedConversation(
+  db: Db,
   userId: string,
   id = 'conv-test',
   title = 'Test Conversation',
-): string {
+): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  db.prepare(
-    'INSERT INTO conversations (id, user_id, title, created_at) VALUES (?, ?, ?, ?)',
-  ).run(id, userId, title, now);
+  await db
+    .prepare(
+      'INSERT INTO conversations (id, user_id, title, created_at) VALUES (?, ?, ?, ?)',
+    )
+    .run(id, userId, title, now);
   return id;
 }

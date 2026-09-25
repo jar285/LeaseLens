@@ -60,7 +60,7 @@ export default async function Home() {
         // trust the id directly. NEVER fall back to the seeded demo Tenant here
         // — that is exactly the shared-state leak #14 removes (React Team /
         // Dan Abramov: each visitor owns their own state).
-        ensureAnonUserExists(db, payload.userId);
+        await ensureAnonUserExists(db, payload.userId);
         currentRole = 'Tenant';
         currentUserId = payload.userId;
         isAnon = true;
@@ -71,12 +71,12 @@ export default async function Home() {
         // before the .env.test prefix fix landed), the userExists check
         // below would silently demote the user back to Creator and the
         // role tabs would appear broken. Idempotent INSERT OR IGNORE.
-        ensureDemoUsersExist(db);
+        await ensureDemoUsersExist(db);
 
         // Verify user still exists in DB after refresh
-        const userExists = db
+        const userExists = await db
           .prepare('SELECT 1 FROM users WHERE id = ?')
-          .get(payload.userId);
+          .get<{ one: number }>(payload.userId);
 
         if (userExists) {
           currentRole = payload.role;
@@ -101,16 +101,16 @@ export default async function Home() {
   // Sprint D.20 (#20) — purge-before-resolve on the SSR path (and BEFORE the
   // anon re-materialize below, so a TTL'd-out workspace is deleted with its
   // children rather than resurrected around stale rows).
-  purgeExpiredWorkspaces(db);
+  await purgeExpiredWorkspaces(db);
   if (
     isAnon &&
     workspacePayload &&
     workspacePayload.workspace_id !== SAMPLE_WORKSPACE.id
   ) {
-    ensureAnonWorkspaceExists(db, workspacePayload.workspace_id);
+    await ensureAnonWorkspaceExists(db, workspacePayload.workspace_id);
   }
   let workspace = workspacePayload
-    ? getActiveWorkspace(db, workspacePayload.workspace_id)
+    ? await getActiveWorkspace(db, workspacePayload.workspace_id)
     : null;
   if (!workspace) {
     workspace = {
@@ -137,21 +137,21 @@ export default async function Home() {
   if (currentUserId) {
     // Round 3 — filter by workspace_id so previous-workspace history doesn't
     // bleed across after the user uploads a new brand. Spec §20.
-    const conv = getLatestConversationForWorkspace(db, {
+    const conv = await getLatestConversationForWorkspace(db, {
       userId: currentUserId,
       workspaceId: workspace.id,
     });
 
     if (conv) {
       conversationId = conv.id;
-      const msgs = db
+      const msgs = await db
         .prepare(
           'SELECT id, role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
         )
-        .all(conversationId) as { id: string; role: string; content: string }[];
+        .all<{ id: string; role: string; content: string }>(conversationId);
       initialMessages = rehydrateConversationMessages(msgs);
       initialToolEvents = rehydrateToolEvents(msgs);
-      initialActiveLease = getActiveLeaseSnapshot(db, conversationId);
+      initialActiveLease = await getActiveLeaseSnapshot(db, conversationId);
     }
   }
 

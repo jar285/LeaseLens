@@ -111,34 +111,38 @@ async function drainStream(res: Response): Promise<string> {
 }
 
 describe('Chat API Persistence Integration', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM spend_log').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM spend_log').run();
 
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
 
     // Sprint 11: chat route requires an active workspace. Seed sample.
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
 
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env._TEST_DEMO_MODE;
   });
 
@@ -150,16 +154,16 @@ describe('Chat API Persistence Integration', () => {
 
     await drainStream(res);
 
-    const convos = db
+    const convos = await db
       .prepare('SELECT id FROM conversations')
-      .all() as ConversationRow[];
+      .all<ConversationRow>();
     expect(convos).toHaveLength(1);
 
-    const messages = db
+    const messages = await db
       .prepare(
         'SELECT conversation_id, role, content, tokens_in, tokens_out FROM messages ORDER BY created_at ASC',
       )
-      .all() as MessageRow[];
+      .all<MessageRow>();
     expect(messages).toHaveLength(2);
 
     expect(messages[0].role).toBe('user');
@@ -181,33 +185,37 @@ describe('Chat API Persistence Integration', () => {
 // false, the request remains tool_choice-agnostic (the default 'auto')
 // so regular FAB chat behaviour is unchanged.
 describe('Chat API force-tool (Sprint 32.1)', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM spend_log').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM spend_log').run();
 
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
 
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
 
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env._TEST_DEMO_MODE;
   });
 
@@ -267,33 +275,37 @@ describe('Chat API force-tool (Sprint 32.1)', () => {
 // Kent-C-Dodds-style: tests the user-visible invariant (two distinct
 // conversation rows, zero message bleed) rather than implementation details.
 describe('Chat API conversation scoping (Sprint 33.0)', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM spend_log').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM spend_log').run();
 
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
 
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
 
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env._TEST_DEMO_MODE;
   });
 
@@ -306,9 +318,9 @@ describe('Chat API conversation scoping (Sprint 33.0)', () => {
     expect(res1.status).toBe(200);
     await drainStream(res1);
 
-    const convsAfterRound1 = db
+    const convsAfterRound1 = await db
       .prepare('SELECT id FROM conversations')
-      .all() as ConversationRow[];
+      .all<ConversationRow>();
     expect(convsAfterRound1).toHaveLength(1);
     const firstConvId = convsAfterRound1[0].id;
 
@@ -324,9 +336,9 @@ describe('Chat API conversation scoping (Sprint 33.0)', () => {
     expect(res2.status).toBe(200);
     await drainStream(res2);
 
-    const convsAfterRound2 = db
+    const convsAfterRound2 = await db
       .prepare('SELECT id FROM conversations ORDER BY created_at ASC')
-      .all() as ConversationRow[];
+      .all<ConversationRow>();
     expect(convsAfterRound2).toHaveLength(2);
     expect(convsAfterRound2[1].id).not.toBe(firstConvId);
   });
@@ -337,18 +349,18 @@ describe('Chat API conversation scoping (Sprint 33.0)', () => {
       startNewConversation: true,
     });
     await drainStream(await POST(req1));
-    const convs = db
+    const convs = await db
       .prepare('SELECT id FROM conversations')
-      .all() as ConversationRow[];
+      .all<ConversationRow>();
     const convId = convs[0].id;
 
     // Round 2 — same user/workspace, pass the conversationId, NO flag → reuse
     const req2 = await makeSessionRequest('msg 2', TEST_USER_ID, convId);
     await drainStream(await POST(req2));
 
-    const convsAfter = db
+    const convsAfter = await db
       .prepare('SELECT id FROM conversations')
-      .all() as ConversationRow[];
+      .all<ConversationRow>();
     expect(convsAfter).toHaveLength(1);
     expect(convsAfter[0].id).toBe(convId);
   });
@@ -362,9 +374,9 @@ describe('Chat API conversation scoping (Sprint 33.0)', () => {
       { startNewConversation: true },
     );
     await drainStream(await POST(req1));
-    const convsR1 = db
+    const convsR1 = await db
       .prepare('SELECT id FROM conversations')
-      .all() as ConversationRow[];
+      .all<ConversationRow>();
     const convA = convsR1[0].id;
 
     // Round 2 — lease B; pass convA's id AND set the flag
@@ -376,28 +388,28 @@ describe('Chat API conversation scoping (Sprint 33.0)', () => {
     );
     await drainStream(await POST(req2));
 
-    const convsR2 = db
+    const convsR2 = await db
       .prepare('SELECT id FROM conversations ORDER BY created_at ASC')
-      .all() as ConversationRow[];
+      .all<ConversationRow>();
     const convB = convsR2[1].id;
 
     // The user-visible invariant: messages tied to conv B contain ONLY
     // lease B's content. AAAA must not appear in conv B's message table.
-    const convBMessages = db
+    const convBMessages = await db
       .prepare(
         'SELECT content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
       )
-      .all(convB) as { content: string }[];
+      .all<{ content: string }>(convB);
 
     for (const msg of convBMessages) {
       expect(msg.content).not.toContain('AAAA');
     }
     // And the lease A marker still lives only in conv A.
-    const convAMessages = db
+    const convAMessages = await db
       .prepare(
         'SELECT content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
       )
-      .all(convA) as { content: string }[];
+      .all<{ content: string }>(convA);
     expect(convAMessages.some((m) => m.content.includes('AAAA'))).toBe(true);
     expect(convAMessages.some((m) => m.content.includes('BBBB'))).toBe(false);
   });
@@ -409,32 +421,36 @@ describe('Chat API conversation scoping (Sprint 33.0)', () => {
 // provider mock interaction is needed (Michael Nygard: fail fast at the
 // boundary; Addy Osmani: budgets).
 describe('Chat API Request Guards (Sprint A.8 / #8)', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM spend_log').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM spend_log').run();
 
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
 
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env._TEST_DEMO_MODE;
   });
 
@@ -467,43 +483,49 @@ describe('Chat API Request Guards (Sprint A.8 / #8)', () => {
 });
 
 describe('Chat API Demo Guardrails', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM spend_log').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM spend_log').run();
 
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
 
     // Sprint 11: chat route requires an active workspace. Seed sample.
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
 
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'true';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env._TEST_DEMO_MODE;
   });
 
   it('returns 429 on the 11th message within the rate-limit window', async () => {
     // Exhaust the 10-message limit directly in the DB
     const now = Math.floor(Date.now() / 1000);
-    db.prepare(
-      'INSERT INTO rate_limit (session_id, window_start, count) VALUES (?, ?, ?)',
-    ).run(TEST_USER_ID, now, 10);
+    await db
+      .prepare(
+        'INSERT INTO rate_limit (session_id, window_start, count) VALUES (?, ?, ?)',
+      )
+      .run(TEST_USER_ID, now, 10);
 
     const req = await makeSessionRequest('One too many');
     const res = await POST(req);
@@ -519,9 +541,11 @@ describe('Chat API Demo Guardrails', () => {
   it('streams a typed budget event when the daily ceiling is exceeded', async () => {
     // Insert a spend_log row that exceeds the $2 default ceiling
     // 2_000_000 input + 500_000 output → $3.60
-    db.prepare(
-      "INSERT INTO spend_log (date, tokens_in, tokens_out) VALUES (date('now'), ?, ?)",
-    ).run(2_000_000, 500_000);
+    await db
+      .prepare(
+        "INSERT INTO spend_log (date, tokens_in, tokens_out) VALUES (date('now'), ?, ?)",
+      )
+      .run(2_000_000, 500_000);
 
     const req = await makeSessionRequest('Will hit ceiling');
     // Middleware stamps x-request-id on every real request; simulate it so
@@ -550,26 +574,30 @@ describe('Chat API Demo Guardrails', () => {
 // production (demo OFF), not only in demo mode. Mirrors the demo rate-limit
 // test but with _TEST_DEMO_MODE=false + _TEST_PUBLIC_ANON_MODE=true.
 describe('Chat API Public-Anon Guardrails (Sprint B.9 / #9)', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM quota_counter').run();
-    db.prepare('DELETE FROM spend_log').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM quota_counter').run();
+    await db.prepare('DELETE FROM spend_log').run();
 
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
 
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
@@ -577,10 +605,10 @@ describe('Chat API Public-Anon Guardrails (Sprint B.9 / #9)', () => {
     process.env._TEST_PUBLIC_ANON_MODE = 'true';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env._TEST_DEMO_MODE;
     delete process.env._TEST_PUBLIC_ANON_MODE;
-    db.prepare('DELETE FROM quota_counter').run();
+    await db.prepare('DELETE FROM quota_counter').run();
   });
 
   // Sprint C.17 (#17) — public-anon now enforces the composite-key quota
@@ -588,9 +616,11 @@ describe('Chat API Public-Anon Guardrails (Sprint B.9 / #9)', () => {
   // tier at its limit so the next turn is refused.
   it('enforces the quota in public-anon mode with demo OFF (inversion fixed)', async () => {
     const now = Math.floor(Date.now() / 1000);
-    db.prepare(
-      'INSERT INTO quota_counter (quota_key, window_start, count) VALUES (?, ?, ?)',
-    ).run(`session:${TEST_USER_ID}`, now, QUOTA_LIMITS.session.limit);
+    await db
+      .prepare(
+        'INSERT INTO quota_counter (quota_key, window_start, count) VALUES (?, ?, ?)',
+      )
+      .run(`session:${TEST_USER_ID}`, now, QUOTA_LIMITS.session.limit);
 
     const req = await makeSessionRequest('One too many');
     const res = await POST(req);
@@ -600,21 +630,23 @@ describe('Chat API Public-Anon Guardrails (Sprint B.9 / #9)', () => {
 });
 
 describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM spend_log').run();
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM spend_log').run();
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env._TEST_DEMO_MODE;
   });
 
@@ -674,15 +706,17 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
 
   it('proceeds normally when both session and workspace cookies are valid (smoke)', async () => {
     // Seed sample workspace so getActiveWorkspace returns it.
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
     const req = await makeSessionRequest('hello');
     const res = await POST(req);
     expect(res.status).toBe(200);
@@ -692,43 +726,51 @@ describe('Chat API Workspace Cookie Gate (Sprint 11)', () => {
 describe('Chat API Workspace Scoping (Sprint 11 Round 3)', () => {
   const OTHER_WORKSPACE_ID = '11111111-1111-1111-1111-111111111111';
 
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM workspaces WHERE id != ?').run(SAMPLE_WORKSPACE.id);
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM spend_log').run();
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db
+      .prepare('DELETE FROM workspaces WHERE id != ?')
+      .run(SAMPLE_WORKSPACE.id);
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM spend_log').run();
 
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
 
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
     // Seed a SECOND workspace for cross-workspace tests.
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, 'Other', 'second workspace', 0, ?, ?)`,
-    ).run(
-      OTHER_WORKSPACE_ID,
-      Math.floor(Date.now() / 1000),
-      Math.floor(Date.now() / 1000) + 3600,
-    );
+      )
+      .run(
+        OTHER_WORKSPACE_ID,
+        Math.floor(Date.now() / 1000),
+        Math.floor(Date.now() / 1000) + 3600,
+      );
 
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env._TEST_DEMO_MODE;
   });
 
@@ -738,18 +780,20 @@ describe('Chat API Workspace Scoping (Sprint 11 Round 3)', () => {
     expect(res.status).toBe(200);
     await drainStream(res);
 
-    const row = db
+    const row = await db
       .prepare('SELECT workspace_id FROM conversations LIMIT 1')
-      .get() as { workspace_id: string };
-    expect(row.workspace_id).toBe(SAMPLE_WORKSPACE.id);
+      .get<{ workspace_id: string }>();
+    expect(row?.workspace_id).toBe(SAMPLE_WORKSPACE.id);
   });
 
   it('ignores a conversationId that belongs to a different workspace and creates a fresh one', async () => {
     // Pre-seed a conversation in the OTHER workspace.
-    db.prepare(
-      `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
+    await db
+      .prepare(
+        `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
        VALUES ('foreign-conv', ?, ?, 'old', 1)`,
-    ).run(TEST_USER_ID, OTHER_WORKSPACE_ID);
+      )
+      .run(TEST_USER_ID, OTHER_WORKSPACE_ID);
 
     // Now post a chat with that foreign conversationId, but the cookie
     // points at the SAMPLE workspace.
@@ -764,26 +808,28 @@ describe('Chat API Workspace Scoping (Sprint 11 Round 3)', () => {
 
     // The foreign conversation must NOT have gained a message.
     const foreignMsgs = (
-      db
+      await db
         .prepare('SELECT COUNT(*) as c FROM messages WHERE conversation_id = ?')
-        .get('foreign-conv') as { c: number }
-    ).c;
+        .get<{ c: number }>('foreign-conv')
+    )?.c;
     expect(foreignMsgs).toBe(0);
 
     // A NEW conversation must exist in the sample workspace.
-    const sampleConvs = db
+    const sampleConvs = await db
       .prepare(
         'SELECT id FROM conversations WHERE workspace_id = ? AND id != ?',
       )
-      .all(SAMPLE_WORKSPACE.id, 'foreign-conv') as { id: string }[];
+      .all<{ id: string }>(SAMPLE_WORKSPACE.id, 'foreign-conv');
     expect(sampleConvs).toHaveLength(1);
   });
 
   it('appends to an existing conversation when the conversationId belongs to the current workspace', async () => {
-    db.prepare(
-      `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
+    await db
+      .prepare(
+        `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
        VALUES ('own-conv', ?, ?, 'mine', 1)`,
-    ).run(TEST_USER_ID, SAMPLE_WORKSPACE.id);
+      )
+      .run(TEST_USER_ID, SAMPLE_WORKSPACE.id);
 
     const req = await makeSessionRequest(
       'append to own',
@@ -796,17 +842,17 @@ describe('Chat API Workspace Scoping (Sprint 11 Round 3)', () => {
 
     // Same conversation id, two new messages (user + assistant).
     const ownMsgs = (
-      db
+      await db
         .prepare('SELECT COUNT(*) as c FROM messages WHERE conversation_id = ?')
-        .get('own-conv') as { c: number }
-    ).c;
+        .get<{ c: number }>('own-conv')
+    )?.c;
     expect(ownMsgs).toBe(2);
     // No additional conversation rows.
     const totalConvs = (
-      db.prepare('SELECT COUNT(*) as c FROM conversations').get() as {
-        c: number;
-      }
-    ).c;
+      await db
+        .prepare('SELECT COUNT(*) as c FROM conversations')
+        .get<{ c: number }>()
+    )?.c;
     expect(totalConvs).toBe(1);
   });
 });
@@ -818,24 +864,28 @@ describe('Chat API Workspace Scoping (Sprint 11 Round 3)', () => {
 //   T16: truncation requires the mock to emit stop_reason='max_tokens',
 //       which we won't bake into the e2e-mock to keep it minimal.
 describe('Sprint 25.1 R2 — Anthropic prompt-cache breakpoints', () => {
-  beforeEach(() => {
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations').run();
-    db.prepare('DELETE FROM users').run();
-    db.prepare('DELETE FROM rate_limit').run();
-    db.prepare('DELETE FROM spend_log').run();
-    db.prepare(
-      'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+  beforeEach(async () => {
+    await db.prepare('DELETE FROM messages').run();
+    await db.prepare('DELETE FROM conversations').run();
+    await db.prepare('DELETE FROM users').run();
+    await db.prepare('DELETE FROM rate_limit').run();
+    await db.prepare('DELETE FROM spend_log').run();
+    await db
+      .prepare(
+        'INSERT INTO users (id, email, role, display_name, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(TEST_USER_ID, 'test@example.com', 'Creator', 'Test', 0);
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, ?, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      0,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        0,
+      );
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
     process.env._TEST_DEMO_MODE = 'false';

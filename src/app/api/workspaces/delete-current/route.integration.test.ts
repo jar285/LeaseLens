@@ -80,63 +80,80 @@ async function makeRequest(opts: {
   return req;
 }
 
-function seedReview(workspaceId: string, userId: string): void {
+// Issue #29 — async driver: seeding is async.
+async function seedReview(workspaceId: string, userId: string): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  ensureAnonWorkspaceExists(db, workspaceId);
-  db.prepare(
-    `INSERT OR IGNORE INTO users (id, email, role, display_name, created_at)
+  await ensureAnonWorkspaceExists(db, workspaceId);
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO users (id, email, role, display_name, created_at)
      VALUES (?, ?, 'Creator', 'A', ?)`,
-  ).run(userId, `anon+${userId}@anon.leaselens.local`, now);
-  db.prepare(
-    `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+    )
+    .run(userId, `anon+${userId}@anon.leaselens.local`, now);
+  await db
+    .prepare(
+      `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
      VALUES ('lease-19', ?, 'mine.pdf', 'text', 1, ?, ?)`,
-  ).run(workspaceId, userId, now);
-  db.prepare(
-    `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
+    )
+    .run(workspaceId, userId, now);
+  await db
+    .prepare(
+      `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
      VALUES ('clause-19', 'lease-19', ?, 0, 'late_fee', 't', 1, ?)`,
-  ).run(workspaceId, now);
-  db.prepare(
-    `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
+    )
+    .run(workspaceId, now);
+  await db
+    .prepare(
+      `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
      VALUES ('conv-19', ?, ?, 't', ?)`,
-  ).run(userId, workspaceId, now);
-  db.prepare(
-    `INSERT INTO messages (id, conversation_id, role, content, created_at)
+    )
+    .run(userId, workspaceId, now);
+  await db
+    .prepare(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at)
      VALUES ('msg-19', 'conv-19', 'user', 'is my deposit legal?', ?)`,
-  ).run(now);
+    )
+    .run(now);
 }
 
 describe('POST /api/workspaces/delete-current (#19)', () => {
   let priorMode: string | undefined;
   const anon = newAnonIdentity();
 
-  beforeEach(() => {
+  beforeEach(async () => {
     priorMode = process.env._TEST_PUBLIC_ANON_MODE;
     process.env.LEASELENS_SESSION_SECRET ??=
       'a-very-long-test-secret-that-is-at-least-32-chars';
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations WHERE workspace_id = ?').run(WS_MINE);
-    db.prepare('DELETE FROM clauses WHERE workspace_id = ?').run(WS_MINE);
-    db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(WS_MINE);
-    db.prepare('DELETE FROM workspaces WHERE id = ?').run(WS_MINE);
-    db.prepare(
-      `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
+    await db.prepare('DELETE FROM messages').run();
+    await db
+      .prepare('DELETE FROM conversations WHERE workspace_id = ?')
+      .run(WS_MINE);
+    await db.prepare('DELETE FROM clauses WHERE workspace_id = ?').run(WS_MINE);
+    await db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(WS_MINE);
+    await db.prepare('DELETE FROM workspaces WHERE id = ?').run(WS_MINE);
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO workspaces (id, name, description, is_sample, created_at, expires_at)
        VALUES (?, ?, ?, 1, 1, NULL)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-    );
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+      );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (priorMode === undefined) delete process.env._TEST_PUBLIC_ANON_MODE;
     else process.env._TEST_PUBLIC_ANON_MODE = priorMode;
-    db.prepare('DELETE FROM messages').run();
-    db.prepare('DELETE FROM conversations WHERE workspace_id = ?').run(WS_MINE);
-    db.prepare('DELETE FROM clauses WHERE workspace_id = ?').run(WS_MINE);
-    db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(WS_MINE);
-    db.prepare('DELETE FROM workspaces WHERE id = ?').run(WS_MINE);
-    db.prepare('DELETE FROM users WHERE id = ?').run(anon.userId);
+    await db.prepare('DELETE FROM messages').run();
+    await db
+      .prepare('DELETE FROM conversations WHERE workspace_id = ?')
+      .run(WS_MINE);
+    await db.prepare('DELETE FROM clauses WHERE workspace_id = ?').run(WS_MINE);
+    await db.prepare('DELETE FROM leases WHERE workspace_id = ?').run(WS_MINE);
+    await db.prepare('DELETE FROM workspaces WHERE id = ?').run(WS_MINE);
+    await db.prepare('DELETE FROM users WHERE id = ?').run(anon.userId);
   });
 
   it('401s with no workspace cookie (public mode)', async () => {
@@ -152,7 +169,7 @@ describe('POST /api/workspaces/delete-current (#19)', () => {
     expect(res.status).toBe(403);
     // The sample survives.
     expect(
-      db
+      await db
         .prepare('SELECT 1 FROM workspaces WHERE id = ?')
         .get(SAMPLE_WORKSPACE.id),
     ).toBeDefined();
@@ -160,7 +177,7 @@ describe('POST /api/workspaces/delete-current (#19)', () => {
 
   it("deletes the caller's own workspace + all children (public mode)", async () => {
     process.env._TEST_PUBLIC_ANON_MODE = 'true';
-    seedReview(WS_MINE, anon.userId);
+    await seedReview(WS_MINE, anon.userId);
 
     const res = await POST(
       await makeRequest({ workspaceId: WS_MINE, session: anon }),
@@ -177,7 +194,7 @@ describe('POST /api/workspaces/delete-current (#19)', () => {
       ['messages', 'id', 'msg-19'],
     ]) {
       expect(
-        db.prepare(`SELECT 1 FROM ${table} WHERE ${col} = ?`).get(id),
+        await db.prepare(`SELECT 1 FROM ${table} WHERE ${col} = ?`).get(id),
         `${table} row should be deleted`,
       ).toBeUndefined();
     }
@@ -191,7 +208,7 @@ describe('POST /api/workspaces/delete-current (#19)', () => {
   // the same thing middleware would have minted on a navigation.
   it('sD.19b — public mode: rotates the workspace cookie so a follow-up upload passes the auth gate (no 401)', async () => {
     process.env._TEST_PUBLIC_ANON_MODE = 'true';
-    seedReview(WS_MINE, anon.userId);
+    await seedReview(WS_MINE, anon.userId);
 
     const res = await POST(
       await makeRequest({ workspaceId: WS_MINE, session: anon }),

@@ -2,8 +2,8 @@
 // agent-guidelines §1 Vitest rule. Pre-Sprint-13 this file opened the
 // real dev DB, which made it order-dependent on db:seed state.
 
-import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { createTestDb } from '@/lib/test/db';
 import { seedChunk, seedDocument } from '@/lib/test/seed';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
@@ -60,35 +60,37 @@ const FIXTURE_DOCS = [
   },
 ];
 
-function seedFixtureCorpus(db: Database.Database): void {
+async function seedFixtureCorpus(db: Db): Promise<void> {
   for (const doc of FIXTURE_DOCS) {
-    const docId = seedDocument(db, doc.slug);
-    doc.chunks.forEach((chunk, index) => {
-      seedChunk(db, docId, {
+    const docId = await seedDocument(db, doc.slug);
+    for (const [index, chunk] of doc.chunks.entries()) {
+      await seedChunk(db, docId, {
         id: chunk.id,
         content: chunk.content,
         index,
         level: 'section',
       });
-    });
+    }
   }
 }
 
 describe('Corpus Tools', () => {
-  let db: Database.Database;
+  let db: Db;
   let context: ToolExecutionContext;
 
-  beforeEach(() => {
-    db = createTestDb();
-    db.prepare(
-      `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
-    ).run(
-      SAMPLE_WORKSPACE.id,
-      SAMPLE_WORKSPACE.name,
-      SAMPLE_WORKSPACE.description,
-      Math.floor(Date.now() / 1000),
-    );
-    seedFixtureCorpus(db);
+  beforeEach(async () => {
+    db = await createTestDb();
+    await db
+      .prepare(
+        `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
+      )
+      .run(
+        SAMPLE_WORKSPACE.id,
+        SAMPLE_WORKSPACE.name,
+        SAMPLE_WORKSPACE.description,
+        Math.floor(Date.now() / 1000),
+      );
+    await seedFixtureCorpus(db);
     context = {
       role: 'Admin',
       userId: 'test-user',

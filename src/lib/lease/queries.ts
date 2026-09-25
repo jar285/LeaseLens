@@ -1,9 +1,14 @@
 // Sprint 13 §3c — DB CRUD for leases / clauses + the
 // conversations.active_lease_id pointer. Every query is workspace-
 // scoped per agent-guidelines §2.
+//
+// Issue #29 — async: every helper awaits its statement against the async
+// `Db` driver. `get<T>` returns `Promise<T | undefined>` so "not found" is
+// handled explicitly at each call site. SQL text and placeholders are
+// unchanged; only the call mechanics move from better-sqlite3 to @libsql.
 
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import type { Db, DbHandle } from '@/lib/db/client';
 import type { ClauseType } from './classify-clause';
 
 export interface LeaseRow {
@@ -53,69 +58,73 @@ export interface InsertClauseInput {
   pageNumber: number;
 }
 
-export function insertLease(
-  db: Database.Database,
+export async function insertLease(
+  db: DbHandle,
   input: InsertLeaseInput,
-): string {
+): Promise<string> {
   const id = randomUUID();
-  db.prepare(
-    `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+  await db
+    .prepare(
+      `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.workspaceId,
-    input.filename,
-    input.textExtract,
-    input.pageCount,
-    input.uploadedBy,
-    Math.floor(Date.now() / 1000),
-  );
+    )
+    .run(
+      id,
+      input.workspaceId,
+      input.filename,
+      input.textExtract,
+      input.pageCount,
+      input.uploadedBy,
+      Math.floor(Date.now() / 1000),
+    );
   return id;
 }
 
-export function getLease(
-  db: Database.Database,
+export async function getLease(
+  db: Db,
   leaseId: string,
   workspaceId: string,
-): LeaseRow | undefined {
-  return db
+): Promise<LeaseRow | undefined> {
+  return await db
     .prepare('SELECT * FROM leases WHERE id = ? AND workspace_id = ?')
-    .get(leaseId, workspaceId) as LeaseRow | undefined;
+    .get<LeaseRow>(leaseId, workspaceId);
 }
 
-export function insertClause(
-  db: Database.Database,
+export async function insertClause(
+  db: DbHandle,
   input: InsertClauseInput,
-): string {
+): Promise<string> {
   const id = randomUUID();
-  db.prepare(
-    `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
+  await db
+    .prepare(
+      `INSERT INTO clauses (id, lease_id, workspace_id, clause_index, clause_type, text, page_number, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.leaseId,
-    input.workspaceId,
-    input.clauseIndex,
-    input.clauseType,
-    input.text,
-    input.pageNumber,
-    Math.floor(Date.now() / 1000),
-  );
+    )
+    .run(
+      id,
+      input.leaseId,
+      input.workspaceId,
+      input.clauseIndex,
+      input.clauseType,
+      input.text,
+      input.pageNumber,
+      Math.floor(Date.now() / 1000),
+    );
   return id;
 }
 
-export function listClauses(
-  db: Database.Database,
+export async function listClauses(
+  db: Db,
   leaseId: string,
   workspaceId: string,
-): ClauseRow[] {
-  return db
+): Promise<ClauseRow[]> {
+  return await db
     .prepare(
       `SELECT * FROM clauses
        WHERE lease_id = ? AND workspace_id = ?
        ORDER BY clause_index ASC`,
     )
-    .all(leaseId, workspaceId) as ClauseRow[];
+    .all<ClauseRow>(leaseId, workspaceId);
 }
 
 /**
@@ -146,29 +155,29 @@ const SEVERITY_RANK: Record<string, number> = {
   ok: 3,
 };
 
-export function listGradings(
-  db: Database.Database,
+export async function listGradings(
+  db: Db,
   leaseId: string,
   workspaceId: string,
-): StoredGrading[] {
-  const rows = db
+): Promise<StoredGrading[]> {
+  const rows = await db
     .prepare(
       `SELECT id, clause_index, clause_type, page_number, severity,
               statute_citation, chunk_id, reasoning, recommended_action
          FROM clauses
         WHERE lease_id = ? AND workspace_id = ? AND graded_at IS NOT NULL`,
     )
-    .all(leaseId, workspaceId) as Array<{
-    id: string;
-    clause_index: number;
-    clause_type: ClauseType;
-    page_number: number;
-    severity: 'high' | 'medium' | 'low' | 'ok';
-    statute_citation: string | null;
-    chunk_id: string | null;
-    reasoning: string | null;
-    recommended_action: string | null;
-  }>;
+    .all<{
+      id: string;
+      clause_index: number;
+      clause_type: ClauseType;
+      page_number: number;
+      severity: 'high' | 'medium' | 'low' | 'ok';
+      statute_citation: string | null;
+      chunk_id: string | null;
+      reasoning: string | null;
+      recommended_action: string | null;
+    }>(leaseId, workspaceId);
   return rows
     .map((r) => ({
       clause_id: r.id,
@@ -188,25 +197,24 @@ export function listGradings(
     );
 }
 
-export function getActiveLease(
-  db: Database.Database,
+export async function getActiveLease(
+  db: Db,
   conversationId: string,
-): string | null {
-  const row = db
+): Promise<string | null> {
+  const row = await db
     .prepare('SELECT active_lease_id FROM conversations WHERE id = ?')
-    .get(conversationId) as { active_lease_id: string | null } | undefined;
+    .get<{ active_lease_id: string | null }>(conversationId);
   return row?.active_lease_id ?? null;
 }
 
-export function setActiveLease(
-  db: Database.Database,
+export async function setActiveLease(
+  db: DbHandle,
   conversationId: string,
   leaseId: string | null,
-): void {
-  db.prepare(`UPDATE conversations SET active_lease_id = ? WHERE id = ?`).run(
-    leaseId,
-    conversationId,
-  );
+): Promise<void> {
+  await db
+    .prepare(`UPDATE conversations SET active_lease_id = ? WHERE id = ?`)
+    .run(leaseId, conversationId);
 }
 
 /**
@@ -231,11 +239,11 @@ export interface ActiveLeaseSnapshot {
   clause_count: number;
 }
 
-export function getActiveLeaseSnapshot(
-  db: Database.Database,
+export async function getActiveLeaseSnapshot(
+  db: Db,
   conversationId: string,
-): ActiveLeaseSnapshot | null {
-  const row = db
+): Promise<ActiveLeaseSnapshot | null> {
+  const row = await db
     .prepare(
       `SELECT l.id           AS lease_id,
               l.filename     AS filename,
@@ -245,13 +253,11 @@ export function getActiveLeaseSnapshot(
        JOIN leases l ON l.id = c.active_lease_id
        WHERE c.id = ?`,
     )
-    .get(conversationId) as
-    | {
-        lease_id: string;
-        filename: string;
-        page_count: number;
-        clause_count: number;
-      }
-    | undefined;
+    .get<{
+      lease_id: string;
+      filename: string;
+      page_count: number;
+      clause_count: number;
+    }>(conversationId);
   return row ?? null;
 }

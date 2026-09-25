@@ -74,7 +74,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  const target = getActiveWorkspace(db, targetId);
+  // Issue #29 — getActiveWorkspace is async (remote-capable driver).
+  const target = await getActiveWorkspace(db, targetId);
   if (!target) {
     return errorResponse('NOT_FOUND', {
       requestId,

@@ -4,17 +4,44 @@
 // Exposes the LeaseLens tool surface over the Model Context Protocol (stdio transport)
 // Usage: npx tsx mcp/leaselens-server.ts
 
-import { join } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import Database from 'better-sqlite3';
 import { z } from 'zod';
 import type { Role } from '../src/lib/auth/types';
+// Issue #29 — relative import: the MCP entrypoint is launched via tsx and
+// may not resolve the `@/` alias the Next.js app uses.
+import {
+  createDbClient,
+  type DbClientConfig,
+  isLocalFileConfig,
+} from '../src/lib/db/client';
+import { runMigrations } from '../src/lib/db/migrations';
 import { createToolRegistry } from '../src/lib/tools/create-registry';
 import { SAMPLE_WORKSPACE } from '../src/lib/workspaces/constants';
 
-// Database path - uses same DB as the main app
-const DB_PATH = join(process.cwd(), 'data', 'leaselens.db');
+// Issue #29 — database backend selection, mirroring the app's
+// resolveConfig (src/lib/db/index.ts): hosted Turso when
+// LEASELENS_TURSO_URL is set, otherwise the local file at
+// LEASELENS_DB_PATH (default ./data/leaselens.db; ':memory:' passes
+// through). Raw process.env — not the validated env module — so the
+// stdio server stays bootable without the web app's full env
+// (e.g. LEASELENS_SESSION_SECRET).
+function resolveDbConfig(): DbClientConfig {
+  const tursoUrl = process.env.LEASELENS_TURSO_URL;
+  if (tursoUrl) {
+    return {
+      url: tursoUrl,
+      authToken: process.env.LEASELENS_TURSO_AUTH_TOKEN,
+    };
+  }
+  const dbPath = process.env.LEASELENS_DB_PATH || './data/leaselens.db';
+  if (dbPath !== ':memory:') {
+    mkdirSync(dirname(dbPath), { recursive: true });
+  }
+  return { url: dbPath === ':memory:' ? ':memory:' : `file:${dbPath}` };
+}
 
 // MCP context (no real auth in stdio mode, assume Admin for broadest access).
 // Sprint 11: hardcoded to the SAMPLE_WORKSPACE — per-caller MCP workspace
@@ -28,9 +55,17 @@ const MCP_CONTEXT = {
 };
 
 async function main() {
-  // Initialize database
-  const db = new Database(DB_PATH);
-  db.pragma('journal_mode = WAL');
+  // Initialize database: env-selected backend + versioned migrations, once
+  // at startup. The local pragmas match the app's init sequence; remote
+  // Turso databases are server-managed.
+  const config = resolveDbConfig();
+  const db = createDbClient(config);
+  if (isLocalFileConfig(config)) {
+    await db.exec('PRAGMA busy_timeout = 5000;');
+    await db.exec('PRAGMA journal_mode = WAL;');
+    await db.exec('PRAGMA foreign_keys = ON;');
+  }
+  await runMigrations(db);
 
   // Create tool registry
   const registry = createToolRegistry(db);

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import { chunkDocument } from './chunk-document';
 import { embedBatch } from './embed';
@@ -44,17 +44,17 @@ export interface IngestFileResult {
  * in multiple workspaces (Spec §4.1, §14).
  */
 export async function ingestMarkdownFile(
-  db: Database.Database,
+  db: Db,
   input: IngestFileInput,
 ): Promise<IngestFileResult> {
   const { slug, content, workspaceId, forceDocumentId } = input;
   const contentHash = createHash('sha256').update(content).digest('hex');
 
-  const existing = db
+  const existing = await db
     .prepare(
       'SELECT id, content_hash FROM documents WHERE slug = ? AND workspace_id = ?',
     )
-    .get(slug, workspaceId) as DocumentRow | undefined;
+    .get<DocumentRow>(slug, workspaceId);
 
   if (existing?.content_hash === contentHash) {
     return { documentId: existing.id, chunkCount: 0 };
@@ -70,37 +70,46 @@ export async function ingestMarkdownFile(
   const chunks = chunkDocument(documentId, title, content);
   const vectors = await embedBatch(chunks.map((c) => c.embeddingInput));
 
-  const upsert = db.transaction(() => {
+  // Issue #29 — the upsert is a single async transaction. Every statement
+  // goes through the `tx` handle; `forEach` is replaced by an awaited
+  // loop because chunk inserts are now async.
+  await db.transaction(async (tx) => {
     if (existing) {
-      db.prepare(
-        'UPDATE documents SET title = ?, content = ?, content_hash = ?, created_at = ? WHERE id = ?',
-      ).run(title, content, contentHash, Date.now(), documentId);
-      db.prepare('DELETE FROM chunks WHERE document_id = ?').run(documentId);
+      await tx
+        .prepare(
+          'UPDATE documents SET title = ?, content = ?, content_hash = ?, created_at = ? WHERE id = ?',
+        )
+        .run(title, content, contentHash, Date.now(), documentId);
+      await tx
+        .prepare('DELETE FROM chunks WHERE document_id = ?')
+        .run(documentId);
     } else {
-      db.prepare(
-        `INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at)
+      await tx
+        .prepare(
+          `INSERT INTO documents (id, slug, workspace_id, title, content, content_hash, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        documentId,
-        slug,
-        workspaceId,
-        title,
-        content,
-        contentHash,
-        Date.now(),
-      );
+        )
+        .run(
+          documentId,
+          slug,
+          workspaceId,
+          title,
+          content,
+          contentHash,
+          Date.now(),
+        );
     }
 
-    const insertChunk = db.prepare(`
+    const insertChunk = tx.prepare(`
       INSERT INTO chunks
         (id, document_id, workspace_id, chunk_index, chunk_level, heading, content, embedding, embedding_model, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    chunks.forEach((chunk, index) => {
+    for (const [index, chunk] of chunks.entries()) {
       const vector = vectors[index];
       const blob = vector ? Buffer.from(new Float32Array(vector).buffer) : null;
-      insertChunk.run(
+      await insertChunk.run(
         chunk.id,
         documentId,
         workspaceId,
@@ -112,15 +121,14 @@ export async function ingestMarkdownFile(
         EMBEDDING_MODEL,
         Date.now(),
       );
-    });
+    }
   });
 
-  upsert();
   return { documentId, chunkCount: chunks.length };
 }
 
 export async function ingestCorpus(
-  db: Database.Database,
+  db: Db,
   corpusDir: string = DEFAULT_CORPUS_DIR,
   workspaceId: string = SAMPLE_WORKSPACE.id,
 ): Promise<void> {

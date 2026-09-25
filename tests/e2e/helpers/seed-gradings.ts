@@ -58,9 +58,9 @@ export interface SeededConversation {
  * supplied grading. The page's SSR rehydration (rehydrateConversationMessages
  * + rehydrateToolEvents) renders them as red-flag cards on first paint.
  */
-export function seedGradedConversation(
+export async function seedGradedConversation(
   opts: SeedGradedConversationOptions,
-): SeededConversation {
+): Promise<SeededConversation> {
   const conversationId = randomUUID();
   // Bump 1h into the future so seeded conversations win the page.tsx
   // ORDER BY created_at DESC LIMIT 1 over any conversation a prior test
@@ -68,17 +68,17 @@ export function seedGradedConversation(
   // clock second.
   const now = Math.floor(Date.now() / 1000) + 3600;
 
-  const insertConv = db.prepare(
-    `INSERT INTO conversations (id, user_id, workspace_id, title, created_at, active_lease_id)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  );
-  const insertMessage = db.prepare(
-    `INSERT INTO messages (id, conversation_id, role, content, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  );
+  await db.transaction(async (tx) => {
+    const insertConv = tx.prepare(
+      `INSERT INTO conversations (id, user_id, workspace_id, title, created_at, active_lease_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    const insertMessage = tx.prepare(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
 
-  db.transaction(() => {
-    insertConv.run(
+    await insertConv.run(
       conversationId,
       opts.userId,
       opts.workspaceId,
@@ -88,7 +88,7 @@ export function seedGradedConversation(
     );
 
     if (opts.userMessageText) {
-      insertMessage.run(
+      await insertMessage.run(
         randomUUID(),
         conversationId,
         'user',
@@ -100,7 +100,8 @@ export function seedGradedConversation(
     // One tool_use + tool_result pair per grading, named grade_clause_severity
     // so RedFlagReport's filter at RedFlagReport.tsx:65 matches.
     // created_at is offset per pair so ORDER BY created_at is deterministic.
-    opts.gradings.forEach((g, i) => {
+    for (let i = 0; i < opts.gradings.length; i++) {
+      const g = opts.gradings[i];
       const toolId = `toolu_seed_${conversationId.slice(0, 8)}_${i}`;
       const grading = {
         clause_id: g.clauseId,
@@ -115,7 +116,7 @@ export function seedGradedConversation(
       };
       const tsBase = now + i * 2;
 
-      insertMessage.run(
+      await insertMessage.run(
         randomUUID(),
         conversationId,
         'assistant',
@@ -128,7 +129,7 @@ export function seedGradedConversation(
         }),
         tsBase,
       );
-      insertMessage.run(
+      await insertMessage.run(
         randomUUID(),
         conversationId,
         'tool',
@@ -140,8 +141,8 @@ export function seedGradedConversation(
         }),
         tsBase + 1,
       );
-    });
-  })();
+    }
+  });
 
   return { conversationId };
 }
@@ -151,21 +152,21 @@ export function seedGradedConversation(
  * for tests that assert specific counts or expect an empty starting state.
  * Workspace and lease rows persist (they're shared across tests).
  */
-export function clearUserConversations(userId: string): void {
-  db.transaction(() => {
-    const convs = db
+export async function clearUserConversations(userId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const convs = await tx
       .prepare('SELECT id FROM conversations WHERE user_id = ?')
-      .all(userId) as Array<{ id: string }>;
+      .all<{ id: string }>(userId);
     if (convs.length === 0) return;
-    const deleteMessages = db.prepare(
+    const deleteMessages = tx.prepare(
       'DELETE FROM messages WHERE conversation_id = ?',
     );
-    const deleteConv = db.prepare('DELETE FROM conversations WHERE id = ?');
+    const deleteConv = tx.prepare('DELETE FROM conversations WHERE id = ?');
     for (const c of convs) {
-      deleteMessages.run(c.id);
-      deleteConv.run(c.id);
+      await deleteMessages.run(c.id);
+      await deleteConv.run(c.id);
     }
-  })();
+  });
 }
 
 /**
@@ -177,32 +178,34 @@ export function clearUserConversations(userId: string): void {
  * setup keeps uploads deterministic. The dev server reads the same WAL DB, so
  * a delete from the test process is visible to its next request.
  */
-export function clearRateLimit(): void {
-  db.prepare('DELETE FROM rate_limit').run();
+export async function clearRateLimit(): Promise<void> {
+  await db.prepare('DELETE FROM rate_limit').run();
 }
 
 /**
  * Convenience: seed a lease row that the conversation's active_lease_id can
  * point at. Returns the lease_id so callers can pass it through.
  */
-export function seedLease(opts: {
+export async function seedLease(opts: {
   workspaceId: string;
   uploadedBy: string;
   filename?: string;
   pageCount?: number;
-}): string {
+}): Promise<string> {
   const leaseId = randomUUID();
-  db.prepare(
-    `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    leaseId,
-    opts.workspaceId,
-    opts.filename ?? 'seeded-lease.pdf',
-    'seeded text extract',
-    opts.pageCount ?? 4,
-    opts.uploadedBy,
-    Math.floor(Date.now() / 1000),
-  );
+  await db
+    .prepare(
+      `INSERT INTO leases (id, workspace_id, filename, text_extract, page_count, uploaded_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      leaseId,
+      opts.workspaceId,
+      opts.filename ?? 'seeded-lease.pdf',
+      'seeded text extract',
+      opts.pageCount ?? 4,
+      opts.uploadedBy,
+      Math.floor(Date.now() / 1000),
+    );
   return leaseId;
 }

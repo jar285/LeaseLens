@@ -7,11 +7,16 @@
 // retry-after. Enforced in public-anon mode only; the demo profile keeps the
 // legacy checkAndIncrementRateLimit. (GoF Strategy: per-tier policy; Google SRE:
 // a global budget above the per-visitor limits.)
+//
+// Issue #29 — async: the Db driver is remote-capable, so the transaction body
+// awaits each statement and reads/writes through the `tx` handle (statements
+// issued on the module-level `db` inside the callback would NOT join the
+// transaction).
 
-import type Database from 'better-sqlite3';
+import type { Db } from './client';
 
 export interface QuotaTier {
-  /** Full counter key, e.g. 'session:<uid>' | 'ip:<subnet>' | 'global:daily'. */
+  /** Full counter key, e.g. 'session:<uid>' | 'ip:<subnet>' | 'route:/api/chat' | 'global:daily'. */
   key: string;
   /** Max weighted cost allowed within the window. */
   limit: number;
@@ -69,32 +74,38 @@ interface CounterRow {
  * if any tier would exceed; otherwise increments every tier and returns the
  * per-tier remaining headroom.
  */
-export function enforceQuota(
-  db: Database.Database,
+export async function enforceQuota(
+  db: Db,
   tiers: QuotaTier[],
   cost: number,
-): QuotaResult {
+): Promise<QuotaResult> {
   const now = Math.floor(Date.now() / 1000);
 
-  return db.transaction((): QuotaResult => {
+  return db.transaction(async (tx): Promise<QuotaResult> => {
     const remainingByKey: Record<string, number> = {};
 
     // Pass 1 — read current windows; find the first tier that would exceed.
-    const effective = tiers.map((t) => {
-      const row = db
+    const effective: {
+      tier: QuotaTier;
+      active: boolean;
+      windowStart: number;
+      currentCount: number;
+    }[] = [];
+    for (const t of tiers) {
+      const row = await tx
         .prepare(
           'SELECT window_start, count FROM quota_counter WHERE quota_key = ?',
         )
-        .get(t.key) as CounterRow | undefined;
-      const active = row && now - row.window_start < t.windowSeconds;
-      const currentCount = active ? row.count : 0;
-      return {
+        .get<CounterRow>(t.key);
+      const active = !!row && now - row.window_start < t.windowSeconds;
+      const currentCount = active && row ? row.count : 0;
+      effective.push({
         tier: t,
         active,
-        windowStart: active ? row.window_start : now,
+        windowStart: active && row ? row.window_start : now,
         currentCount,
-      };
-    });
+      });
+    }
 
     for (const e of effective) {
       if (e.currentCount + cost > e.tier.limit) {
@@ -122,13 +133,17 @@ export function enforceQuota(
     // Pass 2 — all tiers fit; charge every one.
     for (const e of effective) {
       if (e.active) {
-        db.prepare(
-          'UPDATE quota_counter SET count = count + ? WHERE quota_key = ?',
-        ).run(cost, e.tier.key);
+        await tx
+          .prepare(
+            'UPDATE quota_counter SET count = count + ? WHERE quota_key = ?',
+          )
+          .run(cost, e.tier.key);
       } else {
-        db.prepare(
-          'INSERT OR REPLACE INTO quota_counter (quota_key, window_start, count) VALUES (?, ?, ?)',
-        ).run(e.tier.key, now, cost);
+        await tx
+          .prepare(
+            'INSERT OR REPLACE INTO quota_counter (quota_key, window_start, count) VALUES (?, ?, ?)',
+          )
+          .run(e.tier.key, now, cost);
       }
       remainingByKey[e.tier.key] = Math.max(
         0,
@@ -142,5 +157,5 @@ export function enforceQuota(
       retryAfterSeconds: 0,
       remainingByKey,
     };
-  })();
+  });
 }

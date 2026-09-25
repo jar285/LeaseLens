@@ -7,7 +7,9 @@ const nextConfig: NextConfig = {
   // runtime (`Cannot find module .../pdf.worker.mjs`). Marking it as a
   // server-external package keeps the import on the Node module path
   // so the relative resolution works.
-  serverExternalPackages: ['better-sqlite3', 'pdfjs-dist'],
+  // Issue #29 — better-sqlite3 is gone (replaced by @libsql/client, which
+  // is pure JS + prebuilt native bindings and needs no externalization).
+  serverExternalPackages: ['pdfjs-dist'],
   outputFileTracingIncludes: {
     '/*': ['./data/**/*'],
   },

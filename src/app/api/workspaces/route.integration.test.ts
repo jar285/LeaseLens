@@ -36,21 +36,29 @@ function makeRequest(formData: FormData): NextRequest {
 }
 
 describe('POST /api/workspaces (upload)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     // Order matters: child rows first (chunks → documents), then workspaces.
     const sampleId = '00000000-0000-0000-0000-000000000010';
-    db.prepare(`DELETE FROM chunks WHERE workspace_id != ?`).run(sampleId);
-    db.prepare(`DELETE FROM documents WHERE workspace_id != ?`).run(sampleId);
-    db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
+    await db
+      .prepare(`DELETE FROM chunks WHERE workspace_id != ?`)
+      .run(sampleId);
+    await db
+      .prepare(`DELETE FROM documents WHERE workspace_id != ?`)
+      .run(sampleId);
+    await db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     const sampleId = '00000000-0000-0000-0000-000000000010';
-    db.prepare(`DELETE FROM chunks WHERE workspace_id != ?`).run(sampleId);
-    db.prepare(`DELETE FROM documents WHERE workspace_id != ?`).run(sampleId);
-    db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
+    await db
+      .prepare(`DELETE FROM chunks WHERE workspace_id != ?`)
+      .run(sampleId);
+    await db
+      .prepare(`DELETE FROM documents WHERE workspace_id != ?`)
+      .run(sampleId);
+    await db.prepare('DELETE FROM workspaces WHERE is_sample = 0').run();
   });
 
   it('valid upload → 200, cookie set, workspace + chunks visible in DB', async () => {
@@ -73,15 +81,15 @@ describe('POST /api/workspaces (upload)', () => {
     expect(setCookie).toContain('leaselens_workspace=');
 
     // DB has the new workspace + a document scoped to it.
-    const ws = db
+    const ws = await db
       .prepare('SELECT * FROM workspaces WHERE id = ?')
       .get(body.workspace_id);
     expect(ws).toBeDefined();
     const docCount = (
-      db
+      await db
         .prepare('SELECT COUNT(*) as c FROM documents WHERE workspace_id = ?')
-        .get(body.workspace_id) as { c: number }
-    ).c;
+        .get<{ c: number }>(body.workspace_id)
+    )?.c;
     expect(docCount).toBe(1);
   });
 

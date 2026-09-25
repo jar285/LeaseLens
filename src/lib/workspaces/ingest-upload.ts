@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { Db } from '@/lib/db/client';
 import { ingestMarkdownFile } from '@/lib/rag/ingest';
 import { createWorkspace } from './queries';
 
@@ -95,10 +95,10 @@ export function validateUpload(input: {
  * ON DELETE CASCADE, so child cleanup is explicit. Spec §22.
  */
 export async function ingestUpload(
-  db: Database.Database,
+  db: Db,
   validated: ValidatedUpload,
 ): Promise<{ workspaceId: string }> {
-  const workspace = createWorkspace(db, {
+  const workspace = await createWorkspace(db, {
     name: validated.name,
     description: validated.description,
   });
@@ -112,13 +112,18 @@ export async function ingestUpload(
       });
     }
   } catch (err) {
-    db.transaction(() => {
-      db.prepare('DELETE FROM chunks WHERE workspace_id = ?').run(workspace.id);
-      db.prepare('DELETE FROM documents WHERE workspace_id = ?').run(
-        workspace.id,
-      );
-      db.prepare('DELETE FROM workspaces WHERE id = ?').run(workspace.id);
-    })();
+    // Issue #29 — the cleanup sweep uses the `tx` handle so the deletes
+    // join the transaction (outer `db` statements would throw
+    // TRANSACTION_ACTIVE on single-connection clients).
+    await db.transaction(async (tx) => {
+      await tx
+        .prepare('DELETE FROM chunks WHERE workspace_id = ?')
+        .run(workspace.id);
+      await tx
+        .prepare('DELETE FROM documents WHERE workspace_id = ?')
+        .run(workspace.id);
+      await tx.prepare('DELETE FROM workspaces WHERE id = ?').run(workspace.id);
+    });
     throw err;
   }
   return { workspaceId: workspace.id };

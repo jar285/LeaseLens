@@ -6,9 +6,9 @@
 // Avoids real Anthropic calls — the fake client returns deterministic
 // JSON envelopes the runner can parse.
 
-import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ingestSampleLease, runSeed, SAMPLE_LEASE_ID } from '@/db/seed';
+import type { Db } from '@/lib/db/client';
 import type { AnthropicLike } from '@/lib/tools/lease-tools';
 
 // Embedder mock — same path golden-set.test uses. Avoids spinning up
@@ -53,11 +53,11 @@ function buildAnthropicMock(envelopes: Array<Record<string, unknown>>): {
 }
 
 describe('runLeaseGradingEval', () => {
-  let db: Database.Database;
+  let db: Db;
 
   beforeEach(async () => {
-    db = createTestDb();
-    runSeed(db);
+    db = await createTestDb();
+    await runSeed(db);
     await ingestCorpus(db, NJ_CORPUS_DIR);
     await ingestSampleLease(db);
   });
@@ -192,12 +192,12 @@ describe('runLeaseGradingEval', () => {
     expect(report.scorecard.groundedness).toBe(0); // 0/1 cases completed
   });
 
-  it('looks up sample lease via the SAMPLE_LEASE_ID seed constant', () => {
+  it('looks up sample lease via the SAMPLE_LEASE_ID seed constant', async () => {
     // The runner needs the sample lease to be seeded in the workspace.
     // This sanity-asserts the seed produced the expected lease row.
-    const lease = db
+    const lease = await db
       .prepare('SELECT id FROM leases WHERE id = ?')
-      .get(SAMPLE_LEASE_ID);
+      .get<{ id: string }>(SAMPLE_LEASE_ID);
     expect(lease).toBeDefined();
   });
 });

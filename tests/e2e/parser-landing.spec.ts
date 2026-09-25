@@ -15,7 +15,7 @@ import { uploadSampleLease } from './helpers/upload-sample-lease';
 const TENANT_ID = DEMO_USERS.find((u) => u.role === 'Tenant')!.id;
 
 test.beforeEach(async ({ context }) => {
-  clearUserConversations(TENANT_ID);
+  await clearUserConversations(TENANT_ID);
   await setSessionCookies(context, 'Tenant');
 });
 

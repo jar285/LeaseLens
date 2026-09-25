@@ -14,7 +14,7 @@ function makeRequest(): NextRequest {
 }
 
 describe('POST /api/workspaces/select-sample', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.LEASELENS_SESSION_SECRET =
       'a-very-long-test-secret-that-is-at-least-32-chars';
   });

@@ -1,9 +1,12 @@
 // Sprint 13 §3c — DB CRUD for the new leases / clauses tables, plus
 // the conversation active-lease pointer. All queries are workspace-
 // scoped (charter §5 + agent-guidelines §2 invariant).
+//
+// Issue #29 — async: `createTestDb()` is awaited, every helper call is
+// awaited, and readbacks await their statements.
 
-import type Database from 'better-sqlite3';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { Db } from '@/lib/db/client';
 import { createTestDb } from '@/lib/test/db';
 import { SAMPLE_WORKSPACE } from '@/lib/workspaces/constants';
 import {
@@ -18,55 +21,65 @@ import {
 
 const OTHER_WS = 'workspace-other';
 
-function seedWorkspaces(db: Database.Database): void {
+async function seedWorkspaces(db: Db): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
-  db.prepare(
-    `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
-  ).run(
-    SAMPLE_WORKSPACE.id,
-    SAMPLE_WORKSPACE.name,
-    SAMPLE_WORKSPACE.description,
-    now,
-  );
-  db.prepare(
-    `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, 'Other', 'other', 0, ?)`,
-  ).run(OTHER_WS, now);
+  await db
+    .prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, ?, ?, 1, ?)`,
+    )
+    .run(
+      SAMPLE_WORKSPACE.id,
+      SAMPLE_WORKSPACE.name,
+      SAMPLE_WORKSPACE.description,
+      now,
+    );
+  await db
+    .prepare(
+      `INSERT INTO workspaces (id, name, description, is_sample, created_at) VALUES (?, 'Other', 'other', 0, ?)`,
+    )
+    .run(OTHER_WS, now);
   // Sprint D.20 (#20) — leases.uploaded_by now carries an FK; the uploader
   // must be a real users row.
-  db.prepare(
-    `INSERT INTO users (id, email, role, display_name, created_at)
+  await db
+    .prepare(
+      `INSERT INTO users (id, email, role, display_name, created_at)
      VALUES ('u-tenant', 'u@example.com', 'Creator', 'U', 1)
      ON CONFLICT(id) DO NOTHING`,
-  ).run();
+    )
+    .run();
 }
 
-function seedConversation(
-  db: Database.Database,
+async function seedConversation(
+  db: Db,
   id: string,
   workspaceId: string,
-): void {
-  db.prepare(
-    `INSERT INTO users (id, email, role, display_name, created_at)
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO users (id, email, role, display_name, created_at)
      VALUES ('u-tenant', 'u@example.com', 'Creator', 'U', 1)
      ON CONFLICT(id) DO NOTHING`,
-  ).run();
-  db.prepare(
-    `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
+    )
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO conversations (id, user_id, workspace_id, title, created_at)
      VALUES (?, 'u-tenant', ?, 't', 1)`,
-  ).run(id, workspaceId);
+    )
+    .run(id, workspaceId);
 }
 
 describe('lease queries', () => {
-  let db: Database.Database;
+  let db: Db;
 
-  beforeEach(() => {
-    db = createTestDb();
-    seedWorkspaces(db);
+  beforeEach(async () => {
+    db = await createTestDb();
+    await seedWorkspaces(db);
   });
 
   describe('insertLease + getLease', () => {
-    it('inserts and reads a lease scoped to the workspace', () => {
-      const id = insertLease(db, {
+    it('inserts and reads a lease scoped to the workspace', async () => {
+      const id = await insertLease(db, {
         workspaceId: SAMPLE_WORKSPACE.id,
         filename: 'sample.pdf',
         textExtract: 'extracted text body',
@@ -75,15 +88,15 @@ describe('lease queries', () => {
       });
       expect(id).toBeTypeOf('string');
 
-      const lease = getLease(db, id, SAMPLE_WORKSPACE.id);
+      const lease = await getLease(db, id, SAMPLE_WORKSPACE.id);
       expect(lease).toBeDefined();
       expect(lease?.filename).toBe('sample.pdf');
       expect(lease?.page_count).toBe(5);
       expect(lease?.uploaded_by).toBe('u-tenant');
     });
 
-    it('getLease returns undefined when the lease belongs to a different workspace', () => {
-      const id = insertLease(db, {
+    it('getLease returns undefined when the lease belongs to a different workspace', async () => {
+      const id = await insertLease(db, {
         workspaceId: OTHER_WS,
         filename: 'other.pdf',
         textExtract: 'x',
@@ -91,19 +104,19 @@ describe('lease queries', () => {
         uploadedBy: 'u-tenant',
       });
 
-      expect(getLease(db, id, SAMPLE_WORKSPACE.id)).toBeUndefined();
+      expect(await getLease(db, id, SAMPLE_WORKSPACE.id)).toBeUndefined();
     });
 
-    it('getLease returns undefined for a non-existent id', () => {
+    it('getLease returns undefined for a non-existent id', async () => {
       expect(
-        getLease(db, 'no-such-lease', SAMPLE_WORKSPACE.id),
+        await getLease(db, 'no-such-lease', SAMPLE_WORKSPACE.id),
       ).toBeUndefined();
     });
   });
 
   describe('insertClause + listClauses', () => {
-    it('inserts clauses for a lease and lists them in clause-index order', () => {
-      const leaseId = insertLease(db, {
+    it('inserts clauses for a lease and lists them in clause-index order', async () => {
+      const leaseId = await insertLease(db, {
         workspaceId: SAMPLE_WORKSPACE.id,
         filename: 'sample.pdf',
         textExtract: 'x',
@@ -111,7 +124,7 @@ describe('lease queries', () => {
         uploadedBy: 'u-tenant',
       });
 
-      insertClause(db, {
+      await insertClause(db, {
         leaseId,
         workspaceId: SAMPLE_WORKSPACE.id,
         clauseIndex: 1,
@@ -119,7 +132,7 @@ describe('lease queries', () => {
         text: 'late fee text',
         pageNumber: 2,
       });
-      insertClause(db, {
+      await insertClause(db, {
         leaseId,
         workspaceId: SAMPLE_WORKSPACE.id,
         clauseIndex: 0,
@@ -128,7 +141,7 @@ describe('lease queries', () => {
         pageNumber: 1,
       });
 
-      const clauses = listClauses(db, leaseId, SAMPLE_WORKSPACE.id);
+      const clauses = await listClauses(db, leaseId, SAMPLE_WORKSPACE.id);
       expect(clauses).toHaveLength(2);
       // Ordered by clause_index ascending.
       expect(clauses[0].clause_index).toBe(0);
@@ -137,15 +150,15 @@ describe('lease queries', () => {
       expect(clauses[1].clause_type).toBe('late_fee');
     });
 
-    it('listClauses scopes by workspace — returns empty for foreign workspace', () => {
-      const leaseId = insertLease(db, {
+    it('listClauses scopes by workspace — returns empty for foreign workspace', async () => {
+      const leaseId = await insertLease(db, {
         workspaceId: OTHER_WS,
         filename: 'x.pdf',
         textExtract: 'x',
         pageCount: 1,
         uploadedBy: 'u-tenant',
       });
-      insertClause(db, {
+      await insertClause(db, {
         leaseId,
         workspaceId: OTHER_WS,
         clauseIndex: 0,
@@ -154,25 +167,25 @@ describe('lease queries', () => {
         pageNumber: 1,
       });
 
-      expect(listClauses(db, leaseId, SAMPLE_WORKSPACE.id)).toEqual([]);
+      expect(await listClauses(db, leaseId, SAMPLE_WORKSPACE.id)).toEqual([]);
     });
 
-    it('listClauses returns empty array for a lease with no clauses', () => {
-      const leaseId = insertLease(db, {
+    it('listClauses returns empty array for a lease with no clauses', async () => {
+      const leaseId = await insertLease(db, {
         workspaceId: SAMPLE_WORKSPACE.id,
         filename: 'empty.pdf',
         textExtract: 'x',
         pageCount: 1,
         uploadedBy: 'u-tenant',
       });
-      expect(listClauses(db, leaseId, SAMPLE_WORKSPACE.id)).toEqual([]);
+      expect(await listClauses(db, leaseId, SAMPLE_WORKSPACE.id)).toEqual([]);
     });
   });
 
   describe('setActiveLease + getActiveLease', () => {
-    it('round-trips active_lease_id through the conversation row', () => {
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
-      const leaseId = insertLease(db, {
+    it('round-trips active_lease_id through the conversation row', async () => {
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
+      const leaseId = await insertLease(db, {
         workspaceId: SAMPLE_WORKSPACE.id,
         filename: 's.pdf',
         textExtract: 'x',
@@ -180,22 +193,22 @@ describe('lease queries', () => {
         uploadedBy: 'u-tenant',
       });
 
-      setActiveLease(db, 'conv-1', leaseId);
-      expect(getActiveLease(db, 'conv-1')).toBe(leaseId);
+      await setActiveLease(db, 'conv-1', leaseId);
+      expect(await getActiveLease(db, 'conv-1')).toBe(leaseId);
     });
 
-    it('getActiveLease returns null when conversation has no active lease', () => {
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
-      expect(getActiveLease(db, 'conv-1')).toBeNull();
+    it('getActiveLease returns null when conversation has no active lease', async () => {
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
+      expect(await getActiveLease(db, 'conv-1')).toBeNull();
     });
 
-    it('getActiveLease returns null for an unknown conversation id', () => {
-      expect(getActiveLease(db, 'no-such-conv')).toBeNull();
+    it('getActiveLease returns null for an unknown conversation id', async () => {
+      expect(await getActiveLease(db, 'no-such-conv')).toBeNull();
     });
 
-    it('setActiveLease can clear the pointer by passing null', () => {
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
-      const leaseId = insertLease(db, {
+    it('setActiveLease can clear the pointer by passing null', async () => {
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
+      const leaseId = await insertLease(db, {
         workspaceId: SAMPLE_WORKSPACE.id,
         filename: 's.pdf',
         textExtract: 'x',
@@ -203,23 +216,23 @@ describe('lease queries', () => {
         uploadedBy: 'u-tenant',
       });
 
-      setActiveLease(db, 'conv-1', leaseId);
-      setActiveLease(db, 'conv-1', null);
-      expect(getActiveLease(db, 'conv-1')).toBeNull();
+      await setActiveLease(db, 'conv-1', leaseId);
+      await setActiveLease(db, 'conv-1', null);
+      expect(await getActiveLease(db, 'conv-1')).toBeNull();
     });
   });
 
   describe('getActiveLeaseSnapshot', () => {
-    it('returns lease metadata + clause count for a bound conversation', () => {
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
-      const leaseId = insertLease(db, {
+    it('returns lease metadata + clause count for a bound conversation', async () => {
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
+      const leaseId = await insertLease(db, {
         workspaceId: SAMPLE_WORKSPACE.id,
         filename: 'tenant-lease.pdf',
         textExtract: 'x',
         pageCount: 7,
         uploadedBy: 'u-tenant',
       });
-      insertClause(db, {
+      await insertClause(db, {
         leaseId,
         workspaceId: SAMPLE_WORKSPACE.id,
         clauseIndex: 0,
@@ -227,7 +240,7 @@ describe('lease queries', () => {
         text: 'sd',
         pageNumber: 1,
       });
-      insertClause(db, {
+      await insertClause(db, {
         leaseId,
         workspaceId: SAMPLE_WORKSPACE.id,
         clauseIndex: 1,
@@ -235,9 +248,9 @@ describe('lease queries', () => {
         text: 'lf',
         pageNumber: 2,
       });
-      setActiveLease(db, 'conv-1', leaseId);
+      await setActiveLease(db, 'conv-1', leaseId);
 
-      const snapshot = getActiveLeaseSnapshot(db, 'conv-1');
+      const snapshot = await getActiveLeaseSnapshot(db, 'conv-1');
       expect(snapshot).toEqual({
         lease_id: leaseId,
         filename: 'tenant-lease.pdf',
@@ -246,27 +259,27 @@ describe('lease queries', () => {
       });
     });
 
-    it('returns null when the conversation has no active lease', () => {
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
-      expect(getActiveLeaseSnapshot(db, 'conv-1')).toBeNull();
+    it('returns null when the conversation has no active lease', async () => {
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
+      expect(await getActiveLeaseSnapshot(db, 'conv-1')).toBeNull();
     });
 
-    it('returns null for an unknown conversation id', () => {
-      expect(getActiveLeaseSnapshot(db, 'no-such-conv')).toBeNull();
+    it('returns null for an unknown conversation id', async () => {
+      expect(await getActiveLeaseSnapshot(db, 'no-such-conv')).toBeNull();
     });
 
-    it('reports clause_count = 0 for a lease with no clauses', () => {
-      seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
-      const leaseId = insertLease(db, {
+    it('reports clause_count = 0 for a lease with no clauses', async () => {
+      await seedConversation(db, 'conv-1', SAMPLE_WORKSPACE.id);
+      const leaseId = await insertLease(db, {
         workspaceId: SAMPLE_WORKSPACE.id,
         filename: 'empty.pdf',
         textExtract: 'x',
         pageCount: 1,
         uploadedBy: 'u-tenant',
       });
-      setActiveLease(db, 'conv-1', leaseId);
+      await setActiveLease(db, 'conv-1', leaseId);
 
-      const snapshot = getActiveLeaseSnapshot(db, 'conv-1');
+      const snapshot = await getActiveLeaseSnapshot(db, 'conv-1');
       expect(snapshot?.clause_count).toBe(0);
     });
   });
